@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <style>
 :root {
   --steel:       #1a2332;
@@ -1478,95 +1479,73 @@ function closeExportModal() {
   document.getElementById('exportModal').classList.remove('show');
 }
 
-// Render one page (by index) to a canvas with its labels drawn on top,
-// return a PNG data-URL at the given pixel dimensions.
-async function renderPageWithLabels(pi, cW, cH) {
-  const canvas = document.createElement('canvas');
-  canvas.width  = cW;
-  canvas.height = cH;
-  const ctx = canvas.getContext('2d');
-
-  // Draw the pre-rendered page image
-  await new Promise((resolve, reject) => {
+// Screenshot the pageFrame exactly as it appears on screen for page pi.
+// Returns a PNG data-URL.
+async function screenshotPage(pi) {
+  // Navigate to the page and wait for it to fully render
+  await new Promise(resolve => {
     const img = new Image();
-    img.onload  = () => { ctx.drawImage(img, 0, 0, cW, cH); resolve(); };
-    img.onerror = reject;
+    img.onload = () => {
+      const canvas = document.getElementById('pageCanvas');
+      canvas.width  = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      canvas.getContext('2d').drawImage(img, 0, 0);
+      currentPage = pi;
+      renderOverlays();
+      resolve();
+    };
     img.src = pageImages[pi];
   });
 
-  // Draw each label on top — exactly matching the CSS rendering
-  (edits[pi] || []).forEach(dim => {
-    const x   = dim.x_pct * cW;
-    const y   = dim.y_pct * cH;
-    const rot = (dim.rotation || 0) * Math.PI / 180;
-    // Scale font size from display pixels → export canvas pixels
-    const refW = dim.displayW || 800; // fallback for old sessions
-    const fs   = (dim.size || 18) * (cW / refW);
-    const pad  = 4 * (cW / refW);
+  // Give the browser a frame to paint the overlays
+  await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
-    ctx.save();
-    ctx.font = `bold ${fs}px Arial, sans-serif`;
-    const tw = ctx.measureText(dim.text).width;
-    const th = fs * 1.2;
-
-    // CSS rotates around the div CENTER; x,y is the top-left of the div
-    const cx = x + (tw + pad * 2) / 2;
-    const cy = y + (th + pad) / 2;
-
-    ctx.translate(cx, cy);
-    ctx.rotate(rot);
-
-    // Red box centered on origin
-    ctx.fillStyle = '#DB1523';
-    ctx.fillRect(-(tw + pad * 2) / 2, -(th + pad) / 2, tw + pad * 2, th + pad);
-
-    // White text centered on origin
-    ctx.fillStyle = '#ffffff';
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(dim.text, 0, 0);
-
-    ctx.restore();
+  const frame = document.getElementById('pageFrame');
+  const shot  = await html2canvas(frame, {
+    scale: 2,          // 2× for crisp output
+    useCORS: true,
+    backgroundColor: '#ffffff',
+    logging: false,
   });
-
-  return canvas.toDataURL('image/png');
+  return shot.toDataURL('image/png');
 }
 
 async function doExport(mode) {
   closeExportModal();
-  setStatus('Generating PDF…');
+  const total = edits.flat().length;
+  setStatus('Generating PDF… (screenshotting each page)');
+
+  const savedPage = currentPage; // remember where user was
 
   try {
     const { PDFDocument } = PDFLib;
-
-    // Get the original page dimensions from pdf-lib
     const pdfLibDoc = await PDFDocument.load(pdfBytes);
     const srcPages  = pdfLibDoc.getPages();
-
-    const outDoc = await PDFDocument.create();
+    const outDoc    = await PDFDocument.create();
 
     for (let pi = 0; pi < pageCount; pi++) {
       const hasEdits = edits[pi] && edits[pi].length > 0;
       if (mode === 'marked' && !hasEdits) continue;
 
+      setStatus(`Capturing page ${pi + 1} of ${pageCount}…`);
       const { width: pW, height: pH } = srcPages[pi].getSize();
 
       if (hasEdits) {
-        // Render this page + its labels to a high-res canvas, embed as image
-        const scale = 3; // 3× for crisp print quality
-        const cW = Math.round(pW * scale);
-        const cH = Math.round(pH * scale);
-        const dataUrl  = await renderPageWithLabels(pi, cW, cH);
+        // Screenshot the page exactly as it looks on screen
+        const dataUrl  = await screenshotPage(pi);
         const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
         const pngImage = await outDoc.embedPng(imgBytes);
         const page = outDoc.addPage([pW, pH]);
         page.drawImage(pngImage, { x: 0, y: 0, width: pW, height: pH });
       } else {
-        // No edits — copy the original page vector content unchanged
+        // No edits — copy the original vector page unchanged
         const [copied] = await outDoc.copyPages(pdfLibDoc, [pi]);
         outDoc.addPage(copied);
       }
     }
+
+    // Restore the page the user was on
+    loadPage(savedPage);
 
     const outBytes = await outDoc.save();
     const blob = new Blob([outBytes], { type: 'application/pdf' });
@@ -1577,9 +1556,10 @@ async function doExport(mode) {
     a.click();
     URL.revokeObjectURL(url);
 
-    setStatus(`✅ Exported "${originalFileName}_Edited.pdf" with ${total} dimension${total !== 1 ? 's' : ''}`);
+    setStatus(`✅ Exported "${originalFileName}_Edited.pdf" with ${total} label${total !== 1 ? 's' : ''}`);
   } catch (err) {
     console.error(err);
+    loadPage(savedPage);
     setStatus('❌ Export failed — ' + err.message);
   }
 }
