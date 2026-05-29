@@ -1488,15 +1488,21 @@ async function doExport(mode) {
         const rot  = dim.rotation || 0;
 
         const pad = 3;
+        const tx = pdfX;
+        const ty = pdfY - th + 5;
+        // Compute rect anchor so both rect and text share the same rotation pivot
+        const θ = -rot * Math.PI / 180;
+        const rectX = tx - (pad * Math.cos(θ) - 3 * Math.sin(θ));
+        const rectY = ty - (pad * Math.sin(θ) + 3 * Math.cos(θ));
         page.drawRectangle({
-          x: pdfX - pad, y: pdfY - th + 2,
+          x: rectX, y: rectY,
           width: tw + pad * 2 + 2, height: th + pad,
           color: rgb(0.86, 0.08, 0.14),
           opacity: 1,
           rotate: degrees(-rot),
         });
         page.drawText(text, {
-          x: pdfX, y: pdfY - th + 5,
+          x: tx, y: ty,
           size: fs,
           font,
           color: rgb(1, 1, 1),
