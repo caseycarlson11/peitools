@@ -180,16 +180,39 @@
     iframe#pdfFrame.visible { display: block; }
 
     /* ── Mobile / iPad ── */
+    /* Mobile dropdown */
+    .mobile-job-bar { display: none; }
+
     @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .mobile-job-bar {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px;
+        background: var(--surface); border-bottom: 1px solid var(--border);
+      }
+      .mobile-job-bar label {
+        font-size: 0.75rem; font-weight: 700; color: var(--text2);
+        text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+      }
+      .job-select {
+        flex: 1;
+        background: var(--card); border: 1px solid var(--border);
+        color: var(--text); border-radius: 8px;
+        padding: 9px 12px; font-size: 0.9rem; font-family: inherit;
+        outline: none; cursor: pointer;
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 34px;
+      }
+      .job-select:focus { border-color: var(--blue); }
       .main { flex-direction: column; height: auto; }
-      .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
-      .job-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
-      .job-btn { width: auto; }
-      .content { height: calc(100vh - 180px); }
+      .content { height: calc(100vh - 160px); }
       .file-viewer { flex-direction: column; }
-      .file-list { width: 100%; height: 130px; border-right: none; border-bottom: 1px solid var(--border);
-                   display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
-      .pdf-pane { height: calc(100vh - 350px); min-height: 300px; }
+      .file-list { width: 100%; height: 120px; border-right: none; border-bottom: 1px solid var(--border);
+                   display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; padding: 6px; }
+      .pdf-pane { height: calc(100vh - 330px); min-height: 300px; }
     }
   </style>
 </head>
@@ -208,8 +231,16 @@
   </a>
 </header>
 
+<!-- Mobile job dropdown (hidden on desktop) -->
+<div class="mobile-job-bar">
+  <label>Job</label>
+  <select class="job-select" id="jobSelect" onchange="selectJobByName(this.value)">
+    <option value="">— Select a job —</option>
+  </select>
+</div>
+
 <div class="main">
-  <!-- Sidebar: job list -->
+  <!-- Sidebar: job list (desktop) -->
   <aside class="sidebar">
     <div class="sidebar-header">Jobs</div>
     <div class="job-list" id="jobList">
@@ -257,7 +288,8 @@ let jobFiles        = {};
 async function loadJobs() {
   const res  = await fetch('/api/jobs');
   const jobs = await res.json();
-  const list = document.getElementById('jobList');
+  const list   = document.getElementById('jobList');
+  const select = document.getElementById('jobSelect');
 
   if (!jobs.length) {
     list.innerHTML = '<div class="no-jobs">No jobs yet.<br>Ask your PM to add files via the Admin page.</div>';
@@ -265,9 +297,13 @@ async function loadJobs() {
   }
 
   list.innerHTML = '';
+  select.innerHTML = '<option value="">— Select a job —</option>';
+
   jobs.forEach(job => {
+    // Sidebar button (desktop)
     const btn = document.createElement('button');
     btn.className   = 'job-btn';
+    btn.id          = `jobbtn_${job}`;
     btn.innerHTML   = `
       <div class="job-icon">
         <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
@@ -275,13 +311,27 @@ async function loadJobs() {
       ${job}`;
     btn.onclick = () => selectJob(job, btn);
     list.appendChild(btn);
+
+    // Mobile dropdown option
+    const opt = document.createElement('option');
+    opt.value       = job;
+    opt.textContent = job;
+    select.appendChild(opt);
   });
+}
+
+// Called by the mobile dropdown
+function selectJobByName(job) {
+  if (!job) return;
+  const btn = document.getElementById(`jobbtn_${job}`);
+  selectJob(job, btn || document.createElement('button'));
 }
 
 // ── Select a job ───────────────────────────────────────────
 async function selectJob(job, btn) {
   document.querySelectorAll('.job-btn').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
+  if (btn) btn.classList.add('active');
+  document.getElementById('jobSelect').value = job;
   currentJob = job;
 
   const res  = await fetch(`/api/jobs/${encodeURIComponent(job)}`);
