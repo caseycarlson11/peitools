@@ -770,6 +770,49 @@ header, #uploadScreen, #processingScreen, #editorScreen,
   .modal { padding: 18px; }
   .upload-headline { font-size: 28px; }
 }
+
+/* ── EXPORT MODAL ── */
+.export-modal-backdrop {
+  display: none;
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.6);
+  z-index: 1000;
+  align-items: center;
+  justify-content: center;
+}
+.export-modal-backdrop.show { display: flex; }
+.export-modal {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 1.75rem 2rem;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  backdrop-filter: blur(20px);
+}
+.export-modal h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0;
+}
+.export-modal p {
+  font-size: 0.82rem;
+  color: var(--text2);
+  margin: 0;
+}
+.export-modal-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
+}
+.export-modal-btns .btn {
+  width: 100%;
+  justify-content: center;
+}
 </style>
 </head>
 <body>
@@ -1389,23 +1432,50 @@ function setStatus(msg) {
 // ─────────────────────────────────────────────────────────────────
 //  PDF EXPORT
 // ─────────────────────────────────────────────────────────────────
-async function exportPDF() {
+function exportPDF() {
   const total = edits.flat().length;
   if (total === 0) {
     alert('No dimension labels yet. Click on the drawing in Edit Mode to add some.');
     return;
   }
+  document.getElementById('exportModal').classList.add('show');
+}
+
+function closeExportModal() {
+  document.getElementById('exportModal').classList.remove('show');
+}
+
+async function doExport(mode) {
+  closeExportModal();
   setStatus('Generating PDF…');
 
   try {
     const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
     const pdfLibDoc = await PDFDocument.load(pdfBytes);
-    const pages     = pdfLibDoc.getPages();
     const font      = await pdfLibDoc.embedFont(StandardFonts.HelveticaBold);
+
+    // If marked-only, build a new doc with just the marked pages
+    let outDoc = pdfLibDoc;
+    let pageIndexMap = {}; // maps original pi -> index in outDoc
+    if (mode === 'marked') {
+      outDoc = await PDFDocument.create();
+      let outIdx = 0;
+      for (let pi = 0; pi < pageCount; pi++) {
+        if (edits[pi] && edits[pi].length > 0) {
+          const [copied] = await outDoc.copyPages(pdfLibDoc, [pi]);
+          outDoc.addPage(copied);
+          pageIndexMap[pi] = outIdx++;
+        }
+      }
+      await outDoc.embedFont(StandardFonts.HelveticaBold);
+    }
+
+    const pages = outDoc.getPages();
 
     for (let pi = 0; pi < pageCount; pi++) {
       if (!edits[pi] || edits[pi].length === 0) continue;
-      const page = pages[pi];
+      const pageIdx = mode === 'marked' ? pageIndexMap[pi] : pi;
+      const page = pages[pageIdx];
       const { width: pW, height: pH } = page.getSize();
 
       edits[pi].forEach(dim => {
@@ -1435,7 +1505,7 @@ async function exportPDF() {
       });
     }
 
-    const outBytes = await pdfLibDoc.save();
+    const outBytes = await outDoc.save();
     const blob = new Blob([outBytes], { type: 'application/pdf' });
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement('a');
@@ -1645,6 +1715,18 @@ document.addEventListener('touchend', e => {
   ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
 }, { passive: true });
 </script>
+
+<div class="export-modal-backdrop" id="exportModal">
+  <div class="export-modal">
+    <h3>Export PDF</h3>
+    <p>Choose which pages to include in the exported PDF.</p>
+    <div class="export-modal-btns">
+      <button class="btn btn-export" onclick="doExport('marked')">⬇ Marked-up pages only</button>
+      <button class="btn btn-load" onclick="doExport('all')">⬇ All pages</button>
+      <button class="btn btn-ghost" onclick="closeExportModal()">Cancel</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
         setStatus(`✅ Loaded ${total} edit${total !== 1 ? 's' : ''} from ${savedAt}`);
