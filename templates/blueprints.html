@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>Blueprint Viewer | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --card:    #1c2230;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --blue:    #60b4f0;
+      --red:     #DB1523;
+      --accent:  rgba(96,180,240,0.12);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .logo-img { width: 30px; height: 30px; border-radius: 6px; object-fit: cover; }
+    .site-name { font-size: 0.9rem; font-weight: 800; }
+    .site-name .blue { color: var(--blue); }
+    .site-name .dim  { color: var(--text2); font-weight: 400; }
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--text2); text-decoration: none;
+      font-size: 0.82rem; font-weight: 600;
+      padding: 6px 12px; border-radius: 8px;
+      border: 1px solid var(--border);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .back-btn:hover { color: var(--text); border-color: var(--text2); }
+
+    /* ── Main layout ── */
+    .main { display: flex; height: calc(100vh - 57px); }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 16px 16px 10px;
+      font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+    .job-list { overflow-y: auto; flex: 1; padding: 8px; }
+    .job-btn {
+      width: 100%; text-align: left;
+      padding: 10px 12px;
+      border-radius: 8px; border: none;
+      background: transparent; color: var(--text);
+      font-size: 0.88rem; font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+      transition: background 0.15s;
+    }
+    .job-btn:hover { background: var(--accent); }
+    .job-btn.active { background: var(--accent); color: var(--blue); }
+    .job-btn .job-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: rgba(96,180,240,0.15);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .job-btn .job-icon svg { width: 14px; height: 14px; stroke: var(--blue); fill: none; stroke-width: 2; }
+    .no-jobs {
+      padding: 24px 16px;
+      color: var(--text2); font-size: 0.82rem; text-align: center; line-height: 1.6;
+    }
+
+    /* ── Content area ── */
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Welcome screen ── */
+    .welcome {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      color: var(--text2); text-align: center; padding: 40px;
+    }
+    .welcome-icon {
+      width: 64px; height: 64px; border-radius: 16px;
+      background: var(--accent); border: 1px solid rgba(96,180,240,0.2);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .welcome-icon svg { width: 32px; height: 32px; stroke: var(--blue); fill: none; stroke-width: 1.5; }
+    .welcome h2 { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+    .welcome p  { font-size: 0.88rem; max-width: 300px; line-height: 1.6; }
+
+    /* ── Job content ── */
+    .job-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Job title bar */
+    .job-titlebar {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .job-title { font-size: 1.1rem; font-weight: 800; }
+
+    /* Category tabs */
+    .cat-tabs {
+      display: flex; gap: 4px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .cat-tab {
+      padding: 6px 14px; border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .cat-tab:hover { color: var(--text); background: var(--card); }
+    .cat-tab.active { background: var(--accent); border-color: rgba(96,180,240,0.3); color: var(--blue); }
+
+    /* File list + viewer split */
+    .file-viewer { flex: 1; display: flex; overflow: hidden; }
+
+    .file-list {
+      width: 240px; flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 8px;
+    }
+    .file-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 10px; border-radius: 8px;
+      cursor: pointer; border: 1px solid transparent;
+      transition: background 0.15s;
+    }
+    .file-item:hover { background: var(--card); }
+    .file-item.active { background: var(--accent); border-color: rgba(96,180,240,0.25); }
+    .file-item svg { width: 16px; height: 16px; stroke: var(--text2); fill: none; stroke-width: 2; flex-shrink: 0; }
+    .file-item.active svg { stroke: var(--blue); }
+    .file-name { font-size: 0.8rem; font-weight: 600; color: var(--text); line-height: 1.3; word-break: break-word; }
+    .no-files { padding: 20px 12px; color: var(--text2); font-size: 0.8rem; text-align: center; line-height: 1.6; }
+
+    /* PDF viewer */
+    .pdf-pane {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+      background: #1a1a1a;
+    }
+    .pdf-placeholder {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: var(--text2); gap: 12px; text-align: center; padding: 40px;
+    }
+    .pdf-placeholder svg { width: 40px; height: 40px; stroke: var(--text2); fill: none; stroke-width: 1.5; opacity: 0.5; }
+    .pdf-placeholder p { font-size: 0.85rem; }
+    iframe#pdfFrame {
+      flex: 1; width: 100%; border: none;
+      display: none;
+    }
+    iframe#pdfFrame.visible { display: block; }
+
+    /* ── Mobile / iPad ── */
+    @media (max-width: 768px) {
+      .main { flex-direction: column; height: auto; }
+      .sidebar { width: 100%; height: auto; border-right: none; border-bottom: 1px solid var(--border); }
+      .job-list { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px; }
+      .job-btn { width: auto; }
+      .content { height: calc(100vh - 180px); }
+      .file-viewer { flex-direction: column; }
+      .file-list { width: 100%; height: 130px; border-right: none; border-bottom: 1px solid var(--border);
+                   display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; }
+      .pdf-pane { height: calc(100vh - 350px); min-height: 300px; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-left">
+    <img class="logo-img" src="/static/logo.jpg" alt="PEI"/>
+    <div class="site-name"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
+  </div>
+  <a class="back-btn" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+    </svg>
+    Home
+  </a>
+</header>
+
+<div class="main">
+  <!-- Sidebar: job list -->
+  <aside class="sidebar">
+    <div class="sidebar-header">Jobs</div>
+    <div class="job-list" id="jobList">
+      <div class="no-jobs">Loading jobs…</div>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <div class="content" id="contentArea">
+    <!-- Welcome -->
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-icon">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <h2>Blueprint Viewer</h2>
+      <p>Select a job from the left to view blueprints, packing lists, and fab sheets.</p>
+    </div>
+
+    <!-- Job content (hidden until job selected) -->
+    <div class="job-content" id="jobContent" style="display:none;">
+      <div class="job-titlebar">
+        <span class="job-title" id="jobTitle">—</span>
+      </div>
+      <div class="cat-tabs" id="catTabs"></div>
+      <div class="file-viewer">
+        <div class="file-list" id="fileList"></div>
+        <div class="pdf-pane">
+          <div class="pdf-placeholder" id="pdfPlaceholder">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <p>Select a file to view it</p>
+          </div>
+          <iframe id="pdfFrame" title="PDF Viewer"></iframe>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentJob      = null;
+let currentCategory = null;
+let jobFiles        = {};
+
+// ── Load job list ──────────────────────────────────────────
+async function loadJobs() {
+  const res  = await fetch('/api/jobs');
+  const jobs = await res.json();
+  const list = document.getElementById('jobList');
+
+  if (!jobs.length) {
+    list.innerHTML = '<div class="no-jobs">No jobs yet.<br>Ask your PM to add files via the Admin page.</div>';
+    return;
+  }
+
+  list.innerHTML = '';
+  jobs.forEach(job => {
+    const btn = document.createElement('button');
+    btn.className   = 'job-btn';
+    btn.innerHTML   = `
+      <div class="job-icon">
+        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+      </div>
+      ${job}`;
+    btn.onclick = () => selectJob(job, btn);
+    list.appendChild(btn);
+  });
+}
+
+// ── Select a job ───────────────────────────────────────────
+async function selectJob(job, btn) {
+  document.querySelectorAll('.job-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  currentJob = job;
+
+  const res  = await fetch(`/api/jobs/${encodeURIComponent(job)}`);
+  jobFiles   = await res.json();
+
+  document.getElementById('welcomeScreen').style.display = 'none';
+  document.getElementById('jobContent').style.display    = 'flex';
+  document.getElementById('jobTitle').textContent        = job;
+
+  // Build category tabs
+  const tabs = document.getElementById('catTabs');
+  tabs.innerHTML = '';
+  const cats = Object.keys(jobFiles);
+
+  if (!cats.length) {
+    tabs.innerHTML = '<span style="color:var(--text2);font-size:0.82rem;padding:6px 0;">No documents uploaded yet.</span>';
+    document.getElementById('fileList').innerHTML = '';
+    clearPDF();
+    return;
+  }
+
+  cats.forEach((cat, i) => {
+    const tab = document.createElement('button');
+    tab.className   = 'cat-tab' + (i === 0 ? ' active' : '');
+    tab.textContent = cat;
+    tab.onclick     = () => selectCategory(cat, tab);
+    tabs.appendChild(tab);
+  });
+
+  selectCategory(cats[0], tabs.querySelector('.cat-tab'));
+}
+
+// ── Select a category ──────────────────────────────────────
+function selectCategory(cat, tab) {
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentCategory = cat;
+
+  const files = jobFiles[cat] || [];
+  const list  = document.getElementById('fileList');
+  list.innerHTML = '';
+
+  if (!files.length) {
+    list.innerHTML = '<div class="no-files">No files in this category.</div>';
+    clearPDF();
+    return;
+  }
+
+  files.forEach(fname => {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.innerHTML = `
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span class="file-name">${fname}</span>`;
+    item.onclick = () => openFile(fname, item);
+    list.appendChild(item);
+  });
+
+  // Auto-open first file
+  openFile(files[0], list.querySelector('.file-item'));
+}
+
+// ── Open a PDF ─────────────────────────────────────────────
+function openFile(fname, item) {
+  document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+  item.classList.add('active');
+
+  const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
+  const frame = document.getElementById('pdfFrame');
+  frame.src = url;
+  frame.classList.add('visible');
+  document.getElementById('pdfPlaceholder').style.display = 'none';
+}
+
+function clearPDF() {
+  const frame = document.getElementById('pdfFrame');
+  frame.src = '';
+  frame.classList.remove('visible');
+  document.getElementById('pdfPlaceholder').style.display = 'flex';
+}
+
+loadJobs();
+</script>
+</body>
+</html>
