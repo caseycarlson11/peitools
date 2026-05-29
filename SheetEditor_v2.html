@@ -1325,12 +1325,16 @@ function saveDim() {
   const size     = parseInt(document.getElementById('sizeInput').value);
   const rotation = currentRot;
 
+  const canvas = document.getElementById('pageCanvas');
+  const displayW = canvas.clientWidth  || canvas.width;
+  const displayH = canvas.clientHeight || canvas.height;
+
   if (modalDimId !== null) {
     const dim = edits[currentPage].find(d => d.id === modalDimId);
-    if (dim) { dim.text = text; dim.size = size; dim.rotation = rotation; }
+    if (dim) { dim.text = text; dim.size = size; dim.rotation = rotation; dim.displayW = displayW; dim.displayH = displayH; }
   } else {
     editCounter++;
-    edits[currentPage].push({ id: editCounter, x_pct: pendingX, y_pct: pendingY, text, size, rotation });
+    edits[currentPage].push({ id: editCounter, x_pct: pendingX, y_pct: pendingY, text, size, rotation, displayW, displayH });
   }
 
   closeModal();
@@ -1466,8 +1470,10 @@ async function renderPageWithLabels(pi, cW, cH) {
     const x   = dim.x_pct * cW;
     const y   = dim.y_pct * cH;
     const rot = (dim.rotation || 0) * Math.PI / 180;
-    const fs  = dim.size || 18;
-    const pad = 4;
+    // Scale font size from display pixels → export canvas pixels
+    const refW = dim.displayW || 800; // fallback for old sessions
+    const fs   = (dim.size || 18) * (cW / refW);
+    const pad  = 4 * (cW / refW);
 
     ctx.save();
     ctx.font = `bold ${fs}px Arial, sans-serif`;
