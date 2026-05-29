@@ -1445,85 +1445,92 @@ function closeExportModal() {
   document.getElementById('exportModal').classList.remove('show');
 }
 
+// Render one page (by index) to a canvas with its labels drawn on top,
+// return a PNG data-URL at the given pixel dimensions.
+async function renderPageWithLabels(pi, cW, cH) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = cW;
+  canvas.height = cH;
+  const ctx = canvas.getContext('2d');
+
+  // Draw the pre-rendered page image
+  await new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => { ctx.drawImage(img, 0, 0, cW, cH); resolve(); };
+    img.onerror = reject;
+    img.src = pageImages[pi];
+  });
+
+  // Draw each label on top — exactly matching the CSS rendering
+  (edits[pi] || []).forEach(dim => {
+    const x   = dim.x_pct * cW;
+    const y   = dim.y_pct * cH;
+    const rot = (dim.rotation || 0) * Math.PI / 180;
+    const fs  = dim.size || 18;
+    const pad = 4;
+
+    ctx.save();
+    ctx.font = `bold ${fs}px Arial, sans-serif`;
+    const tw = ctx.measureText(dim.text).width;
+    const th = fs * 1.2;
+
+    // CSS rotates around the div CENTER; x,y is the top-left of the div
+    const cx = x + (tw + pad * 2) / 2;
+    const cy = y + (th + pad) / 2;
+
+    ctx.translate(cx, cy);
+    ctx.rotate(rot);
+
+    // Red box centered on origin
+    ctx.fillStyle = '#DB1523';
+    ctx.fillRect(-(tw + pad * 2) / 2, -(th + pad) / 2, tw + pad * 2, th + pad);
+
+    // White text centered on origin
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(dim.text, 0, 0);
+
+    ctx.restore();
+  });
+
+  return canvas.toDataURL('image/png');
+}
+
 async function doExport(mode) {
   closeExportModal();
   setStatus('Generating PDF…');
 
   try {
-    const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
+    const { PDFDocument } = PDFLib;
+
+    // Get the original page dimensions from pdf-lib
     const pdfLibDoc = await PDFDocument.load(pdfBytes);
-    const font      = await pdfLibDoc.embedFont(StandardFonts.HelveticaBold);
+    const srcPages  = pdfLibDoc.getPages();
 
-    // If marked-only, build a new doc with just the marked pages
-    let outDoc = pdfLibDoc;
-    let pageIndexMap = {}; // maps original pi -> index in outDoc
-    if (mode === 'marked') {
-      outDoc = await PDFDocument.create();
-      let outIdx = 0;
-      for (let pi = 0; pi < pageCount; pi++) {
-        if (edits[pi] && edits[pi].length > 0) {
-          const [copied] = await outDoc.copyPages(pdfLibDoc, [pi]);
-          outDoc.addPage(copied);
-          pageIndexMap[pi] = outIdx++;
-        }
-      }
-      await outDoc.embedFont(StandardFonts.HelveticaBold);
-    }
-
-    const pages = outDoc.getPages();
+    const outDoc = await PDFDocument.create();
 
     for (let pi = 0; pi < pageCount; pi++) {
-      if (!edits[pi] || edits[pi].length === 0) continue;
-      const pageIdx = mode === 'marked' ? pageIndexMap[pi] : pi;
-      const page = pages[pageIdx];
-      const { width: pW, height: pH } = page.getSize();
+      const hasEdits = edits[pi] && edits[pi].length > 0;
+      if (mode === 'marked' && !hasEdits) continue;
 
-      edits[pi].forEach(dim => {
-        const pdfX = dim.x_pct * pW;
-        const pdfY = pH - (dim.y_pct * pH);
-        const fs   = (dim.size || 18) * 0.72;
-        const text = dim.text;
-        const tw   = font.widthOfTextAtSize(text, fs);
-        const th   = fs * 1.35;
-        const rot  = dim.rotation || 0;
+      const { width: pW, height: pH } = srcPages[pi].getSize();
 
-        const pad = 3;
-        const labelW = tw + pad * 2 + 2;
-        const labelH = th + pad;
-
-        // CSS rotates around the element CENTER (transform-origin 50% 50%).
-        // pdfX/pdfY is the top-left corner of the div in PDF space (PDF y-axis points up).
-        const cx = pdfX + labelW / 2;
-        const cy = pdfY - labelH / 2;
-
-        // pdf-lib rotates each shape around its own anchor point.
-        // Back-compute the anchor so the shape visually rotates around (cx, cy).
-        const θ = -rot * Math.PI / 180;
-        const cosT = Math.cos(θ), sinT = Math.sin(θ);
-
-        // Rect anchor (bottom-left): solve so center after rotation = (cx, cy)
-        const rectX = cx - cosT * labelW / 2 + sinT * labelH / 2;
-        const rectY = cy - sinT * labelW / 2 - cosT * labelH / 2;
-
-        // Text anchor (baseline-left): solve so text center after rotation = (cx, cy)
-        const tx = cx - cosT * tw / 2 + sinT * th / 2;
-        const ty = cy - sinT * tw / 2 - cosT * th / 2;
-
-        page.drawRectangle({
-          x: rectX, y: rectY,
-          width: labelW, height: labelH,
-          color: rgb(0.86, 0.08, 0.14),
-          opacity: 1,
-          rotate: degrees(-rot),
-        });
-        page.drawText(text, {
-          x: tx, y: ty,
-          size: fs,
-          font,
-          color: rgb(1, 1, 1),
-          rotate: degrees(-rot),
-        });
-      });
+      if (hasEdits) {
+        // Render this page + its labels to a high-res canvas, embed as image
+        const scale = 3; // 3× for crisp print quality
+        const cW = Math.round(pW * scale);
+        const cH = Math.round(pH * scale);
+        const dataUrl  = await renderPageWithLabels(pi, cW, cH);
+        const imgBytes = await fetch(dataUrl).then(r => r.arrayBuffer());
+        const pngImage = await outDoc.embedPng(imgBytes);
+        const page = outDoc.addPage([pW, pH]);
+        page.drawImage(pngImage, { x: 0, y: 0, width: pW, height: pH });
+      } else {
+        // No edits — copy the original page vector content unchanged
+        const [copied] = await outDoc.copyPages(pdfLibDoc, [pi]);
+        outDoc.addPage(copied);
+      }
     }
 
     const outBytes = await outDoc.save();
@@ -1888,4 +1895,6 @@ document.addEventListener('touchend', e => {
         stopMoving(); renderOverlays();
       } else {
         if (movingDimId !== null) dropMoving(ts.startX, ts.startY);
-        startMoving(ts.dimId, { clientX: ts.startX, clientY: ts.startY })
+        startMoving(ts.dimId, { clientX: ts.startX, clientY: ts.startY });
+      }
+  
