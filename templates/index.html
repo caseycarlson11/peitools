@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>PEI Tools | Pacific Erectors Inc.</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700;800;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .bg {
+      position: fixed; inset: 0;
+      background-image: url('/static/bg.jpg');
+      background-size: cover;
+      background-position: center;
+      filter: brightness(0.35) saturate(0.75);
+      z-index: 0;
+    }
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(10,18,30,0.45);
+      z-index: 1;
+    }
+    .content {
+      position: relative; z-index: 2;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1.25rem;
+      width: 100%;
+      max-width: 480px;
+      padding: 2rem;
+    }
+    .header {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      backdrop-filter: blur(10px);
+      border-radius: 10px;
+      padding: 0.3rem 0.75rem 0.3rem 0.3rem;
+      margin-bottom: 0.5rem;
+    }
+    .logo-img {
+      width: 32px;
+      height: 32px;
+      object-fit: cover;
+      border-radius: 6px;
+      flex-shrink: 0;
+    }
+    .site-title {
+      font-size: 0.9rem;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .site-title .blue { color: #60b4f0; }
+    .site-title .dim { color: rgba(255,255,255,0.45); font-weight: 400; }
+    .btn {
+      display: flex; align-items: center; justify-content: space-between;
+      width: 100%; padding: 1.2rem 1.75rem;
+      border-radius: 14px;
+      font-size: 1.05rem; font-weight: 700;
+      color: white; text-decoration: none;
+      background: rgba(255,255,255,0.1);
+      border: 1px solid rgba(255,255,255,0.2);
+      backdrop-filter: blur(10px);
+      transition: transform 0.2s, box-shadow 0.2s, background 0.2s;
+      cursor: pointer;
+    }
+    .btn:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 16px 40px rgba(0,0,0,0.4);
+      background: rgba(255,255,255,0.16);
+    }
+    .btn:hover .arrow { transform: translateX(5px); }
+    .btn-left { display: flex; align-items: center; gap: 14px; }
+    .btn-text { display: flex; flex-direction: column; gap: 2px; }
+    .btn-sub { font-size: 0.72rem; font-weight: 400; color: rgba(255,255,255,0.5); line-height: 1.3; }
+    .btn-icon {
+      width: 38px; height: 38px;
+      background: rgba(30,100,200,0.45);
+      border: 1px solid rgba(96,180,240,0.4);
+      border-radius: 9px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-icon svg { width: 20px; height: 20px; }
+    .arrow { display: flex; transition: transform 0.2s; }
+    .arrow svg { width: 20px; height: 20px; stroke: white; fill: none; stroke-width: 2.5; }
+  </style>
+</head>
+<body>
+  <div class="bg"></div>
+  <div class="overlay"></div>
+  <div class="content">
+
+    <div class="header">
+      <img class="logo-img" src="/static/logo.jpg" alt="Pacific Erectors Inc." />
+      <div class="site-title"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
+    </div>
+
+    <a class="btn" href="/sheet_editor">
+      <div class="btn-left">
+        <div class="btn-icon">
+          <svg viewBox="0 0 24 24" fill="white"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8" fill="none" stroke="white" stroke-width="1.5"/></svg>
+        </div>
+        <div class="btn-text">
+          <span><span style="color:#60b4f0;">Fab Sheet</span> Editor</span>
+          <span class="btn-sub">Markup your fab sheet and order new panels.</span>
+        </div>
+      </div>
+      <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+
+    <a class="btn" href="/sheet_extractor">
+      <div class="btn-left">
+        <div class="btn-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
+        </div>
+        <div class="btn-text">
+          <span><span style="color:#60b4f0;">Panel Sheet</span> Extractor</span>
+          <span class="btn-sub">Extract panel and sheet info from blueprints.</span>
+        </div>
+      </div>
+      <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+
+    <a class="btn" href="https://peiphotos.com" target="_blank">
+      <div class="btn-left">
+        <div class="btn-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.8"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        </div>
+        <div class="btn-text">
+          <span><span style="color:#60b4f0;">Photo Sharing</span> App</span>
+          <span class="btn-sub">Backup your photos and share them.</span>
+        </div>
+      </div>
+      <span class="arrow"><svg viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+
+  </div>
+</body>
+</html>

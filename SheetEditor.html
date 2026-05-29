@@ -1,0 +1,1584 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KPS Dimension Editor — PEI Tools</title>
+<meta name="description" content="Edit panel dimensions on KPS fabrication sheets. Upload a PDF, mark up dimensions in red, and export.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+/* ═══════════════════════════════════════════════
+   TOKENS
+═══════════════════════════════════════════════ */
+:root {
+  --bg:        #0f0f12;
+  --bg2:       #15151a;
+  --surface:   #1c1c23;
+  --surface2:  #26262f;
+  --border:    #32323f;
+  --border2:   #44445a;
+  --red:       #e8304a;
+  --red2:      #ff5568;
+  --red-dim:   rgba(232,48,74,0.12);
+  --red-glow:  rgba(232,48,74,0.35);
+  --gold:      #f0a500;
+  --text:      #eaeaf2;
+  --text2:     #7a7a96;
+  --text3:     #4a4a60;
+  --green:     #26c97a;
+  --blue:      #4da6ff;
+  --font-head: 'Syne', sans-serif;
+  --font-mono: 'DM Mono', 'Courier New', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* ═══════════════════════════════════════════════
+   SITE HEADER
+═══════════════════════════════════════════════ */
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 24px;
+  height: 52px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+.site-logo {
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.site-logo span { color: var(--red); }
+.site-logo::before {
+  content: '';
+  display: block;
+  width: 22px; height: 22px;
+  background: var(--red);
+  clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
+  flex-shrink: 0;
+}
+
+.header-divider {
+  width: 1px; height: 28px;
+  background: var(--border);
+  margin: 0 16px;
+}
+
+.tool-name {
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text2);
+  letter-spacing: 0.5px;
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.badge {
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+  border-radius: 3px;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+.badge-red   { border-color: var(--red); color: var(--red); background: var(--red-dim); }
+.badge-green { border-color: var(--green); color: var(--green); background: rgba(38,201,122,0.1); }
+
+/* ═══════════════════════════════════════════════
+   UPLOAD SCREEN
+═══════════════════════════════════════════════ */
+#uploadScreen {
+  min-height: calc(100vh - 52px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* grid background */
+#uploadScreen::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--border) 1px, transparent 1px),
+    linear-gradient(90deg, var(--border) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.3;
+  pointer-events: none;
+}
+
+/* radial glow behind drop zone */
+#uploadScreen::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(232,48,74,0.08) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.upload-hero {
+  text-align: center;
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+}
+
+.upload-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--red);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.upload-headline {
+  font-family: var(--font-head);
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -1.5px;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.upload-headline em { color: var(--red); font-style: normal; }
+
+.upload-sub {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.7;
+  margin-bottom: 40px;
+}
+
+/* Drop zone */
+.drop-zone {
+  position: relative;
+  z-index: 1;
+  border: 2px dashed var(--border2);
+  border-radius: 12px;
+  padding: 48px 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  background: var(--surface);
+  max-width: 480px;
+  width: 100%;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--red);
+  background: var(--red-dim);
+  box-shadow: 0 0 40px var(--red-glow);
+}
+
+.drop-icon {
+  width: 56px; height: 56px;
+  margin: 0 auto 20px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+}
+
+.drop-title {
+  font-family: var(--font-head);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.drop-sub {
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--red);
+  color: white;
+  border: none;
+  padding: 11px 24px;
+  border-radius: 6px;
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  letter-spacing: 0.3px;
+}
+.btn-upload:hover {
+  background: var(--red2);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--red-glow);
+}
+.btn-upload:active { transform: translateY(0); }
+
+#fileInput { display: none; }
+
+.upload-features {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  gap: 12px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: 0.3px;
+}
+.feat-dot { width: 5px; height: 5px; background: var(--red); border-radius: 50%; flex-shrink: 0; opacity: 0.6; }
+
+/* ═══════════════════════════════════════════════
+   PROCESSING SCREEN
+═══════════════════════════════════════════════ */
+#processingScreen {
+  display: none;
+  min-height: calc(100vh - 52px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  padding: 40px;
+}
+
+.spinner-ring {
+  width: 56px; height: 56px;
+  border: 3px solid var(--surface2);
+  border-top-color: var(--red);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-track {
+  width: 320px; max-width: 90vw;
+  height: 4px;
+  background: var(--surface2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--red);
+  border-radius: 2px;
+  transition: width 0.25s ease;
+  width: 0%;
+}
+.progress-label {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* ═══════════════════════════════════════════════
+   EDITOR SCREEN
+═══════════════════════════════════════════════ */
+#editorScreen { display: none; }
+
+/* ── App Toolbar ── */
+.app-toolbar {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+}
+
+.tb-sep {
+  width: 1px; height: 22px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.tb-label {
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.btn {
+  background: var(--surface2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  transition: all 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.5;
+}
+.btn:hover { background: var(--border); border-color: var(--border2); }
+
+.btn-primary {
+  background: var(--red);
+  border-color: var(--red);
+  color: white;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+}
+.btn-primary:hover { background: var(--red2); border-color: var(--red2); box-shadow: 0 2px 12px var(--red-glow); }
+
+
+.btn-save {
+  background: var(--surface2);
+  border-color: var(--gold);
+  color: var(--gold);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+}
+.btn-save:hover { background: rgba(240,165,0,0.12); box-shadow: 0 2px 12px rgba(240,165,0,0.2); }
+.btn-load {
+  background: var(--surface2);
+  border-color: var(--blue);
+  color: var(--blue);
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+}
+.btn-load:hover { background: rgba(77,166,255,0.1); box-shadow: 0 2px 12px rgba(77,166,255,0.2); }
+.btn-export {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0a1a12;
+  font-family: var(--font-head);
+  font-weight: 700;
+  font-size: 12px;
+}
+.btn-export:hover { opacity: 0.88; box-shadow: 0 2px 12px rgba(38,201,122,0.3); }
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text2); }
+.btn-ghost:hover { background: var(--surface2); border-color: var(--border); color: var(--text); }
+
+.btn-danger { color: #ff6666; }
+.btn-danger:hover { border-color: #ff4444; color: #ff4444; }
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.mode-pill.edit { color: var(--red); border-color: var(--red); background: var(--red-dim); }
+.mode-pill.view { color: var(--green); border-color: var(--green); background: rgba(38,201,122,0.08); }
+.mode-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.page-indicator {
+  font-size: 11px;
+  color: var(--text2);
+  min-width: 48px;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+/* ── Page Nav Strip ── */
+.page-strip {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+}
+.page-strip::-webkit-scrollbar { height: 3px; }
+.page-strip::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.pg-btn {
+  background: transparent;
+  color: var(--text3);
+  border: 1px solid transparent;
+  padding: 3px 10px;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  transition: all 0.1s;
+  position: relative;
+  letter-spacing: 0.3px;
+}
+.pg-btn:hover { color: var(--text2); border-color: var(--border); }
+.pg-btn.active { background: var(--red); color: white; border-color: var(--red); }
+.pg-btn.has-edits::after {
+  content: '';
+  position: absolute; top: 2px; right: 2px;
+  width: 4px; height: 4px;
+  background: var(--gold); border-radius: 50%;
+}
+.pg-btn.active.has-edits::after { background: white; }
+
+/* ── Instructions bar ── */
+.hint-bar {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 16px;
+  font-size: 11px;
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.hint-bar b { color: var(--text2); font-weight: 500; }
+.hint-sep { color: var(--border2); }
+
+/* ── Canvas area ── */
+.canvas-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 28px;
+  min-height: calc(100vh - 180px);
+  overflow: auto;
+  padding-bottom: 64px;
+  background: var(--bg);
+  /* subtle dot grid */
+  background-image: radial-gradient(var(--surface) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
+
+.page-frame {
+  position: relative;
+  display: inline-block;
+  box-shadow: 0 12px 60px rgba(0,0,0,0.6), 0 0 0 1px var(--border);
+  border-radius: 2px;
+  background: white;
+  flex-shrink: 0;
+}
+.page-frame.mode-place { cursor: crosshair; }
+.page-frame.mode-view  { cursor: default; }
+
+.page-canvas { display: block; max-width: 100%; }
+
+/* ── Dim overlays ── */
+.dim-overlay {
+  position: absolute;
+  transform-origin: left center;
+  display: flex;
+  align-items: center;
+}
+
+.dim-label {
+  background: rgba(220, 38, 58, 0.91);
+  color: white;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  border-radius: 3px;
+  white-space: nowrap;
+  border: 1.5px solid rgba(255,255,255,0.28);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  padding: 2px 7px;
+  line-height: 1.3;
+  user-select: none;
+  letter-spacing: 0.3px;
+}
+.dim-overlay.idle .dim-label {
+  cursor: grab;
+  transition: box-shadow 0.12s, background 0.12s;
+}
+.dim-overlay.idle .dim-label:hover {
+  background: rgba(255,55,70,0.97);
+  box-shadow: 0 0 0 2px rgba(255,100,120,0.5), 0 4px 12px rgba(0,0,0,0.45);
+}
+.dim-overlay.moving .dim-label {
+  cursor: grabbing;
+  background: rgba(220,38,58,0.5);
+  box-shadow: 0 0 0 2px var(--blue), 0 4px 16px rgba(0,0,0,0.5);
+}
+
+.dim-del {
+  background: rgba(0,0,0,0.8);
+  color: #ff8888;
+  border: none;
+  border-radius: 0 3px 3px 0;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 5px;
+  display: none;
+  line-height: 1.3;
+  font-family: var(--font-mono);
+  transition: color 0.1s;
+}
+.dim-del:hover { color: #ff3333; }
+.dim-overlay.idle:hover .dim-del { display: block; }
+
+/* ── Ghost (dragging indicator) ── */
+#ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform-origin: left center;
+  display: none;
+  align-items: center;
+}
+#ghost .dim-label {
+  background: rgba(220,38,58,0.75);
+  border-color: rgba(255,255,255,0.6);
+  box-shadow: 0 0 0 2px var(--blue), 0 8px 24px rgba(0,0,0,0.6);
+  cursor: grabbing;
+}
+
+/* ── Status bar ── */
+.status-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 32px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text3);
+  z-index: 100;
+}
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(38,201,122,0.6);
+}
+#statusMsg { color: var(--text2); }
+#editTally  { margin-left: auto; color: var(--gold); }
+
+/* ── Filename chip ── */
+.filename-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text2);
+  max-width: 200px;
+  overflow: hidden;
+}
+.filename-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ═══════════════════════════════════════════════
+   MODAL
+═══════════════════════════════════════════════ */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.75);
+  backdrop-filter: blur(4px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 10px;
+  padding: 24px;
+  width: 380px;
+  max-width: 100%;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.modal-header h3 {
+  font-family: var(--font-head);
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.modal-icon {
+  width: 28px; height: 28px;
+  background: var(--red-dim);
+  border: 1px solid var(--red);
+  border-radius: 5px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+}
+.field input[type=text] {
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 5px;
+  font-family: var(--font-mono);
+  font-size: 15px;
+  transition: border-color 0.12s;
+}
+.field input[type=text]:focus {
+  outline: none;
+  border-color: var(--red);
+  box-shadow: 0 0 0 3px rgba(232,48,74,0.15);
+}
+.field-hint { font-size: 10px; color: var(--text3); margin-top: 5px; }
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.slider-row input[type=range] {
+  flex: 1;
+  accent-color: var(--red);
+  height: 4px;
+}
+.slider-val {
+  font-size: 12px;
+  color: var(--red);
+  width: 44px;
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.preview-box {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 14px 12px;
+  text-align: center;
+  margin-bottom: 16px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview-val {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--red);
+  letter-spacing: 0.5px;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.modal-actions .spacer { flex: 1; }
+
+/* rotate option buttons */
+.rot-options {
+  display: flex;
+  gap: 6px;
+}
+.rot-opt {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 6px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  text-align: center;
+  transition: all 0.12s;
+}
+.rot-opt:hover { border-color: var(--border2); color: var(--text); }
+.rot-opt.selected { background: var(--red-dim); border-color: var(--red); color: var(--red); font-weight: 500; }
+
+/* ═══════════════════════════════════════════════
+   RESPONSIVE
+═══════════════════════════════════════════════ */
+@media (max-width: 600px) {
+  .canvas-wrap { padding: 10px; }
+  .modal { padding: 18px; }
+  .upload-headline { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+
+<!-- ── SITE HEADER ── -->
+<header class="site-header">
+  <a class="site-logo" href="https://peitools.com">PEI<span>tools</span></a>
+  <div class="header-divider"></div>
+  <div class="tool-name">KPS Dimension Editor</div>
+  <div class="header-right">
+    <span class="badge" id="headerBadge">No file loaded</span>
+    <span class="badge badge-green" style="display:none" id="editBadge">0 edits</span>
+  </div>
+</header>
+
+<!-- ══════════════════════════════════════════
+     UPLOAD SCREEN
+══════════════════════════════════════════ -->
+<div id="uploadScreen">
+  <div class="upload-hero">
+    <div class="upload-eyebrow">KPS Fabrication Sheets</div>
+    <h1 class="upload-headline">Edit panel<br><em>dimensions</em><br>in seconds.</h1>
+    <p class="upload-sub">
+      Upload any KPS fab sheet PDF. Click to place red dimension labels,<br>
+      drag them anywhere, then export a clean annotated PDF.
+    </p>
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-icon">📄</div>
+    <div class="drop-title">Drop your PDF here</div>
+    <div class="drop-sub">
+      KPS Fabrication Sheet · Any order number<br>
+      All processing happens in your browser — nothing is uploaded
+    </div>
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
+      ⬆ Choose PDF
+    </button>
+    <input type="file" id="fileInput" accept=".pdf,application/pdf">
+  </div>
+
+  <div class="upload-features">
+    <div class="feat"><span class="feat-dot"></span>100% client-side</div>
+    <div class="feat"><span class="feat-dot"></span>No account required</div>
+    <div class="feat"><span class="feat-dot"></span>Supports all KPS sheets</div>
+    <div class="feat"><span class="feat-dot"></span>Red text overlay on export</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     PROCESSING SCREEN
+══════════════════════════════════════════ -->
+<div id="processingScreen">
+  <div class="spinner-ring"></div>
+  <div style="font-family:var(--font-head);font-size:16px;font-weight:700;color:var(--text)">
+    Rendering pages…
+  </div>
+  <div class="progress-track">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+  <div class="progress-label" id="progressLabel">Preparing…</div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     EDITOR SCREEN
+══════════════════════════════════════════ -->
+<div id="editorScreen">
+
+  <div class="app-toolbar">
+    <div class="mode-pill edit" id="modePill" onclick="toggleMode()">Edit</div>
+
+    <div class="tb-sep"></div>
+
+    <span class="tb-label">Page</span>
+    <button class="btn btn-ghost" onclick="prevPage()">◀</button>
+    <span class="page-indicator" id="pageIndicator">1 / ?</span>
+    <button class="btn btn-ghost" onclick="nextPage()">▶</button>
+
+    <div class="tb-sep"></div>
+
+    <div class="filename-chip" id="filenameChip">
+      <span id="filenameText">—</span>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <button class="btn btn-danger" onclick="clearPageEdits()">Clear page</button>
+    <button class="btn btn-danger" onclick="clearAllEdits()">Clear all</button>
+
+    <div class="tb-sep" style="margin-left:auto;"></div>
+
+    <button class="btn btn-ghost" onclick="newFile()" title="Load a different PDF">↩ New file</button>
+    <button class="btn btn-save" onclick="saveSession()" title="Save all edits to a .kpssession file you can share">💾 Save session</button>
+    <button class="btn btn-load" onclick="document.getElementById('sessionFileInput').click()" title="Load a previously saved session file">📂 Load session</button>
+    <input type="file" id="sessionFileInput" accept=".kpssession,application/json" style="display:none">
+    <button class="btn btn-export" onclick="exportPDF()">⬇ Export PDF</button>
+  </div>
+
+  <div class="page-strip" id="pageStrip"></div>
+
+  <div class="hint-bar">
+    <span><b>Place:</b> click drawing to add a red label</span>
+    <span class="hint-sep">·</span>
+    <span><b>Move:</b> single-click label → follows cursor → click to drop</span>
+    <span class="hint-sep">·</span>
+    <span><b>Edit text:</b> double-click label</span>
+    <span class="hint-sep">·</span>
+    <span><b>Delete:</b> hover → ✕</span>
+    <span class="hint-sep">·</span>
+    <span><b>Cancel move:</b> Esc</span>
+  </div>
+
+  <div class="canvas-wrap">
+    <div class="page-frame mode-place" id="pageFrame">
+      <canvas class="page-canvas" id="pageCanvas"></canvas>
+      <div id="overlayRoot"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Ghost -->
+<div id="ghost" style="display:none;">
+  <span class="dim-label" id="ghostLabel"></span>
+</div>
+
+<!-- ══════════════════════════════════════════
+     EDIT MODAL
+══════════════════════════════════════════ -->
+<div class="modal-backdrop" id="modalBackdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon">✏</div>
+      <h3>Edit Dimension</h3>
+    </div>
+
+    <div class="field">
+      <label>Dimension Value</label>
+      <input type="text" id="dimInput" placeholder="e.g. 5'-2¼&quot; or 4'-6&quot;" autocomplete="off" spellcheck="false">
+      <div class="field-hint">Format: 5'-2¼" · 4' · 7'-11½" · tuck-in</div>
+    </div>
+
+    <div class="field">
+      <label>Text Size</label>
+      <div class="slider-row">
+        <input type="range" id="sizeInput" min="8" max="28" value="18" step="1" oninput="syncPreview()">
+        <span class="slider-val" id="sizeVal">18px</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Rotation</label>
+      <div class="rot-options" id="rotOptions">
+        <button class="rot-opt" data-val="-180" onclick="setRot(this)">-180°</button>
+        <button class="rot-opt" data-val="-90"  onclick="setRot(this)">-90°</button>
+        <button class="rot-opt selected" data-val="0" onclick="setRot(this)">0°</button>
+        <button class="rot-opt" data-val="90"   onclick="setRot(this)">90°</button>
+        <button class="rot-opt" data-val="180"  onclick="setRot(this)">180°</button>
+      </div>
+    </div>
+
+    <div class="preview-box">
+      <div class="preview-val" id="dimPreview">—</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="modalDeleteBtn" onclick="deleteModalDim()" style="display:none;">Delete</button>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDim()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Status bar (editor only) -->
+<div class="status-bar" id="statusBar" style="display:none;">
+  <div class="status-dot"></div>
+  <span id="statusMsg">Ready</span>
+  <span id="editTally"></span>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+//  PDF.JS WORKER
+// ─────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─────────────────────────────────────────────────────────────────
+//  APP STATE
+// ─────────────────────────────────────────────────────────────────
+let pdfDoc        = null;   // PDF.js document for rendering
+let pdfBytes      = null;   // ArrayBuffer of original PDF for pdf-lib export
+let pageImages    = [];     // array of dataURL strings, one per page
+let pageCount     = 0;
+let currentPage   = 0;      // 0-indexed
+let editMode      = true;
+let edits         = [];     // edits[pageIdx] = [{id, x_pct, y_pct, text, size, rotation}]
+let editCounter   = 0;
+let movingDimId   = null;
+let pendingX = 0, pendingY = 0;
+let modalDimId    = null;   // null=new, number=editing
+let currentRot    = 0;
+let originalFileName = '';
+
+// ─────────────────────────────────────────────────────────────────
+//  UPLOAD / DRAG-DROP
+// ─────────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') loadFile(file);
+  else alert('Please drop a PDF file.');
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+async function loadFile(file) {
+  originalFileName = file.name.replace(/\.pdf$/i, '');
+  document.getElementById('uploadScreen').style.display     = 'none';
+  document.getElementById('processingScreen').style.display = 'flex';
+
+  const buffer = await file.arrayBuffer();
+  pdfBytes = buffer.slice(0); // keep a copy for export
+
+  pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
+  pageCount = pdfDoc.numPages;
+
+  // Init edits array
+  edits = Array.from({ length: pageCount }, () => []);
+  pageImages = new Array(pageCount).fill(null);
+
+  // Render all pages
+  for (let i = 0; i < pageCount; i++) {
+    setProgress(i, pageCount, `Rendering page ${i + 1} of ${pageCount}…`);
+    pageImages[i] = await renderPageToDataURL(i + 1);
+  }
+  setProgress(pageCount, pageCount, 'Done!');
+
+  await new Promise(r => setTimeout(r, 200)); // brief flash of "Done"
+
+  // Show editor
+  document.getElementById('processingScreen').style.display = 'none';
+  document.getElementById('editorScreen').style.display     = 'block';
+  document.getElementById('statusBar').style.display        = 'flex';
+
+  buildPageStrip();
+  loadPage(0);
+
+  // Header
+  document.getElementById('headerBadge').textContent = `${pageCount} pages`;
+  document.getElementById('editBadge').style.display = 'inline';
+  document.getElementById('filenameText').textContent = originalFileName;
+}
+
+function setProgress(done, total, label) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progressBar').style.width   = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+async function renderPageToDataURL(pageNum) {
+  const page     = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 2.5 }); // ~180 DPI equivalent
+  const canvas   = document.createElement('canvas');
+  canvas.width   = viewport.width;
+  canvas.height  = viewport.height;
+  const ctx      = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL('image/png');
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  PAGE NAV
+// ─────────────────────────────────────────────────────────────────
+function buildPageStrip() {
+  const strip = document.getElementById('pageStrip');
+  strip.innerHTML = '';
+  for (let i = 0; i < pageCount; i++) {
+    const btn = document.createElement('button');
+    btn.id        = `pgbtn_${i}`;
+    btn.className = 'pg-btn';
+    btn.textContent = `Pg ${i + 1}`;
+    btn.onclick   = () => loadPage(i);
+    strip.appendChild(btn);
+  }
+}
+
+function refreshStripButtons() {
+  for (let i = 0; i < pageCount; i++) {
+    const btn = document.getElementById(`pgbtn_${i}`);
+    if (!btn) continue;
+    btn.className = 'pg-btn'
+      + (i === currentPage    ? ' active'    : '')
+      + (edits[i]?.length > 0 ? ' has-edits' : '');
+  }
+}
+
+function loadPage(idx) {
+  if (movingDimId !== null) stopMoving();
+  currentPage = idx;
+
+  const canvas = document.getElementById('pageCanvas');
+  const img    = new Image();
+  img.onload   = () => {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    renderOverlays();
+  };
+  img.src = pageImages[idx];
+
+  document.getElementById('pageIndicator').textContent = `${idx + 1} / ${pageCount}`;
+  refreshStripButtons();
+}
+
+function prevPage() { if (currentPage > 0) loadPage(currentPage - 1); }
+function nextPage() { if (currentPage < pageCount - 1) loadPage(currentPage + 1); }
+
+// ─────────────────────────────────────────────────────────────────
+//  RENDER OVERLAYS
+// ─────────────────────────────────────────────────────────────────
+function renderOverlays() {
+  const root   = document.getElementById('overlayRoot');
+  root.innerHTML = '';
+  const canvas = document.getElementById('pageCanvas');
+  const dW     = canvas.clientWidth  || canvas.width;
+  const dH     = canvas.clientHeight || canvas.height;
+
+  (edits[currentPage] || []).forEach(dim => {
+    const wrap = document.createElement('div');
+    wrap.className = 'dim-overlay ' + (dim.id === movingDimId ? 'moving' : 'idle');
+    wrap.id        = `dim_${dim.id}`;
+    wrap.style.left      = (dim.x_pct * dW) + 'px';
+    wrap.style.top       = (dim.y_pct * dH) + 'px';
+    wrap.style.transform = `rotate(${dim.rotation || 0}deg)`;
+    if (dim.id === movingDimId) wrap.style.opacity = '0.2';
+
+    const label = document.createElement('span');
+    label.className  = 'dim-label';
+    label.textContent = dim.text;
+    label.style.fontSize = (dim.size || 18) + 'px';
+
+    // single-click → start/stop moving
+    label.addEventListener('click', e => {
+      e.stopPropagation();
+      if (movingDimId === dim.id) {
+        stopMoving(); renderOverlays(); return;
+      }
+      if (movingDimId !== null) {
+        dropMoving(e.clientX, e.clientY);
+      }
+      startMoving(dim.id, e);
+    });
+
+    // double-click → edit text
+    label.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+      openEditModal(dim.id);
+    });
+
+    const del = document.createElement('button');
+    del.className   = 'dim-del';
+    del.textContent = '✕';
+    del.title       = 'Delete';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      if (movingDimId === dim.id) stopMoving();
+      removeDim(dim.id);
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(del);
+    root.appendChild(wrap);
+  });
+
+  updateTally();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CLICK ON PAGE → PLACE OR DROP
+// ─────────────────────────────────────────────────────────────────
+document.getElementById('pageFrame').addEventListener('click', function(e) {
+  // Ignore clicks on labels / delete btns
+  if (e.target.classList.contains('dim-label') ||
+      e.target.classList.contains('dim-del')) return;
+
+  // If moving, drop here
+  if (movingDimId !== null) {
+    dropMoving(e.clientX, e.clientY);
+    return;
+  }
+
+  // If not edit mode, do nothing
+  if (!editMode) return;
+
+  // Place new dim
+  const coords = clientToPagePct(e.clientX, e.clientY);
+  pendingX = coords.xPct;
+  pendingY = coords.yPct;
+  openNewModal();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  MOVING
+// ─────────────────────────────────────────────────────────────────
+function startMoving(dimId, e) {
+  movingDimId = dimId;
+  const dim = edits[currentPage].find(d => d.id === dimId);
+
+  const ghost = document.getElementById('ghost');
+  document.getElementById('ghostLabel').textContent  = dim.text;
+  document.getElementById('ghostLabel').style.fontSize = (dim.size || 18) + 'px';
+  ghost.style.transform = `rotate(${dim.rotation || 0}deg)`;
+  ghost.style.display   = 'flex';
+
+  positionGhost(e.clientX, e.clientY);
+  document.getElementById('pageFrame').style.cursor = 'none';
+  setStatus('Click to drop · Esc to cancel');
+  renderOverlays();
+}
+
+function dropMoving(cx, cy) {
+  if (movingDimId === null) return;
+  const { xPct, yPct } = clientToPagePct(cx, cy);
+  const dim = edits[currentPage].find(d => d.id === movingDimId);
+  if (dim) { dim.x_pct = xPct; dim.y_pct = yPct; }
+  stopMoving();
+  renderOverlays();
+}
+
+function stopMoving() {
+  movingDimId = null;
+  document.getElementById('ghost').style.display = 'none';
+  document.getElementById('pageFrame').style.cursor = editMode ? 'crosshair' : 'default';
+  setStatus(editMode ? 'Click on the drawing to place a dimension label' : 'View mode');
+}
+
+function positionGhost(cx, cy) {
+  const g = document.getElementById('ghost');
+  g.style.left = cx + 'px';
+  g.style.top  = cy + 'px';
+}
+
+document.addEventListener('mousemove', e => {
+  if (movingDimId !== null) positionGhost(e.clientX, e.clientY);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (movingDimId !== null) { stopMoving(); renderOverlays(); return; }
+    closeModal();
+  }
+  if ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && document.getElementById('modalBackdrop').style.display === 'none') {
+    nextPage();
+  }
+  if ((e.key === 'ArrowLeft' || e.key === 'ArrowUp') && document.getElementById('modalBackdrop').style.display === 'none') {
+    prevPage();
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  COORDINATE HELPERS
+// ─────────────────────────────────────────────────────────────────
+function clientToPagePct(cx, cy) {
+  const canvas = document.getElementById('pageCanvas');
+  const rect   = canvas.getBoundingClientRect();
+  return {
+    xPct: (cx - rect.left) / canvas.clientWidth,
+    yPct: (cy - rect.top)  / canvas.clientHeight,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  MODAL — NEW
+// ─────────────────────────────────────────────────────────────────
+function openNewModal() {
+  modalDimId = null;
+  document.getElementById('dimInput').value = '';
+  document.getElementById('sizeInput').value = 18;
+  document.getElementById('sizeVal').textContent = '18px';
+  setRot(document.querySelector('.rot-opt[data-val="0"]'));
+  document.getElementById('modalDeleteBtn').style.display = 'none';
+  syncPreview();
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  setTimeout(() => document.getElementById('dimInput').focus(), 30);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  MODAL — EDIT EXISTING
+// ─────────────────────────────────────────────────────────────────
+function openEditModal(dimId) {
+  const dim = edits[currentPage].find(d => d.id === dimId);
+  if (!dim) return;
+  modalDimId = dimId;
+  document.getElementById('dimInput').value  = dim.text;
+  document.getElementById('sizeInput').value = dim.size || 18;
+  document.getElementById('sizeVal').textContent = (dim.size || 18) + 'px';
+  const rotBtn = document.querySelector(`.rot-opt[data-val="${dim.rotation || 0}"]`);
+  setRot(rotBtn || document.querySelector('.rot-opt[data-val="0"]'));
+  document.getElementById('modalDeleteBtn').style.display = 'inline-block';
+  syncPreview();
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  setTimeout(() => { document.getElementById('dimInput').focus(); document.getElementById('dimInput').select(); }, 30);
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').style.display = 'none';
+  modalDimId = null;
+}
+
+function setRot(btn) {
+  if (!btn) return;
+  document.querySelectorAll('.rot-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  currentRot = parseInt(btn.dataset.val);
+  syncPreview();
+}
+
+function syncPreview() {
+  document.getElementById('dimPreview').textContent = document.getElementById('dimInput').value || '—';
+  document.getElementById('sizeVal').textContent    = document.getElementById('sizeInput').value + 'px';
+}
+
+function saveDim() {
+  const text = document.getElementById('dimInput').value.trim();
+  if (!text) { document.getElementById('dimInput').focus(); return; }
+  const size     = parseInt(document.getElementById('sizeInput').value);
+  const rotation = currentRot;
+
+  if (modalDimId !== null) {
+    const dim = edits[currentPage].find(d => d.id === modalDimId);
+    if (dim) { dim.text = text; dim.size = size; dim.rotation = rotation; }
+  } else {
+    editCounter++;
+    edits[currentPage].push({ id: editCounter, x_pct: pendingX, y_pct: pendingY, text, size, rotation });
+  }
+
+  closeModal();
+  renderOverlays();
+  refreshStripButtons();
+}
+
+function deleteModalDim() {
+  if (modalDimId === null) return;
+  if (movingDimId === modalDimId) stopMoving();
+  removeDim(modalDimId);
+  closeModal();
+}
+
+function removeDim(dimId) {
+  edits[currentPage] = (edits[currentPage] || []).filter(d => d.id !== dimId);
+  renderOverlays();
+  refreshStripButtons();
+}
+
+// modal input events
+document.getElementById('dimInput').addEventListener('input', syncPreview);
+document.getElementById('dimInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter')  saveDim();
+  if (e.key === 'Escape') closeModal();
+});
+document.getElementById('sizeInput').addEventListener('input', syncPreview);
+document.getElementById('modalBackdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  MODE TOGGLE
+// ─────────────────────────────────────────────────────────────────
+function toggleMode() {
+  if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+  editMode = !editMode;
+  const pill  = document.getElementById('modePill');
+  const frame = document.getElementById('pageFrame');
+  pill.textContent  = editMode ? 'Edit' : 'View';
+  pill.className    = 'mode-pill ' + (editMode ? 'edit' : 'view');
+  frame.className   = 'page-frame ' + (editMode ? 'mode-place' : 'mode-view');
+  setStatus(editMode ? 'Click on the drawing to place a dimension label' : 'View mode — click mode pill to switch back');
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CLEAR
+// ─────────────────────────────────────────────────────────────────
+function clearPageEdits() {
+  const n = (edits[currentPage] || []).length;
+  if (n === 0) return;
+  if (!confirm(`Clear all ${n} label${n !== 1 ? 's' : ''} on page ${currentPage + 1}?`)) return;
+  if (movingDimId !== null) stopMoving();
+  edits[currentPage] = [];
+  renderOverlays();
+  refreshStripButtons();
+}
+
+function clearAllEdits() {
+  const total = edits.flat().length;
+  if (total === 0) return;
+  if (!confirm(`Clear all ${total} label${total !== 1 ? 's' : ''} across all pages?`)) return;
+  if (movingDimId !== null) stopMoving();
+  edits = Array.from({ length: pageCount }, () => []);
+  renderOverlays();
+  refreshStripButtons();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  NEW FILE
+// ─────────────────────────────────────────────────────────────────
+function newFile() {
+  if (!confirm('Load a new file? All current edits will be lost.')) return;
+  if (movingDimId !== null) stopMoving();
+  pdfDoc = null; pdfBytes = null;
+  pageImages = []; pageCount = 0; edits = []; currentPage = 0;
+  document.getElementById('editorScreen').style.display  = 'none';
+  document.getElementById('statusBar').style.display     = 'none';
+  document.getElementById('editBadge').style.display     = 'none';
+  document.getElementById('headerBadge').textContent     = 'No file loaded';
+  document.getElementById('fileInput').value             = '';
+  document.getElementById('uploadScreen').style.display  = 'flex';
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────────
+function updateTally() {
+  const total = edits.flat().length;
+  const badge = document.getElementById('editBadge');
+  badge.textContent = `${total} edit${total !== 1 ? 's' : ''}`;
+  const tally = document.getElementById('editTally');
+  tally.textContent = total > 0 ? `${total} dimension${total !== 1 ? 's' : ''} changed` : '';
+}
+
+function setStatus(msg) {
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  PDF EXPORT (pdf-lib)
+// ─────────────────────────────────────────────────────────────────
+async function exportPDF() {
+  const total = edits.flat().length;
+  if (total === 0) {
+    alert('No dimension labels yet. Click on the drawing in Edit Mode to add some.');
+    return;
+  }
+  setStatus('Generating PDF…');
+
+  try {
+    const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
+
+    const pdfLibDoc = await PDFDocument.load(pdfBytes);
+    const pages     = pdfLibDoc.getPages();
+    const font      = await pdfLibDoc.embedFont(StandardFonts.HelveticaBold);
+
+    // Detect original page dimensions from first page
+    for (let pi = 0; pi < pageCount; pi++) {
+      if (!edits[pi] || edits[pi].length === 0) continue;
+      const page = pages[pi];
+      const { width: pW, height: pH } = page.getSize();
+
+      edits[pi].forEach(dim => {
+        const pdfX = dim.x_pct * pW;
+        const pdfY = pH - (dim.y_pct * pH);     // PDF Y is bottom-up
+        const fs   = (dim.size || 18) * 0.72;   // scale from screen px to PDF pt
+        const text = dim.text;
+        const tw   = font.widthOfTextAtSize(text, fs);
+        const th   = fs * 1.35;
+        const rot  = dim.rotation || 0;
+
+        // White rect for legibility (unrotated — acceptable for small labels)
+        if (rot === 0) {
+          page.drawRectangle({
+            x: pdfX - 2, y: pdfY - th + 3,
+            width: tw + 6, height: th + 2,
+            color: rgb(1, 1, 1),
+            opacity: 0.88,
+          });
+        }
+        page.drawText(text, {
+          x: pdfX, y: pdfY - th + 5,
+          size: fs,
+          font,
+          color: rgb(0.86, 0.08, 0.14),
+          rotate: degrees(-rot),
+        });
+      });
+    }
+
+    const outBytes = await pdfLibDoc.save();
+    const blob = new Blob([outBytes], { type: 'application/pdf' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${originalFileName}_Edited.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setStatus(`✅ Exported "${originalFileName}_Edited.pdf" with ${total} dimension${total !== 1 ? 's' : ''}`);
+  } catch (err) {
+    console.error(err);
+    setStatus('❌ Export failed — ' + err.message);
+  }
+}
+
+
+// ─────────────────────────────────────────────────────────────────
+//  SAVE SESSION
+// ─────────────────────────────────────────────────────────────────
+function saveSession() {
+  const total = edits.flat().length;
+  if (total === 0) {
+    alert('No edits to save yet. Add some dimension labels first.');
+    return;
+  }
+  const session = {
+    version:  1,
+    fileName: originalFileName,
+    pageCount,
+    savedAt:  new Date().toISOString(),
+    editCounter,
+    edits,
+  };
+  const json = JSON.stringify(session, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url;
+  a.download = `${originalFileName}.kpssession`;
+  a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`✅ Session saved — share "${originalFileName}.kpssession" with your team`);
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  LOAD SESSION
+// ─────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sessionFileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        const session = JSON.parse(ev.target.result);
+        if (!session.edits || !Array.isArray(session.edits)) {
+          alert('This file doesn\'t look like a valid KPS session file.');
+          return;
+        }
+        // Warn if the session was saved from a different PDF
+        if (session.fileName && session.fileName !== originalFileName) {
+          const ok = confirm(
+            `This session was saved from:\n"${session.fileName}"\n\nYour current file is:\n"${originalFileName}"\n\nLoad anyway?`
+          );
+          if (!ok) return;
+        }
+        // Warn if page counts differ
+        if (session.pageCount && session.pageCount !== pageCount) {
+          const ok = confirm(
+            `Page count mismatch — session has ${session.pageCount} pages, current PDF has ${pageCount}.\n\nLoad anyway?`
+          );
+          if (!ok) return;
+        }
+        // Apply edits — pad or trim to match current page count
+        edits = Array.from({ length: pageCount }, (_, i) => session.edits[i] || []);
+        // Keep editCounter ahead of all loaded IDs to avoid collisions
+        const maxId = edits.flat().reduce((m, d) => Math.max(m, d.id || 0), 0);
+        editCounter = Math.max(editCounter, maxId + 1);
+        if (movingDimId !== null) stopMoving();
+        renderOverlays();
+        refreshStripButtons();
+        const total = edits.flat().length;
+        const savedAt = session.savedAt ? new Date(session.savedAt).toLocaleString() : 'unknown time';
+        setStatus(`✅ Loaded ${total} edit${total !== 1 ? 's' : ''} from session saved on ${savedAt}`);
+      } catch (err) {
+        alert('Could not read session file: ' + err.message);
+      }
+    };
+    reader.readAsText(file);
+    // Reset so the same file can be loaded again if needed
+    e.target.value = '';
+  });
+});
+
+// Re-render on window resize (keeps overlays aligned)
+window.addEventListener('resize', () => {
+  if (document.getElementById('editorScreen').style.display !== 'none') {
+    renderOverlays();
+  }
+});
+</script>
+</body>
+</html>

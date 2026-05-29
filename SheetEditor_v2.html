@@ -1,0 +1,1813 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fab Sheet Editor — PEI Tools</title>
+<link rel="icon" type="image/png" href="static/favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<style>
+:root {
+  --steel:       #1a2332;
+  --steel-mid:   #243045;
+  --steel-light: #2d3d56;
+  --glass:       rgba(255,255,255,0.08);
+  --glass-hover: rgba(255,255,255,0.14);
+  --glass-border:rgba(255,255,255,0.15);
+  --blue:        #60b4f0;
+  --blue-dim:    rgba(96,180,240,0.15);
+  --blue-glow:   rgba(96,180,240,0.3);
+  --red:         #e8304a;
+  --red2:        #ff5568;
+  --red-dim:     rgba(232,48,74,0.12);
+  --gold:        #f0a500;
+  --green:       #26c97a;
+  --text:        rgba(255,255,255,0.92);
+  --text2:       rgba(255,255,255,0.5);
+  --text3:       rgba(255,255,255,0.25);
+  --border:      rgba(255,255,255,0.1);
+  --border2:     rgba(255,255,255,0.18);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--steel);
+  color: var(--text);
+  font-family: 'Inter', sans-serif;
+  min-height: 100vh;
+  overflow-x: hidden;
+  position: relative;
+}
+
+/* Persistent bg image */
+body::before {
+  content: '';
+  position: fixed; inset: 0;
+  background-image: url('static/bg.jpg');
+  background-size: cover;
+  background-position: center;
+  filter: brightness(0.18) saturate(0.6);
+  z-index: 0;
+  pointer-events: none;
+}
+body::after {
+  content: '';
+  position: fixed; inset: 0;
+  background: rgba(10,18,30,0.55);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* All content sits above bg layers */
+header, #uploadScreen, #processingScreen, #editorScreen,
+.status-bar, .modal-backdrop, #ghost {
+  position: relative;
+  z-index: 1;
+}
+
+/* ── SITE HEADER ── */
+.site-header {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 24px;
+  height: 56px;
+  background: rgba(10,18,30,0.7);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 200;
+}
+
+.site-logo {
+  font-size: 15px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--text);
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.site-logo img {
+  width: 28px; height: 28px;
+  border-radius: 6px;
+  object-fit: contain;
+  margin-right: 8px;
+}
+.site-logo .logo-pei { color: var(--blue); }
+.site-logo .logo-rest { color: var(--text2); font-weight: 400; }
+
+.header-divider {
+  width: 1px; height: 24px;
+  background: var(--border);
+  margin: 0 16px;
+  flex-shrink: 0;
+}
+
+.tool-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0.3px;
+}
+
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  background: var(--glass);
+}
+.badge-blue  { border-color: var(--blue);  color: var(--blue);  background: var(--blue-dim); }
+.badge-green { border-color: var(--green); color: var(--green); background: rgba(38,201,122,0.1); }
+
+/* ── UPLOAD SCREEN ── */
+#uploadScreen {
+  min-height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+}
+
+.upload-hero {
+  text-align: center;
+  max-width: 560px;
+  margin-bottom: 36px;
+}
+
+.upload-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--blue);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.upload-headline {
+  font-size: clamp(32px, 5vw, 52px);
+  font-weight: 900;
+  line-height: 1.08;
+  letter-spacing: -1.5px;
+  color: var(--text);
+  margin-bottom: 14px;
+}
+.upload-headline em {
+  color: var(--blue);
+  font-style: normal;
+}
+
+.upload-sub {
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.7;
+}
+
+/* Drop zone */
+.drop-zone {
+  background: var(--glass);
+  border: 2px dashed var(--border2);
+  backdrop-filter: blur(12px);
+  border-radius: 16px;
+  padding: 48px 40px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  max-width: 480px;
+  width: 100%;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--blue);
+  background: var(--blue-dim);
+  box-shadow: 0 0 40px var(--blue-glow);
+}
+
+.drop-icon {
+  width: 56px; height: 56px;
+  margin: 0 auto 20px;
+  background: var(--glass);
+  border: 1px solid var(--border2);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 26px;
+}
+
+.drop-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+
+.drop-sub {
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.btn-upload {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--blue-dim);
+  color: var(--blue);
+  border: 1px solid var(--blue);
+  padding: 11px 28px;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s, box-shadow 0.15s;
+  backdrop-filter: blur(8px);
+}
+.btn-upload:hover {
+  background: rgba(96,180,240,0.25);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px var(--blue-glow);
+}
+.btn-upload:active { transform: translateY(0); }
+
+#fileInput { display: none; }
+
+.upload-features {
+  display: flex;
+  gap: 12px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.feat {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: 0.3px;
+}
+.feat-dot { width: 5px; height: 5px; background: var(--blue); border-radius: 50%; flex-shrink: 0; opacity: 0.6; }
+
+/* ── PROCESSING SCREEN ── */
+#processingScreen {
+  display: none;
+  min-height: calc(100vh - 56px);
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  text-align: center;
+  padding: 40px;
+}
+
+.spinner-ring {
+  width: 56px; height: 56px;
+  border: 3px solid var(--glass);
+  border-top-color: var(--blue);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.progress-track {
+  width: 320px; max-width: 90vw;
+  height: 4px;
+  background: var(--glass);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.progress-bar {
+  height: 100%;
+  background: var(--blue);
+  border-radius: 2px;
+  transition: width 0.25s ease;
+  width: 0%;
+}
+.progress-label {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+/* ── EDITOR SCREEN ── */
+#editorScreen { display: none; }
+
+/* App Toolbar */
+.app-toolbar {
+  background: rgba(10,18,30,0.65);
+  backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  padding: 0 16px;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  position: relative;
+  z-index: 10;
+}
+
+.tb-sep {
+  width: 1px; height: 22px;
+  background: var(--border);
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+.tb-label {
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+.btn {
+  background: var(--glass);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  transition: all 0.12s;
+  white-space: nowrap;
+  flex-shrink: 0;
+  backdrop-filter: blur(8px);
+}
+.btn:hover { background: var(--glass-hover); border-color: var(--border2); }
+
+.btn-primary {
+  background: var(--blue-dim);
+  border-color: var(--blue);
+  color: var(--blue);
+  font-weight: 700;
+}
+.btn-primary:hover { background: rgba(96,180,240,0.25); box-shadow: 0 2px 12px var(--blue-glow); }
+
+.btn-save {
+  background: var(--glass);
+  border-color: var(--gold);
+  color: var(--gold);
+  font-weight: 700;
+}
+.btn-save:hover { background: rgba(240,165,0,0.12); box-shadow: 0 2px 12px rgba(240,165,0,0.2); }
+
+.btn-load {
+  background: var(--glass);
+  border-color: rgba(255,255,255,0.3);
+  color: var(--text2);
+  font-weight: 700;
+}
+.btn-load:hover { background: var(--glass-hover); }
+
+.btn-export {
+  background: var(--green);
+  border-color: var(--green);
+  color: #0a1a12;
+  font-weight: 700;
+}
+.btn-export:hover { opacity: 0.88; box-shadow: 0 2px 12px rgba(38,201,122,0.3); }
+
+.btn-ghost { background: transparent; border-color: transparent; color: var(--text2); }
+.btn-ghost:hover { background: var(--glass); border-color: var(--border); color: var(--text); }
+
+.btn-danger { color: #ff7a7a; border-color: transparent; background: transparent; }
+.btn-danger:hover { border-color: rgba(255,80,80,0.5); color: #ff5555; background: rgba(255,60,60,0.1); }
+
+.mode-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 4px 12px;
+  border-radius: 20px;
+  border: 1px solid;
+  white-space: nowrap;
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  transition: all 0.12s;
+  font-family: 'Inter', sans-serif;
+}
+.mode-pill.edit { color: var(--blue); border-color: var(--blue); background: var(--blue-dim); }
+.mode-pill.view { color: var(--green); border-color: var(--green); background: rgba(38,201,122,0.08); }
+.mode-pill::before { content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+.page-indicator {
+  font-size: 11px;
+  color: var(--text2);
+  min-width: 48px;
+  text-align: center;
+  flex-shrink: 0;
+  font-weight: 600;
+}
+
+/* Page Nav Strip */
+.page-strip {
+  background: rgba(10,18,30,0.5);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 16px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  overflow-x: auto;
+  position: relative;
+  z-index: 10;
+}
+.page-strip::-webkit-scrollbar { height: 3px; }
+.page-strip::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.pg-btn {
+  background: transparent;
+  color: var(--text3);
+  border: 1px solid transparent;
+  padding: 3px 10px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 10px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: all 0.1s;
+  position: relative;
+  letter-spacing: 0.3px;
+}
+.pg-btn:hover { color: var(--text2); border-color: var(--border); background: var(--glass); }
+.pg-btn.active { background: var(--blue-dim); color: var(--blue); border-color: var(--blue); }
+.pg-btn.has-edits::after {
+  content: '';
+  position: absolute; top: 2px; right: 2px;
+  width: 4px; height: 4px;
+  background: var(--gold); border-radius: 50%;
+}
+.pg-btn.active.has-edits::after { background: white; }
+
+/* Hint bar */
+.hint-bar {
+  background: rgba(10,18,30,0.4);
+  border-bottom: 1px solid var(--border);
+  padding: 5px 16px;
+  font-size: 11px;
+  color: var(--text3);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  overflow-x: auto;
+  white-space: nowrap;
+  position: relative;
+  z-index: 10;
+}
+.hint-bar b { color: var(--text2); font-weight: 600; }
+.hint-sep { color: var(--border2); }
+
+/* Canvas area */
+.canvas-wrap {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 28px;
+  min-height: calc(100vh - 200px);
+  overflow: auto;
+  padding-bottom: 64px;
+  background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+  background-size: 24px 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.page-frame {
+  position: relative;
+  display: inline-block;
+  box-shadow: 0 20px 80px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.1);
+  border-radius: 3px;
+  background: white;
+  flex-shrink: 0;
+}
+.page-frame.mode-place { cursor: crosshair; }
+.page-frame.mode-view  { cursor: default; }
+
+.page-canvas { display: block; max-width: 100%; }
+
+/* Dim overlays — keep red (functional) */
+.dim-overlay {
+  position: absolute;
+  transform-origin: left center;
+  display: flex;
+  align-items: center;
+}
+.dim-label {
+  background: rgba(220, 38, 58, 0.91);
+  color: white;
+  font-family: 'Inter', sans-serif;
+  font-weight: 700;
+  border-radius: 3px;
+  white-space: nowrap;
+  border: 1.5px solid rgba(255,255,255,0.28);
+  box-shadow: 0 2px 10px rgba(0,0,0,0.4);
+  padding: 2px 7px;
+  line-height: 1.3;
+  user-select: none;
+  letter-spacing: 0.3px;
+}
+.dim-overlay.idle .dim-label {
+  cursor: grab;
+  transition: box-shadow 0.12s, background 0.12s;
+}
+.dim-overlay.idle .dim-label:hover {
+  background: rgba(255,55,70,0.97);
+  box-shadow: 0 0 0 2px rgba(255,100,120,0.5), 0 4px 12px rgba(0,0,0,0.45);
+}
+.dim-overlay.moving .dim-label {
+  cursor: grabbing;
+  background: rgba(220,38,58,0.5);
+  box-shadow: 0 0 0 2px var(--blue), 0 4px 16px rgba(0,0,0,0.5);
+}
+.dim-del {
+  background: rgba(0,0,0,0.8);
+  color: #ff8888;
+  border: none;
+  border-radius: 0 3px 3px 0;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 5px;
+  display: none;
+  line-height: 1.3;
+  font-family: 'Inter', sans-serif;
+  transition: color 0.1s;
+}
+.dim-del:hover { color: #ff3333; }
+.dim-overlay.idle:hover .dim-del { display: block; }
+
+/* Ghost */
+#ghost {
+  position: fixed;
+  pointer-events: none;
+  z-index: 9999;
+  transform-origin: left center;
+  display: none;
+  align-items: center;
+}
+#ghost .dim-label {
+  background: rgba(220,38,58,0.75);
+  border-color: rgba(255,255,255,0.6);
+  box-shadow: 0 0 0 2px var(--blue), 0 8px 24px rgba(0,0,0,0.6);
+  cursor: grabbing;
+}
+
+/* Status bar */
+.status-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  height: 32px;
+  background: rgba(10,18,30,0.8);
+  backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--text3);
+  z-index: 100;
+}
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(38,201,122,0.6);
+}
+#statusMsg { color: var(--text2); }
+#editTally  { margin-left: auto; color: var(--gold); font-weight: 600; }
+
+/* Filename chip */
+.filename-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--text2);
+  max-width: 200px;
+  overflow: hidden;
+}
+.filename-chip span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── MODAL ── */
+.modal-backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.65);
+  backdrop-filter: blur(8px);
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.modal {
+  background: rgba(26,35,50,0.95);
+  border: 1px solid var(--border2);
+  backdrop-filter: blur(20px);
+  border-radius: 16px;
+  padding: 24px;
+  width: 380px;
+  max-width: 100%;
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+}
+.modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.modal-header h3 {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.modal-icon {
+  width: 28px; height: 28px;
+  background: var(--blue-dim);
+  border: 1px solid var(--blue);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+.field { margin-bottom: 14px; }
+.field label {
+  display: block;
+  font-size: 10px;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+.field input[type=text] {
+  width: 100%;
+  background: rgba(10,18,30,0.6);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  transition: border-color 0.12s;
+}
+.field input[type=text]:focus {
+  outline: none;
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px var(--blue-dim);
+}
+.field-hint { font-size: 10px; color: var(--text3); margin-top: 5px; }
+.slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.slider-row input[type=range] {
+  flex: 1;
+  accent-color: var(--blue);
+  height: 4px;
+}
+.slider-val {
+  font-size: 12px;
+  color: var(--blue);
+  width: 44px;
+  text-align: right;
+  font-weight: 600;
+}
+.preview-box {
+  background: rgba(10,18,30,0.5);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 12px;
+  text-align: center;
+  margin-bottom: 16px;
+  min-height: 52px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.preview-val {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--red);
+  letter-spacing: 0.5px;
+}
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  align-items: center;
+}
+.modal-actions .spacer { flex: 1; }
+
+.rot-options {
+  display: flex;
+  gap: 6px;
+}
+.rot-opt {
+  flex: 1;
+  background: rgba(10,18,30,0.5);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  padding: 6px 0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  text-align: center;
+  transition: all 0.12s;
+}
+.rot-opt:hover { border-color: var(--border2); color: var(--text); background: var(--glass); }
+.rot-opt.selected { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); font-weight: 700; }
+
+@media (max-width: 600px) {
+  .canvas-wrap { padding: 10px; }
+  .modal { padding: 18px; }
+  .upload-headline { font-size: 28px; }
+}
+</style>
+</head>
+<body>
+
+<!-- SITE HEADER -->
+<header class="site-header">
+  <a class="site-logo" href="/">
+    <img src="static/logo.jpg" alt="PEI" /><span class="logo-pei">PEI</span><span class="logo-rest">tools.com</span>
+  </a>
+  <div class="header-divider"></div>
+  <div class="tool-name">Fab Sheet Editor</div>
+  <div class="header-right">
+    <span class="badge" id="headerBadge">No file loaded</span>
+    <span class="badge badge-green" style="display:none" id="editBadge">0 edits</span>
+  </div>
+</header>
+
+<!-- UPLOAD SCREEN -->
+<div id="uploadScreen">
+  <div class="upload-hero">
+    <div class="upload-eyebrow">KPS Fabrication Sheets</div>
+    <h1 class="upload-headline">Edit panel<br><em>dimensions</em><br>in seconds.</h1>
+    <p class="upload-sub">
+      Upload any KPS fab sheet PDF. Click to place red dimension labels,<br>
+      drag them anywhere, then export a clean annotated PDF.
+    </p>
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <div class="drop-icon">📄</div>
+    <div class="drop-title">Drop your PDF here</div>
+    <div class="drop-sub">
+      KPS Fabrication Sheet · Any order number<br>
+      All processing happens in your browser — nothing is uploaded
+    </div>
+    <button class="btn-upload" onclick="document.getElementById('fileInput').click()">
+      ⬆ Choose PDF
+    </button>
+    <input type="file" id="fileInput" accept=".pdf,application/pdf">
+  </div>
+
+  <div class="upload-features">
+    <div class="feat"><span class="feat-dot"></span>100% client-side</div>
+    <div class="feat"><span class="feat-dot"></span>No account required</div>
+    <div class="feat"><span class="feat-dot"></span>Supports all KPS sheets</div>
+    <div class="feat"><span class="feat-dot"></span>Red text overlay on export</div>
+  </div>
+</div>
+
+<!-- PROCESSING SCREEN -->
+<div id="processingScreen">
+  <div class="spinner-ring"></div>
+  <div style="font-size:16px;font-weight:700;color:var(--text)">Rendering pages…</div>
+  <div class="progress-track">
+    <div class="progress-bar" id="progressBar"></div>
+  </div>
+  <div class="progress-label" id="progressLabel">Preparing…</div>
+</div>
+
+<!-- EDITOR SCREEN -->
+<div id="editorScreen">
+
+  <div class="app-toolbar">
+    <div class="mode-pill edit" id="modePill" onclick="toggleMode()">Edit</div>
+
+    <div class="tb-sep"></div>
+
+    <span class="tb-label">Page</span>
+    <button class="btn btn-ghost" onclick="prevPage()">◀</button>
+    <span class="page-indicator" id="pageIndicator">1 / ?</span>
+    <button class="btn btn-ghost" onclick="nextPage()">▶</button>
+
+    <div class="tb-sep"></div>
+
+    <div class="filename-chip" id="filenameChip">
+      <span id="filenameText">—</span>
+    </div>
+
+    <div class="tb-sep"></div>
+
+    <button class="btn btn-danger" onclick="clearPageEdits()">Clear page</button>
+    <button class="btn btn-danger" onclick="clearAllEdits()">Clear all</button>
+
+    <div class="tb-sep" style="margin-left:auto;"></div>
+
+    <button class="btn btn-ghost" onclick="newFile()" title="Load a different PDF">↩ New file</button>
+    <button class="btn btn-save" onclick="saveSession()" title="Save all edits to a .kpssession file">💾 Save session</button>
+    <button class="btn btn-load" onclick="document.getElementById('sessionFileInput').click()" title="Load a previously saved session file">📂 Load session</button>
+    <input type="file" id="sessionFileInput" accept=".kpssession,application/json" style="display:none">
+    <button class="btn btn-export" onclick="exportPDF()">⬇ Export PDF</button>
+  </div>
+
+  <div class="page-strip" id="pageStrip"></div>
+
+  <div class="hint-bar">
+    <span><b>Place:</b> click drawing to add a red label</span>
+    <span class="hint-sep">·</span>
+    <span><b>Move:</b> click label → follows cursor → click to drop</span>
+    <span class="hint-sep">·</span>
+    <span><b>Edit:</b> double-click label</span>
+    <span class="hint-sep">·</span>
+    <span><b>Delete:</b> hover → ✕</span>
+    <span class="hint-sep">·</span>
+    <span><b>iPad — Move:</b> press &amp; drag label</span>
+    <span class="hint-sep">·</span>
+    <span><b>iPad — Edit:</b> double-tap label</span>
+    <span class="hint-sep">·</span>
+    <span><b>iPad — Zoom:</b> pinch two fingers</span>
+  </div>
+
+  <div class="canvas-wrap" id="canvasWrap">
+    <div class="page-frame mode-place" id="pageFrame">
+      <canvas class="page-canvas" id="pageCanvas"></canvas>
+      <div id="overlayRoot"></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Ghost -->
+<div id="ghost" style="display:none;">
+  <span class="dim-label" id="ghostLabel"></span>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-backdrop" id="modalBackdrop" style="display:none;">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-icon">✏</div>
+      <h3>Edit Dimension</h3>
+    </div>
+
+    <div class="field">
+      <label>Dimension Value</label>
+      <input type="text" id="dimInput" placeholder="e.g. 5'-2¼&quot; or 4'-6&quot;" autocomplete="off" spellcheck="false">
+      <div class="field-hint">Format: 5'-2¼" · 4' · 7'-11½" · tuck-in</div>
+    </div>
+
+    <div class="field">
+      <label>Text Size</label>
+      <div class="slider-row">
+        <input type="range" id="sizeInput" min="8" max="28" value="18" step="1" oninput="syncPreview()">
+        <span class="slider-val" id="sizeVal">18px</span>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Rotation</label>
+      <div class="rot-options" id="rotOptions">
+        <button class="rot-opt" data-val="-180" onclick="setRot(this)">-180°</button>
+        <button class="rot-opt" data-val="-90"  onclick="setRot(this)">-90°</button>
+        <button class="rot-opt selected" data-val="0" onclick="setRot(this)">0°</button>
+        <button class="rot-opt" data-val="90"   onclick="setRot(this)">90°</button>
+        <button class="rot-opt" data-val="180"  onclick="setRot(this)">180°</button>
+      </div>
+    </div>
+
+    <div class="preview-box">
+      <div class="preview-val" id="dimPreview">—</div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn btn-danger" id="modalDeleteBtn" onclick="deleteModalDim()" style="display:none;">Delete</button>
+      <div class="spacer"></div>
+      <button class="btn btn-ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveDim()">Save</button>
+    </div>
+  </div>
+</div>
+
+<!-- Status bar -->
+<div class="status-bar" id="statusBar" style="display:none;">
+  <div class="status-dot"></div>
+  <span id="statusMsg">Ready</span>
+  <span id="editTally"></span>
+</div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────
+//  PDF.JS WORKER
+// ─────────────────────────────────────────────────────────────────
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ─────────────────────────────────────────────────────────────────
+//  APP STATE
+// ─────────────────────────────────────────────────────────────────
+let pdfDoc        = null;
+let pdfBytes      = null;
+let pageImages    = [];
+let pageCount     = 0;
+let currentPage   = 0;
+let editMode      = true;
+let edits         = [];
+let editCounter   = 0;
+let movingDimId   = null;
+let pendingX = 0, pendingY = 0;
+let modalDimId    = null;
+let currentRot    = 0;
+let originalFileName = '';
+
+// ─────────────────────────────────────────────────────────────────
+//  UPLOAD / DRAG-DROP
+// ─────────────────────────────────────────────────────────────────
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (file && file.type === 'application/pdf') loadFile(file);
+  else alert('Please drop a PDF file.');
+});
+fileInput.addEventListener('change', e => {
+  if (e.target.files[0]) loadFile(e.target.files[0]);
+});
+
+async function loadFile(file) {
+  originalFileName = file.name.replace(/\.pdf$/i, '');
+  document.getElementById('uploadScreen').style.display     = 'none';
+  document.getElementById('processingScreen').style.display = 'flex';
+
+  const buffer = await file.arrayBuffer();
+  pdfBytes = buffer.slice(0);
+
+  pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
+  pageCount = pdfDoc.numPages;
+
+  edits = Array.from({ length: pageCount }, () => []);
+  pageImages = new Array(pageCount).fill(null);
+
+  for (let i = 0; i < pageCount; i++) {
+    setProgress(i, pageCount, `Rendering page ${i + 1} of ${pageCount}…`);
+    pageImages[i] = await renderPageToDataURL(i + 1);
+  }
+  setProgress(pageCount, pageCount, 'Done!');
+
+  await new Promise(r => setTimeout(r, 200));
+
+  document.getElementById('processingScreen').style.display = 'none';
+  document.getElementById('editorScreen').style.display     = 'block';
+  document.getElementById('statusBar').style.display        = 'flex';
+
+  buildPageStrip();
+  loadPage(0);
+
+  document.getElementById('headerBadge').textContent = `${pageCount} pages`;
+  document.getElementById('editBadge').style.display = 'inline';
+  document.getElementById('filenameText').textContent = originalFileName;
+}
+
+function setProgress(done, total, label) {
+  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+  document.getElementById('progressBar').style.width   = pct + '%';
+  document.getElementById('progressLabel').textContent = label;
+}
+
+async function renderPageToDataURL(pageNum) {
+  const page     = await pdfDoc.getPage(pageNum);
+  const viewport = page.getViewport({ scale: 2.5 });
+  const canvas   = document.createElement('canvas');
+  canvas.width   = viewport.width;
+  canvas.height  = viewport.height;
+  const ctx      = canvas.getContext('2d');
+  await page.render({ canvasContext: ctx, viewport }).promise;
+  return canvas.toDataURL('image/png');
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  PAGE NAV
+// ─────────────────────────────────────────────────────────────────
+function buildPageStrip() {
+  const strip = document.getElementById('pageStrip');
+  strip.innerHTML = '';
+  for (let i = 0; i < pageCount; i++) {
+    const btn = document.createElement('button');
+    btn.id        = `pgbtn_${i}`;
+    btn.className = 'pg-btn';
+    btn.textContent = `Pg ${i + 1}`;
+    btn.onclick   = () => loadPage(i);
+    strip.appendChild(btn);
+  }
+}
+
+function refreshStripButtons() {
+  for (let i = 0; i < pageCount; i++) {
+    const btn = document.getElementById(`pgbtn_${i}`);
+    if (!btn) continue;
+    btn.className = 'pg-btn'
+      + (i === currentPage    ? ' active'    : '')
+      + (edits[i]?.length > 0 ? ' has-edits' : '');
+  }
+}
+
+function loadPage(idx) {
+  if (movingDimId !== null) stopMoving();
+  resetZoom();
+  currentPage = idx;
+
+  const canvas = document.getElementById('pageCanvas');
+  const img    = new Image();
+  img.onload   = () => {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(img, 0, 0);
+    renderOverlays();
+  };
+  img.src = pageImages[idx];
+
+  document.getElementById('pageIndicator').textContent = `${idx + 1} / ${pageCount}`;
+  refreshStripButtons();
+}
+
+function prevPage() { if (currentPage > 0) loadPage(currentPage - 1); }
+function nextPage() { if (currentPage < pageCount - 1) loadPage(currentPage + 1); }
+
+// ─────────────────────────────────────────────────────────────────
+//  RENDER OVERLAYS
+// ─────────────────────────────────────────────────────────────────
+function renderOverlays() {
+  const root   = document.getElementById('overlayRoot');
+  root.innerHTML = '';
+  const canvas = document.getElementById('pageCanvas');
+  const dW     = canvas.clientWidth  || canvas.width;
+  const dH     = canvas.clientHeight || canvas.height;
+
+  (edits[currentPage] || []).forEach(dim => {
+    const wrap = document.createElement('div');
+    wrap.className = 'dim-overlay ' + (dim.id === movingDimId ? 'moving' : 'idle');
+    wrap.id        = `dim_${dim.id}`;
+    wrap.style.left      = (dim.x_pct * dW) + 'px';
+    wrap.style.top       = (dim.y_pct * dH) + 'px';
+    wrap.style.transform = `rotate(${dim.rotation || 0}deg)`;
+    if (dim.id === movingDimId) wrap.style.opacity = '0.2';
+
+    const label = document.createElement('span');
+    label.className  = 'dim-label';
+    label.textContent = dim.text;
+    label.style.fontSize = (dim.size || 18) + 'px';
+
+    label.addEventListener('click', e => {
+      e.stopPropagation();
+      if (movingDimId === dim.id) { stopMoving(); renderOverlays(); return; }
+      if (movingDimId !== null) { dropMoving(e.clientX, e.clientY); }
+      startMoving(dim.id, e);
+    });
+
+    label.addEventListener('dblclick', e => {
+      e.stopPropagation();
+      if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+      openEditModal(dim.id);
+    });
+
+    addTouchToLabel(label, dim.id);
+
+    const del = document.createElement('button');
+    del.className   = 'dim-del';
+    del.textContent = '✕';
+    del.title       = 'Delete';
+    del.addEventListener('click', e => {
+      e.stopPropagation();
+      if (movingDimId === dim.id) stopMoving();
+      removeDim(dim.id);
+    });
+
+    wrap.appendChild(label);
+    wrap.appendChild(del);
+    root.appendChild(wrap);
+  });
+
+  updateTally();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CLICK ON PAGE
+// ─────────────────────────────────────────────────────────────────
+let suppressNextClick = false;
+
+document.getElementById('pageFrame').addEventListener('click', function(e) {
+  if (suppressNextClick) { suppressNextClick = false; return; }
+  if (e.target.classList.contains('dim-label') ||
+      e.target.classList.contains('dim-del')) return;
+  if (movingDimId !== null) { dropMoving(e.clientX, e.clientY); return; }
+  if (!editMode) return;
+  const coords = clientToPagePct(e.clientX, e.clientY);
+  pendingX = coords.xPct;
+  pendingY = coords.yPct;
+  openNewModal();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  MOVING
+// ─────────────────────────────────────────────────────────────────
+function startMoving(dimId, e) {
+  movingDimId = dimId;
+  const dim = edits[currentPage].find(d => d.id === dimId);
+  const ghost = document.getElementById('ghost');
+  document.getElementById('ghostLabel').textContent  = dim.text;
+  document.getElementById('ghostLabel').style.fontSize = (dim.size || 18) + 'px';
+  ghost.style.transform = `rotate(${dim.rotation || 0}deg)`;
+  ghost.style.display   = 'flex';
+  positionGhost(e.clientX, e.clientY);
+  document.getElementById('pageFrame').style.cursor = 'none';
+  setStatus('Click to drop · Esc to cancel');
+  renderOverlays();
+}
+
+function dropMoving(cx, cy) {
+  if (movingDimId === null) return;
+  const { xPct, yPct } = clientToPagePct(cx, cy);
+  const dim = edits[currentPage].find(d => d.id === movingDimId);
+  if (dim) { dim.x_pct = xPct; dim.y_pct = yPct; }
+  stopMoving();
+  renderOverlays();
+}
+
+function stopMoving() {
+  movingDimId = null;
+  document.getElementById('ghost').style.display = 'none';
+  document.getElementById('pageFrame').style.cursor = editMode ? 'crosshair' : 'default';
+  setStatus(editMode ? 'Click on the drawing to place a dimension label' : 'View mode');
+}
+
+function positionGhost(cx, cy) {
+  const g = document.getElementById('ghost');
+  g.style.left = cx + 'px';
+  g.style.top  = cy + 'px';
+}
+
+document.addEventListener('mousemove', e => {
+  if (movingDimId !== null) positionGhost(e.clientX, e.clientY);
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') {
+    if (movingDimId !== null) { stopMoving(); renderOverlays(); return; }
+    closeModal();
+  }
+  if ((e.key === 'ArrowRight' || e.key === 'ArrowDown') && document.getElementById('modalBackdrop').style.display === 'none') nextPage();
+  if ((e.key === 'ArrowLeft'  || e.key === 'ArrowUp')   && document.getElementById('modalBackdrop').style.display === 'none') prevPage();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  COORDINATE HELPERS
+// ─────────────────────────────────────────────────────────────────
+function clientToPagePct(cx, cy) {
+  const canvas = document.getElementById('pageCanvas');
+  const rect   = canvas.getBoundingClientRect();
+  return {
+    xPct: (cx - rect.left) / rect.width,
+    yPct: (cy - rect.top)  / rect.height,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  MODAL
+// ─────────────────────────────────────────────────────────────────
+function openNewModal() {
+  modalDimId = null;
+  document.getElementById('dimInput').value = '';
+  document.getElementById('sizeInput').value = 18;
+  document.getElementById('sizeVal').textContent = '18px';
+  setRot(document.querySelector('.rot-opt[data-val="0"]'));
+  document.getElementById('modalDeleteBtn').style.display = 'none';
+  syncPreview();
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  setTimeout(() => document.getElementById('dimInput').focus(), 30);
+}
+
+function openEditModal(dimId) {
+  const dim = edits[currentPage].find(d => d.id === dimId);
+  if (!dim) return;
+  modalDimId = dimId;
+  document.getElementById('dimInput').value  = dim.text;
+  document.getElementById('sizeInput').value = dim.size || 18;
+  document.getElementById('sizeVal').textContent = (dim.size || 18) + 'px';
+  const rotBtn = document.querySelector(`.rot-opt[data-val="${dim.rotation || 0}"]`);
+  setRot(rotBtn || document.querySelector('.rot-opt[data-val="0"]'));
+  document.getElementById('modalDeleteBtn').style.display = 'inline-block';
+  syncPreview();
+  document.getElementById('modalBackdrop').style.display = 'flex';
+  setTimeout(() => { document.getElementById('dimInput').focus(); document.getElementById('dimInput').select(); }, 30);
+}
+
+function closeModal() {
+  document.getElementById('modalBackdrop').style.display = 'none';
+  modalDimId = null;
+}
+
+function setRot(btn) {
+  if (!btn) return;
+  document.querySelectorAll('.rot-opt').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+  currentRot = parseInt(btn.dataset.val);
+  syncPreview();
+}
+
+function syncPreview() {
+  document.getElementById('dimPreview').textContent = document.getElementById('dimInput').value || '—';
+  document.getElementById('sizeVal').textContent    = document.getElementById('sizeInput').value + 'px';
+}
+
+function saveDim() {
+  const text = document.getElementById('dimInput').value.trim();
+  if (!text) { document.getElementById('dimInput').focus(); return; }
+  const size     = parseInt(document.getElementById('sizeInput').value);
+  const rotation = currentRot;
+
+  if (modalDimId !== null) {
+    const dim = edits[currentPage].find(d => d.id === modalDimId);
+    if (dim) { dim.text = text; dim.size = size; dim.rotation = rotation; }
+  } else {
+    editCounter++;
+    edits[currentPage].push({ id: editCounter, x_pct: pendingX, y_pct: pendingY, text, size, rotation });
+  }
+
+  closeModal();
+  renderOverlays();
+  refreshStripButtons();
+}
+
+function deleteModalDim() {
+  if (modalDimId === null) return;
+  if (movingDimId === modalDimId) stopMoving();
+  removeDim(modalDimId);
+  closeModal();
+}
+
+function removeDim(dimId) {
+  edits[currentPage] = (edits[currentPage] || []).filter(d => d.id !== dimId);
+  renderOverlays();
+  refreshStripButtons();
+}
+
+document.getElementById('dimInput').addEventListener('input', syncPreview);
+document.getElementById('dimInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter')  saveDim();
+  if (e.key === 'Escape') closeModal();
+});
+document.getElementById('sizeInput').addEventListener('input', syncPreview);
+document.getElementById('modalBackdrop').addEventListener('click', function(e) {
+  if (e.target === this) closeModal();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  MODE TOGGLE
+// ─────────────────────────────────────────────────────────────────
+function toggleMode() {
+  if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+  editMode = !editMode;
+  const pill  = document.getElementById('modePill');
+  const frame = document.getElementById('pageFrame');
+  pill.textContent  = editMode ? 'Edit' : 'View';
+  pill.className    = 'mode-pill ' + (editMode ? 'edit' : 'view');
+  frame.className   = 'page-frame ' + (editMode ? 'mode-place' : 'mode-view');
+  setStatus(editMode ? 'Click on the drawing to place a dimension label' : 'View mode — click mode pill to switch back');
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  CLEAR
+// ─────────────────────────────────────────────────────────────────
+function clearPageEdits() {
+  const n = (edits[currentPage] || []).length;
+  if (n === 0) return;
+  if (!confirm(`Clear all ${n} label${n !== 1 ? 's' : ''} on page ${currentPage + 1}?`)) return;
+  if (movingDimId !== null) stopMoving();
+  edits[currentPage] = [];
+  renderOverlays();
+  refreshStripButtons();
+}
+
+function clearAllEdits() {
+  const total = edits.flat().length;
+  if (total === 0) return;
+  if (!confirm(`Clear all ${total} label${total !== 1 ? 's' : ''} across all pages?`)) return;
+  if (movingDimId !== null) stopMoving();
+  edits = Array.from({ length: pageCount }, () => []);
+  renderOverlays();
+  refreshStripButtons();
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  NEW FILE
+// ─────────────────────────────────────────────────────────────────
+function newFile() {
+  if (!confirm('Load a new file? All current edits will be lost.')) return;
+  if (movingDimId !== null) stopMoving();
+  pdfDoc = null; pdfBytes = null;
+  pageImages = []; pageCount = 0; edits = []; currentPage = 0;
+  document.getElementById('editorScreen').style.display  = 'none';
+  document.getElementById('statusBar').style.display     = 'none';
+  document.getElementById('editBadge').style.display     = 'none';
+  document.getElementById('headerBadge').textContent     = 'No file loaded';
+  document.getElementById('fileInput').value             = '';
+  document.getElementById('uploadScreen').style.display  = 'flex';
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  HELPERS
+// ─────────────────────────────────────────────────────────────────
+function updateTally() {
+  const total = edits.flat().length;
+  const badge = document.getElementById('editBadge');
+  badge.textContent = `${total} edit${total !== 1 ? 's' : ''}`;
+  const tally = document.getElementById('editTally');
+  tally.textContent = total > 0 ? `${total} dimension${total !== 1 ? 's' : ''} changed` : '';
+}
+
+function setStatus(msg) {
+  document.getElementById('statusMsg').textContent = msg;
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  PDF EXPORT
+// ─────────────────────────────────────────────────────────────────
+async function exportPDF() {
+  const total = edits.flat().length;
+  if (total === 0) {
+    alert('No dimension labels yet. Click on the drawing in Edit Mode to add some.');
+    return;
+  }
+  setStatus('Generating PDF…');
+
+  try {
+    const { PDFDocument, rgb, degrees, StandardFonts } = PDFLib;
+    const pdfLibDoc = await PDFDocument.load(pdfBytes);
+    const pages     = pdfLibDoc.getPages();
+    const font      = await pdfLibDoc.embedFont(StandardFonts.HelveticaBold);
+
+    for (let pi = 0; pi < pageCount; pi++) {
+      if (!edits[pi] || edits[pi].length === 0) continue;
+      const page = pages[pi];
+      const { width: pW, height: pH } = page.getSize();
+
+      edits[pi].forEach(dim => {
+        const pdfX = dim.x_pct * pW;
+        const pdfY = pH - (dim.y_pct * pH);
+        const fs   = (dim.size || 18) * 0.72;
+        const text = dim.text;
+        const tw   = font.widthOfTextAtSize(text, fs);
+        const th   = fs * 1.35;
+        const rot  = dim.rotation || 0;
+
+        const pad = 3;
+        page.drawRectangle({
+          x: pdfX - pad, y: pdfY - th + 2,
+          width: tw + pad * 2 + 2, height: th + pad,
+          color: rgb(0.86, 0.08, 0.14),
+          opacity: 1,
+          rotate: degrees(-rot),
+        });
+        page.drawText(text, {
+          x: pdfX, y: pdfY - th + 5,
+          size: fs,
+          font,
+          color: rgb(1, 1, 1),
+          rotate: degrees(-rot),
+        });
+      });
+    }
+
+    const outBytes = await pdfLibDoc.save();
+    const blob = new Blob([outBytes], { type: 'application/pdf' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `${originalFileName}_Edited.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setStatus(`✅ Exported "${originalFileName}_Edited.pdf" with ${total} dimension${total !== 1 ? 's' : ''}`);
+  } catch (err) {
+    console.error(err);
+    setStatus('❌ Export failed — ' + err.message);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+//  SAVE / LOAD SESSION
+// ─────────────────────────────────────────────────────────────────
+function saveSession() {
+  const total = edits.flat().length;
+  if (total === 0) { alert('No edits to save yet. Add some dimension labels first.'); return; }
+  const session = { version: 1, fileName: originalFileName, pageCount, savedAt: new Date().toISOString(), editCounter, edits };
+  const blob = new Blob([JSON.stringify(session, null, 2)], { type: 'application/json' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = `${originalFileName}.kpssession`; a.click();
+  URL.revokeObjectURL(url);
+  setStatus(`✅ Session saved — "${originalFileName}.kpssession"`);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('sessionFileInput').addEventListener('change', function(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function(ev) {
+      try {
+        const session = JSON.parse(ev.target.result);
+        if (!session.edits || !Array.isArray(session.edits)) { alert('Invalid session file.'); return; }
+        if (session.fileName && session.fileName !== originalFileName) {
+          if (!confirm(`Session from "${session.fileName}" — load into "${originalFileName}"?`)) return;
+        }
+        if (session.pageCount && session.pageCount !== pageCount) {
+          if (!confirm(`Page count mismatch (${session.pageCount} vs ${pageCount}). Load anyway?`)) return;
+        }
+        edits = Array.from({ length: pageCount }, (_, i) => session.edits[i] || []);
+        const maxId = edits.flat().reduce((m, d) => Math.max(m, d.id || 0), 0);
+        editCounter = Math.max(editCounter, maxId + 1);
+        if (movingDimId !== null) stopMoving();
+        renderOverlays();
+        refreshStripButtons();
+        const total = edits.flat().length;
+        const savedAt = session.savedAt ? new Date(session.savedAt).toLocaleString() : 'unknown';
+        setStatus(`✅ Loaded ${total} edit${total !== 1 ? 's' : ''} from ${savedAt}`);
+      } catch (err) { alert('Could not read session file: ' + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+});
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('editorScreen').style.display !== 'none') renderOverlays();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  TOUCH SUPPORT — PINCH ZOOM + LABEL DRAG
+// ─────────────────────────────────────────────────────────────────
+
+// ── Pinch-to-Zoom ────────────────────────────────────────────────
+let pinchZoom      = 1;
+let pinchStartZoom = 1;
+let pinchStartDist = 0;
+let pinching       = false;
+let zoomBaseW      = 0;
+let zoomBaseH      = 0;
+
+function resetZoom() {
+  const canvas = document.getElementById('pageCanvas');
+  const frame  = document.getElementById('pageFrame');
+  canvas.style.width = canvas.style.height = canvas.style.maxWidth = '';
+  frame.style.width  = frame.style.height  = '';
+  pinchZoom = 1;
+  zoomBaseW = zoomBaseH = 0;
+}
+
+function applyZoom(newZoom) {
+  pinchZoom = Math.min(6, Math.max(0.25, newZoom));
+  const canvas = document.getElementById('pageCanvas');
+  const frame  = document.getElementById('pageFrame');
+  if (zoomBaseW === 0) { zoomBaseW = canvas.clientWidth; zoomBaseH = canvas.clientHeight; }
+  const W = Math.round(zoomBaseW * pinchZoom);
+  const H = Math.round(zoomBaseH * pinchZoom);
+  canvas.style.width    = W + 'px';
+  canvas.style.height   = H + 'px';
+  canvas.style.maxWidth = 'none';
+  frame.style.width     = W + 'px';
+  frame.style.height    = H + 'px';
+  renderOverlays();
+}
+
+const canvasWrapEl = document.getElementById('canvasWrap');
+
+canvasWrapEl.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    pinching = true;
+    if (zoomBaseW === 0) {
+      const canvas = document.getElementById('pageCanvas');
+      zoomBaseW = canvas.clientWidth;
+      zoomBaseH = canvas.clientHeight;
+    }
+    pinchStartDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    pinchStartZoom = pinchZoom;
+    e.preventDefault();
+  }
+}, { passive: false });
+
+canvasWrapEl.addEventListener('touchmove', e => {
+  if (pinching && e.touches.length === 2) {
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    applyZoom(pinchStartZoom * (dist / pinchStartDist));
+  }
+}, { passive: false });
+
+canvasWrapEl.addEventListener('touchend', e => {
+  if (e.touches.length < 2) pinching = false;
+}, { passive: true });
+
+
+// ── Touch Label Drag ─────────────────────────────────────────────
+let ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
+const DRAG_THRESH = 12; // px movement before committing to drag
+let lastTapDimId  = null;
+let lastTapTime   = 0;
+
+function addTouchToLabel(label, dimId) {
+  label.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    e.preventDefault();    // stop page scroll when touching a label
+    e.stopPropagation();
+    const t = e.touches[0];
+    ts = { dimId, startX: t.clientX, startY: t.clientY, dragging: false, lastX: t.clientX, lastY: t.clientY };
+  }, { passive: false });
+}
+
+// One touchmove handler on document — fires for any 1-finger drag
+document.addEventListener('touchmove', e => {
+  if (e.touches.length !== 1 || ts.dimId === null) return;
+  const t = e.touches[0];
+
+  if (!ts.dragging) {
+    // Commit to drag once finger moves enough
+    if (Math.hypot(t.clientX - ts.startX, t.clientY - ts.startY) > DRAG_THRESH) {
+      ts.dragging = true;
+      if (movingDimId !== ts.dimId) {
+        if (movingDimId !== null) stopMoving();
+        startMoving(ts.dimId, { clientX: t.clientX, clientY: t.clientY });
+      }
+    }
+  }
+
+  if (ts.dragging) {
+    e.preventDefault(); // suppress page scroll while dragging a label
+    ts.lastX = t.clientX;
+    ts.lastY = t.clientY;
+    positionGhost(t.clientX, t.clientY);
+  }
+}, { passive: false });
+
+// Drop on finger lift
+document.addEventListener('touchend', e => {
+  if (ts.dimId === null) return;
+
+  if (ts.dragging) {
+    // Real drag — drop label at finger release point
+    dropMoving(ts.lastX, ts.lastY);
+    suppressNextClick = true; // prevent canvas click from also firing
+    setTimeout(() => { suppressNextClick = false; }, 500);
+
+  } else {
+    // Quick tap — detect double-tap for edit modal, single tap for cursor-follow
+    const now = Date.now();
+    if (now - lastTapTime < 350 && lastTapDimId === ts.dimId) {
+      // Double-tap → open edit modal
+      if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+      openEditModal(ts.dimId);
+      lastTapTime = 0; lastTapDimId = null;
+    } else {
+      // Single tap → toggle cursor-follow mode (same as desktop click)
+      lastTapTime = now; lastTapDimId = ts.dimId;
+      if (movingDimId === ts.dimId) {
+        stopMoving(); renderOverlays();
+      } else {
+        if (movingDimId !== null) dropMoving(ts.startX, ts.startY);
+        startMoving(ts.dimId, { clientX: ts.startX, clientY: ts.startY });
+      }
+    }
+  }
+
+  ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
+}, { passive: true });
+</script>
+</body>
+</html>
+        setStatus(`✅ Loaded ${total} edit${total !== 1 ? 's' : ''} from ${savedAt}`);
+      } catch (err) { alert('Could not read session file: ' + err.message); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  });
+});
+
+window.addEventListener('resize', () => {
+  if (document.getElementById('editorScreen').style.display !== 'none') renderOverlays();
+});
+
+// ─────────────────────────────────────────────────────────────────
+//  TOUCH SUPPORT — PINCH ZOOM + LABEL DRAG
+// ─────────────────────────────────────────────────────────────────
+
+// ── Pinch-to-Zoom ────────────────────────────────────────────────
+let pinchZoom      = 1;
+let pinchStartZoom = 1;
+let pinchStartDist = 0;
+let pinching       = false;
+let zoomBaseW      = 0;
+let zoomBaseH      = 0;
+
+function resetZoom() {
+  const canvas = document.getElementById('pageCanvas');
+  const frame  = document.getElementById('pageFrame');
+  if (!canvas || !frame) return;
+  canvas.style.width = canvas.style.height = canvas.style.maxWidth = '';
+  frame.style.width  = frame.style.height  = '';
+  pinchZoom = 1;
+  zoomBaseW = zoomBaseH = 0;
+}
+
+function applyZoom(newZoom) {
+  pinchZoom = Math.min(6, Math.max(0.25, newZoom));
+  const canvas = document.getElementById('pageCanvas');
+  const frame  = document.getElementById('pageFrame');
+  if (zoomBaseW === 0) { zoomBaseW = canvas.clientWidth; zoomBaseH = canvas.clientHeight; }
+  const W = Math.round(zoomBaseW * pinchZoom);
+  const H = Math.round(zoomBaseH * pinchZoom);
+  canvas.style.width    = W + 'px';
+  canvas.style.height   = H + 'px';
+  canvas.style.maxWidth = 'none';
+  frame.style.width     = W + 'px';
+  frame.style.height    = H + 'px';
+  renderOverlays();
+}
+
+const canvasWrapEl = document.getElementById('canvasWrap');
+
+canvasWrapEl.addEventListener('touchstart', e => {
+  if (e.touches.length === 2) {
+    pinching = true;
+    if (zoomBaseW === 0) {
+      const canvas = document.getElementById('pageCanvas');
+      zoomBaseW = canvas.clientWidth;
+      zoomBaseH = canvas.clientHeight;
+    }
+    pinchStartDist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    pinchStartZoom = pinchZoom;
+    e.preventDefault();
+  }
+}, { passive: false });
+
+canvasWrapEl.addEventListener('touchmove', e => {
+  if (pinching && e.touches.length === 2) {
+    e.preventDefault();
+    const dist = Math.hypot(
+      e.touches[0].clientX - e.touches[1].clientX,
+      e.touches[0].clientY - e.touches[1].clientY
+    );
+    applyZoom(pinchStartZoom * (dist / pinchStartDist));
+  }
+}, { passive: false });
+
+canvasWrapEl.addEventListener('touchend', e => {
+  if (e.touches.length < 2) pinching = false;
+}, { passive: true });
+
+
+// ── Touch Label Drag ─────────────────────────────────────────────
+let ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
+const DRAG_THRESH = 12;
+let lastTapDimId  = null;
+let lastTapTime   = 0;
+
+function addTouchToLabel(label, dimId) {
+  label.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const t = e.touches[0];
+    ts = { dimId, startX: t.clientX, startY: t.clientY, dragging: false, lastX: t.clientX, lastY: t.clientY };
+  }, { passive: false });
+}
+
+document.addEventListener('touchmove', e => {
+  if (e.touches.length !== 1 || ts.dimId === null) return;
+  const t = e.touches[0];
+  if (!ts.dragging) {
+    if (Math.hypot(t.clientX - ts.startX, t.clientY - ts.startY) > DRAG_THRESH) {
+      ts.dragging = true;
+      if (movingDimId !== ts.dimId) {
+        if (movingDimId !== null) stopMoving();
+        startMoving(ts.dimId, { clientX: t.clientX, clientY: t.clientY });
+      }
+    }
+  }
+  if (ts.dragging) {
+    e.preventDefault();
+    ts.lastX = t.clientX;
+    ts.lastY = t.clientY;
+    positionGhost(t.clientX, t.clientY);
+  }
+}, { passive: false });
+
+document.addEventListener('touchend', e => {
+  if (ts.dimId === null) return;
+  if (ts.dragging) {
+    dropMoving(ts.lastX, ts.lastY);
+    suppressNextClick = true;
+    setTimeout(() => { suppressNextClick = false; }, 500);
+  } else {
+    const now = Date.now();
+    if (now - lastTapTime < 350 && lastTapDimId === ts.dimId) {
+      if (movingDimId !== null) { stopMoving(); renderOverlays(); }
+      openEditModal(ts.dimId);
+      lastTapTime = 0; lastTapDimId = null;
+    } else {
+      lastTapTime = now; lastTapDimId = ts.dimId;
+      if (movingDimId === ts.dimId) {
+        stopMoving(); renderOverlays();
+      } else {
+        if (movingDimId !== null) dropMoving(ts.startX, ts.startY);
+        startMoving(ts.dimId, { clientX: ts.startX, clientY: ts.startY });
+      }
+    }
+  }
+  ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
+}, { passive: true });
+</script>
+</body>
+</html>
+      // Single tap — toggle cursor-follow mode
+      lastTapTime = now; lastTapDimId = ts.dimId;
+      if (movingDimId === ts.dimId) {
+        stopMoving(); renderOverlays();
+      } else {
+        if (movingDimId !== null) dropMoving(ts.startX, ts.startY);
+        startMoving(ts.dimId, { clientX: ts.startX, clientY: ts.startY });
+      }
+    }
+  }
+  ts = { dimId: null, startX: 0, startY: 0, dragging: false, lastX: 0, lastY: 0 };
+}, { passive: true });
+</script>
+</body>
+</html>
+>
+</html>
