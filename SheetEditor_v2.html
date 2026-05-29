@@ -765,6 +765,21 @@ header, #uploadScreen, #processingScreen, #editorScreen,
 .rot-opt:hover { border-color: var(--border2); color: var(--text); background: var(--glass); }
 .rot-opt.selected { background: var(--blue-dim); border-color: var(--blue); color: var(--blue); font-weight: 700; }
 
+.preset-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.preset-btn {
+  background: var(--glass);
+  border: 1.5px solid var(--border);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 6px 14px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+.preset-btn:hover { background: rgba(219,21,35,0.12); border-color: #DB1523; color: #DB1523; }
+
 @media (max-width: 600px) {
   .canvas-wrap { padding: 10px; }
   .modal { padding: 18px; }
@@ -943,6 +958,13 @@ header, #uploadScreen, #processingScreen, #editorScreen,
     <div class="modal-header">
       <div class="modal-icon">✏</div>
       <h3>Edit Dimension</h3>
+    </div>
+
+    <div class="field">
+      <label>Quick Presets</label>
+      <div class="preset-row">
+        <button class="btn preset-btn" onclick="applyPreset('MAKE PANEL', 28)">Make Panel</button>
+      </div>
     </div>
 
     <div class="field">
@@ -1317,6 +1339,13 @@ function setRot(btn) {
 function syncPreview() {
   document.getElementById('dimPreview').textContent = document.getElementById('dimInput').value || '—';
   document.getElementById('sizeVal').textContent    = document.getElementById('sizeInput').value + 'px';
+}
+
+function applyPreset(text, size) {
+  document.getElementById('dimInput').value = text;
+  document.getElementById('sizeInput').value = size;
+  document.getElementById('sizeVal').textContent = size + 'px';
+  syncPreview();
 }
 
 function saveDim() {
