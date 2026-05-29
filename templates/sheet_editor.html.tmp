@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Fab Sheet Editor — PEI Tools</title>
-<link rel="icon" type="image/png" href="/static/favicon.png">
+<link rel="icon" type="image/png" href="static/favicon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -47,7 +47,7 @@ body {
 body::before {
   content: '';
   position: fixed; inset: 0;
-  background-image: url('/static/bg.jpg');
+  background-image: url('static/bg.jpg');
   background-size: cover;
   background-position: center;
   filter: brightness(0.18) saturate(0.6);
@@ -820,7 +820,7 @@ header, #uploadScreen, #processingScreen, #editorScreen,
 <!-- SITE HEADER -->
 <header class="site-header">
   <a class="site-logo" href="/">
-    <img src="/static/logo.jpg" alt="PEI" /><span class="logo-pei">PEI</span><span class="logo-rest">tools.com</span>
+    <img src="static/logo.jpg" alt="PEI" /><span class="logo-pei">PEI</span><span class="logo-rest">tools.com</span>
   </a>
   <div class="header-divider"></div>
   <div class="tool-name">Fab Sheet Editor</div>

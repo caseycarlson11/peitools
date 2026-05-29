@@ -1488,15 +1488,30 @@ async function doExport(mode) {
         const rot  = dim.rotation || 0;
 
         const pad = 3;
-        const tx = pdfX;
-        const ty = pdfY - th + 5;
-        // Compute rect anchor so both rect and text share the same rotation pivot
+        const labelW = tw + pad * 2 + 2;
+        const labelH = th + pad;
+
+        // CSS rotates around the element CENTER (transform-origin 50% 50%).
+        // pdfX/pdfY is the top-left corner of the div in PDF space (PDF y-axis points up).
+        const cx = pdfX + labelW / 2;
+        const cy = pdfY - labelH / 2;
+
+        // pdf-lib rotates each shape around its own anchor point.
+        // Back-compute the anchor so the shape visually rotates around (cx, cy).
         const θ = -rot * Math.PI / 180;
-        const rectX = tx - (pad * Math.cos(θ) - 3 * Math.sin(θ));
-        const rectY = ty - (pad * Math.sin(θ) + 3 * Math.cos(θ));
+        const cosT = Math.cos(θ), sinT = Math.sin(θ);
+
+        // Rect anchor (bottom-left): solve so center after rotation = (cx, cy)
+        const rectX = cx - cosT * labelW / 2 + sinT * labelH / 2;
+        const rectY = cy - sinT * labelW / 2 - cosT * labelH / 2;
+
+        // Text anchor (baseline-left): solve so text center after rotation = (cx, cy)
+        const tx = cx - cosT * tw / 2 + sinT * th / 2;
+        const ty = cy - sinT * tw / 2 - cosT * th / 2;
+
         page.drawRectangle({
           x: rectX, y: rectY,
-          width: tw + pad * 2 + 2, height: th + pad,
+          width: labelW, height: labelH,
           color: rgb(0.86, 0.08, 0.14),
           opacity: 1,
           rotate: degrees(-rot),
