@@ -290,6 +290,17 @@ async function selectFile(fname) {
   }
 }
 
+function getSafeRenderScale(pageW, pageH) {
+  const MAX_PIXELS = 8_000_000;
+  const MAX_DIM    = 4096;
+  const dpr        = Math.min(window.devicePixelRatio || 1, 2);
+  let scale        = (window.innerWidth * dpr) / pageW;
+  if (pageW * scale * pageH * scale > MAX_PIXELS) scale = Math.sqrt(MAX_PIXELS / (pageW * pageH));
+  if (pageW * scale > MAX_DIM) scale = MAX_DIM / pageW;
+  if (pageH * scale > MAX_DIM) scale = MAX_DIM / pageH;
+  return Math.max(scale, 0.5);
+}
+
 async function openCompassFromCanvas(thumbnailCanvas) {
   const granted = await requestOrientationPermission();
   if (!granted) return;
@@ -298,9 +309,28 @@ async function openCompassFromCanvas(thumbnailCanvas) {
   document.getElementById('compassStatus').textContent = '⏳ Loading…';
 
   const compassCanvas = document.getElementById('compassCanvas');
-  compassCanvas.width  = thumbnailCanvas.width;
-  compassCanvas.height = thumbnailCanvas.height;
-  compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
+
+  if (pdfDoc) {
+    try {
+      const pageEl  = thumbnailCanvas.closest('.page-thumb');
+      const pageNum = pageEl ? Array.from(pageEl.parentNode.children).indexOf(pageEl) + 1 : 1;
+      const page    = await pdfDoc.getPage(pageNum);
+      const baseVP  = page.getViewport({ scale: 1 });
+      const scale   = getSafeRenderScale(baseVP.width, baseVP.height);
+      const vp      = page.getViewport({ scale });
+      compassCanvas.width  = vp.width;
+      compassCanvas.height = vp.height;
+      await page.render({ canvasContext: compassCanvas.getContext('2d'), viewport: vp }).promise;
+    } catch(e) {
+      compassCanvas.width  = thumbnailCanvas.width;
+      compassCanvas.height = thumbnailCanvas.height;
+      compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
+    }
+  } else {
+    compassCanvas.width  = thumbnailCanvas.width;
+    compassCanvas.height = thumbnailCanvas.height;
+    compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
+  }
 
   startCompass();
 }
@@ -322,10 +352,13 @@ async function requestOrientationPermission() {
   return true;
 }
 
+let panX = 0, panY = 0, panStartX = 0, panStartY = 0, panBaseX = 0, panBaseY = 0, isPanning = false;
+
 function startCompass() {
   lockedAlpha  = null;
   currentScale = 1;
   compassRot   = 0;
+  panX = 0; panY = 0;
   applyTransform();
   document.getElementById('compassScreen').classList.add('active');
   document.getElementById('compassStatus').textContent = '🔄 Rotate to orient, then Lock';
@@ -339,9 +372,9 @@ function startCompass() {
   }
 
   const screen = document.getElementById('compassScreen');
-  screen.addEventListener('touchstart', onPinchStart, { passive: false });
-  screen.addEventListener('touchmove',  onPinchMove,  { passive: false });
-  screen.addEventListener('touchend',   onPinchEnd,   { passive: false });
+  screen.addEventListener('touchstart', onTouchStart, { passive: false });
+  screen.addEventListener('touchmove',  onTouchMove,  { passive: false });
+  screen.addEventListener('touchend',   onTouchEnd,   { passive: false });
 }
 
 function exitCompass() {
@@ -349,9 +382,9 @@ function exitCompass() {
   window.removeEventListener('deviceorientationabsolute', onOrientation, true);
   window.removeEventListener('deviceorientation', onOrientation, true);
   const screen = document.getElementById('compassScreen');
-  screen.removeEventListener('touchstart', onPinchStart);
-  screen.removeEventListener('touchmove',  onPinchMove);
-  screen.removeEventListener('touchend',   onPinchEnd);
+  screen.removeEventListener('touchstart', onTouchStart);
+  screen.removeEventListener('touchmove',  onTouchMove);
+  screen.removeEventListener('touchend',   onTouchEnd);
 }
 
 function onOrientation(e) {
@@ -382,23 +415,42 @@ function lockCompass() {
 
 function applyTransform() {
   document.getElementById('compassContent').style.transform =
-    `translate(-50%, -50%) rotate(${compassRot}deg) scale(${currentScale})`;
+    `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) rotate(${compassRot}deg) scale(${currentScale})`;
 }
 
 function dist(e) {
   return Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
 }
-function onPinchStart(e) {
-  if (e.touches.length === 2) { e.preventDefault(); pinchDist0 = dist(e); pinchScale0 = currentScale; }
+
+function onTouchStart(e) {
+  e.preventDefault();
+  if (e.touches.length === 2) {
+    isPanning = false;
+    pinchDist0 = dist(e); pinchScale0 = currentScale;
+  } else if (e.touches.length === 1) {
+    isPanning = true;
+    panStartX = e.touches[0].clientX; panStartY = e.touches[0].clientY;
+    panBaseX = panX; panBaseY = panY;
+  }
 }
-function onPinchMove(e) {
-  if (e.touches.length === 2 && pinchDist0) {
-    e.preventDefault();
-    currentScale = Math.min(6, Math.max(0.3, pinchScale0 * dist(e) / pinchDist0));
+
+function onTouchMove(e) {
+  e.preventDefault();
+  if (e.touches.length === 2 && pinchDist0 !== null) {
+    isPanning = false;
+    currentScale = Math.min(8, Math.max(0.3, pinchScale0 * dist(e) / pinchDist0));
+    applyTransform();
+  } else if (e.touches.length === 1 && isPanning) {
+    panX = panBaseX + (e.touches[0].clientX - panStartX);
+    panY = panBaseY + (e.touches[0].clientY - panStartY);
     applyTransform();
   }
 }
-function onPinchEnd(e) { if (e.touches.length < 2) pinchDist0 = null; }
+
+function onTouchEnd(e) {
+  if (e.touches.length < 2) pinchDist0 = null;
+  if (e.touches.length === 0) isPanning = false;
+}
 </script>
 </body>
 </html>
