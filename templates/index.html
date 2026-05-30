@@ -99,9 +99,22 @@
     .btn-icon svg { width: 20px; height: 20px; }
     .arrow { display: flex; transition: transform 0.2s; }
     .arrow svg { width: 20px; height: 20px; stroke: white; fill: none; stroke-width: 2.5; }
+
+    .logout-link {
+      position: fixed; top: 14px; right: 16px; z-index: 10;
+      color: rgba(255,255,255,0.4); text-decoration: none;
+      font-size: 0.75rem; font-weight: 600;
+      padding: 5px 12px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.15);
+      backdrop-filter: blur(8px);
+      background: rgba(255,255,255,0.05);
+      transition: all 0.15s;
+    }
+    .logout-link:hover { color: white; border-color: rgba(255,255,255,0.3); }
   </style>
 </head>
 <body>
+  <a class="logout-link" href="/logout">Sign out</a>
   <div class="bg"></div>
   <div class="overlay"></div>
   <div class="content">

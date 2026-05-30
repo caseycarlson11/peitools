@@ -1,4 +1,6 @@
-from flask import Flask, send_from_directory, render_template, request, jsonify, session, abort
+from flask import Flask, send_from_directory, render_template, request, jsonify, session, abort, redirect, url_for
+from werkzeug.security import generate_password_hash, check_password_hash
+from functools import wraps
 import os, re
 
 app = Flask(__name__)
@@ -9,6 +11,66 @@ JOBS_DIR = os.path.join(os.path.dirname(__file__), "jobs")
 os.makedirs(JOBS_DIR, exist_ok=True)
 
 ADMIN_PASSWORD = "PEI2024"
+
+# ── User accounts ─────────────────────────────────────────────
+_USERS_RAW = {
+    "dennisa@pacificerectors.com":  "Andersen4460",
+    "armandor@pacificerectors.com": "Rivera4460",
+    "arturov@pacificerectors.com":  "Vargas4460",
+    "caseyc@pacificerectors.com":   "Carlson4460",
+    "davida@pacificerectors.com":   "Arias4460",
+    "elim@pacificerectors.com":     "Martinez4460",
+    "erica@pacificerectors.com":    "Andersen4460",
+    "glenw@pacificerectors.com":    "Wheeler4460",
+    "gustavoh@pacificerectors.com": "Hernandez4460",
+    "javierm@pacificerectors.com":  "Arevalo4460",
+    "juanc@pacificerectors.com":    "Camarena4460",
+    "luism@pacificerectors.com":    "Marure4460",
+    "robinp@pacificerectors.com":   "Pederson4460",
+    "stevens@pacificerectors.com":  "Sousa4460",
+    "thomasr@pacificerectors.com":  "Rowley4460",
+    "tommyp@pacificerectors.com":   "Pearman4460",
+    "miket@pacificerectors.com":    "Thomas4460",
+    "jeffy@pacificerectors.com":    "Young4460",
+    "jasonw@pacificerectors.com":   "Walters4460",
+    "dalynb@pacificerectors.com":   "Bush4460",
+    "thomasm@pacificerectors.com":  "McClelland4460",
+    "fritzb@pacificerectors.com":   "Bowen4460",
+    "erics@pacificerectors.com":    "Sidener4460",
+    "debid@pacificerectors.com":    "Dunkin4460",
+    "kellyl@pacificerectors.com":   "Lee4460",
+    "kishag@pacificerectors.com":   "Gann4460",
+    "jennab@pacificerectors.com":   "Bearden4460",
+    "meganf@pacificerectors.com":   "Friery4460",
+}
+USERS = {email: generate_password_hash(pwd) for email, pwd in _USERS_RAW.items()}
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if not session.get("user"):
+            return redirect(url_for("login", next=request.path))
+        return f(*args, **kwargs)
+    return decorated
+
+# ── Login / Logout ─────────────────────────────────────────────
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = None
+    if request.method == "POST":
+        email = request.form.get("email", "").strip().lower()
+        password = request.form.get("password", "")
+        hashed = USERS.get(email)
+        if hashed and check_password_hash(hashed, password):
+            session["user"] = email
+            return redirect(request.args.get("next") or url_for("index"))
+        error = "Incorrect email or password."
+    return render_template("login.html", error=error)
+
+@app.route("/logout")
+def logout():
+    session.pop("user", None)
+    return redirect(url_for("login"))
 
 CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets"]
 IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
@@ -22,15 +84,18 @@ def safe_join(*parts):
 
 # ── Landing page ─────────────────────────────────────────────
 @app.route("/")
+@login_required
 def index():
     return render_template("index.html")
 
 # ── Existing tools ───────────────────────────────────────────
 @app.route("/sheet_editor")
+@login_required
 def sheet_editor():
     return render_template("sheet_editor.html")
 
 @app.route("/sheet_extractor", methods=["GET", "POST"])
+@login_required
 def sheet_extractor():
     if request.method == "GET":
         return render_template("panel_sheet_mapper.html")
@@ -110,14 +175,17 @@ def sheet_extractor():
 
 # ── Blueprint viewer (public) ────────────────────────────────
 @app.route("/blueprints")
+@login_required
 def blueprints():
     return render_template("blueprints.html")
 
 @app.route("/field-compass")
+@login_required
 def field_compass():
     return render_template("field_compass.html")
 
 @app.route("/api/jobs")
+@login_required
 def api_jobs():
     if not os.path.isdir(JOBS_DIR):
         return jsonify([])
@@ -126,6 +194,7 @@ def api_jobs():
     return jsonify(jobs)
 
 @app.route("/api/jobs/<path:job>")
+@login_required
 def api_job_files(job):
     job_path = safe_join(job)
     if not os.path.isdir(job_path):
@@ -141,6 +210,7 @@ def api_job_files(job):
     return jsonify(result)
 
 @app.route("/api/jobs/<path:job>/all-files")
+@login_required
 def api_job_all_files(job):
     """Return all viewable files (PDF + images) across all categories."""
     job_path = safe_join(job)
@@ -155,103 +225,4 @@ def api_job_all_files(job):
                 if ext in IMAGE_EXTS:
                     files.append({"name": f, "category": cat,
                                   "url": f"/files/{job}/{cat}/{f}",
-                                  "type": "pdf" if ext == ".pdf" else "image"})
-    return jsonify(files)
-
-@app.route("/files/<path:filepath>")
-def serve_file(filepath):
-    full = safe_join(filepath)
-    directory = os.path.dirname(full)
-    filename  = os.path.basename(full)
-    return send_from_directory(directory, filename)
-
-# ── Admin (password protected) ───────────────────────────────
-@app.route("/admin", methods=["GET"])
-def admin():
-    return render_template("admin.html")
-
-@app.route("/admin/login", methods=["POST"])
-def admin_login():
-    data = request.get_json()
-    if data and data.get("password") == ADMIN_PASSWORD:
-        session["admin"] = True
-        return jsonify({"ok": True})
-    return jsonify({"ok": False, "error": "Wrong password"}), 401
-
-@app.route("/admin/logout", methods=["POST"])
-def admin_logout():
-    session.pop("admin", None)
-    return jsonify({"ok": True})
-
-@app.route("/admin/create-job", methods=["POST"])
-def admin_create_job():
-    if not session.get("admin"):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.get_json()
-    job_name = (data or {}).get("name", "").strip()
-    if not job_name or re.search(r'[\\/:*?"<>|]', job_name):
-        return jsonify({"error": "Invalid job name"}), 400
-    job_path = safe_join(job_name)
-    for cat in CATEGORIES:
-        os.makedirs(os.path.join(job_path, cat), exist_ok=True)
-    return jsonify({"ok": True})
-
-@app.route("/admin/upload", methods=["POST"])
-def admin_upload():
-    if not session.get("admin"):
-        return jsonify({"error": "Unauthorized"}), 401
-    job      = request.form.get("job", "").strip()
-    category = request.form.get("category", "").strip()
-    if not job or category not in CATEGORIES:
-        return jsonify({"error": "Invalid job or category"}), 400
-    cat_path = safe_join(job, category)
-    os.makedirs(cat_path, exist_ok=True)
-    uploaded = []
-    for f in request.files.getlist("files"):
-        ext = os.path.splitext(f.filename)[1].lower()
-        if ext in IMAGE_EXTS:
-            fname = re.sub(r'[\\/:*?"<>|]', "_", f.filename)
-            f.save(os.path.join(cat_path, fname))
-            uploaded.append(fname)
-    return jsonify({"ok": True, "uploaded": uploaded})
-
-@app.route("/admin/delete-file", methods=["POST"])
-def admin_delete_file():
-    if not session.get("admin"):
-        return jsonify({"error": "Unauthorized"}), 401
-    data     = request.get_json()
-    job      = (data or {}).get("job", "").strip()
-    category = (data or {}).get("category", "").strip()
-    filename = (data or {}).get("filename", "").strip()
-    if not job or category not in CATEGORIES or not filename:
-        return jsonify({"error": "Invalid parameters"}), 400
-    filepath = safe_join(job, category, filename)
-    if os.path.isfile(filepath):
-        os.remove(filepath)
-    return jsonify({"ok": True})
-
-@app.route("/admin/delete-job", methods=["POST"])
-def admin_delete_job():
-    if not session.get("admin"):
-        return jsonify({"error": "Unauthorized"}), 401
-    data = request.get_json()
-    job  = (data or {}).get("job", "").strip()
-    if not job:
-        return jsonify({"error": "Invalid job"}), 400
-    import shutil
-    job_path = safe_join(job)
-    if os.path.isdir(job_path):
-        shutil.rmtree(job_path)
-    return jsonify({"ok": True})
-
-@app.route("/admin/check-auth")
-def admin_check_auth():
-    return jsonify({"authenticated": bool(session.get("admin"))})
-
-# ── Static files ─────────────────────────────────────────────
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
-
-if __name__ == "__main__":
-    app.run(debug=True)
+                                  "type": "pdf" if ext ==
