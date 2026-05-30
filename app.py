@@ -324,9 +324,6 @@ def admin_check_auth():
 def static_files(filename):
     return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
 
-if __name__ == "__main__":
-    app.run(debug=True)
-
 @app.route("/files/<path:filepath>")
 @login_required
 def serve_file(filepath):
@@ -334,6 +331,89 @@ def serve_file(filepath):
     directory = os.path.dirname(full)
     filename  = os.path.basename(full)
     return send_from_directory(directory, filename)
+
+# ── Share links ───────────────────────────────────────────────
+import json, secrets
+from datetime import datetime
+
+SHARES_FILE = os.path.join(JOBS_DIR, ".shares.json")
+
+def load_shares():
+    if os.path.exists(SHARES_FILE):
+        try:
+            with open(SHARES_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_shares(shares):
+    with open(SHARES_FILE, "w") as f:
+        json.dump(shares, f)
+
+@app.route("/api/share", methods=["POST"])
+@login_required
+def create_share():
+    data = request.get_json()
+    job      = (data or {}).get("job", "").strip()
+    category = (data or {}).get("category", "").strip()
+    filename = (data or {}).get("filename", "").strip()
+    if not job or not category or not filename:
+        return jsonify({"error": "Missing parameters"}), 400
+
+    shares = load_shares()
+    file_key = f"{job}/{category}/{filename}"
+
+    # Remove existing token for this file
+    shares = {t: v for t, v in shares.items() if f"{v['job']}/{v['category']}/{v['filename']}" != file_key}
+
+    token = secrets.token_urlsafe(16)
+    shares[token] = {"job": job, "category": category, "filename": filename,
+                     "created": datetime.utcnow().isoformat()}
+    save_shares(shares)
+    return jsonify({"token": token, "url": f"/share/{token}"})
+
+@app.route("/api/share/info", methods=["POST"])
+@login_required
+def share_info():
+    data = request.get_json()
+    job      = (data or {}).get("job", "").strip()
+    category = (data or {}).get("category", "").strip()
+    filename = (data or {}).get("filename", "").strip()
+    file_key = f"{job}/{category}/{filename}"
+    shares = load_shares()
+    for token, v in shares.items():
+        if f"{v['job']}/{v['category']}/{v['filename']}" == file_key:
+            return jsonify({"token": token, "url": f"/share/{token}"})
+    return jsonify({"token": None})
+
+@app.route("/api/share/delete", methods=["POST"])
+@login_required
+def delete_share():
+    data = request.get_json()
+    token = (data or {}).get("token", "").strip()
+    shares = load_shares()
+    shares.pop(token, None)
+    save_shares(shares)
+    return jsonify({"ok": True})
+
+@app.route("/share/<token>")
+def view_share(token):
+    shares = load_shares()
+    info = shares.get(token)
+    if not info:
+        return "This link has expired or does not exist.", 404
+    return render_template("share_view.html", token=token, filename=info["filename"],
+                           file_url=f"/share/{token}/file")
+
+@app.route("/share/<token>/file")
+def serve_share_file(token):
+    shares = load_shares()
+    info = shares.get(token)
+    if not info:
+        return "Link not found", 404
+    full = safe_join(info["job"], info["category"], info["filename"])
+    return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 if __name__ == "__main__":
     app.run(debug=True)

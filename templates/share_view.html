@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>{{ filename }} | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #1a1a1a; display: flex; flex-direction: column; height: 100vh; }
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; background: #161b22;
+      border-bottom: 1px solid #30363d; flex-shrink: 0;
+    }
+    .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
+    .logo img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; }
+    .logo span { font-size: 0.85rem; font-weight: 800; color: white; }
+    .logo .blue { color: #60b4f0; }
+    .logo .dim  { color: rgba(255,255,255,0.4); font-weight: 400; }
+    .fname { font-size: 0.8rem; font-weight: 600; color: #8b949e;
+             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+    iframe { flex: 1; width: 100%; border: none; background: white; }
+  </style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="logo" href="/">
+      <img src="/static/logo.jpg" alt="PEI"/>
+      <span><span class="blue">PEI</span><span class="dim">tools.com</span></span>
+    </a>
+    <span class="fname">{{ filename }}</span>
+    <div style="width:80px"></div>
+  </div>
+  <iframe src="{{ file_url }}" title="{{ filename }}"></iframe>
+</body>
+</html>

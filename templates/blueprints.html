@@ -53,6 +53,59 @@
 
 
 
+
+    /* ── Share modal ── */
+    .share-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .share-btn:hover { border-color: var(--green); color: var(--green); }
+    .share-modal-bg {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .share-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px; width: 100%; max-width: 440px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .share-modal h3 { font-size: 1rem; font-weight: 800; }
+    .share-modal p  { font-size: 0.82rem; color: var(--text2); line-height: 1.5; }
+    .share-link-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .share-link-input {
+      flex: 1; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 12px;
+      color: var(--text); font-size: 0.8rem; font-family: monospace;
+      outline: none;
+    }
+    .share-copy-btn {
+      background: var(--blue); color: #0d1117; font-weight: 700;
+      border: none; border-radius: 8px; padding: 9px 14px;
+      font-size: 0.8rem; cursor: pointer; white-space: nowrap; transition: opacity 0.15s;
+    }
+    .share-copy-btn:hover { opacity: 0.85; }
+    .share-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .share-del-btn {
+      background: transparent; border: 1px solid rgba(219,21,35,0.4);
+      color: #ff7070; border-radius: 8px; padding: 8px 14px;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .share-del-btn:hover { background: rgba(219,21,35,0.15); }
+    .share-close-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text2); border-radius: 8px; padding: 8px 14px;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .share-close-btn:hover { border-color: var(--text); color: var(--text); }
+    :root { --green: #3fb950; }
+
     /* ── Full-screen PDF viewer ── */
     .fullscreen-viewer {
       position: fixed; inset: 0; z-index: 150;
@@ -658,6 +711,71 @@ function onPinchEnd(e) {
   if (e.touches.length < 2) pinchStartDist = null;
 }
 
+
+// ── Share Links ────────────────────────────────────────────
+async function openShareModal() {
+  if (!currentJob || !currentCategory || !currentFile) return;
+  document.getElementById('shareModalBg').style.display = 'flex';
+  document.getElementById('shareLinkSection').style.display = 'none';
+  document.getElementById('shareDelBtn').style.display = 'none';
+  document.getElementById('shareGenBtn').textContent = 'Generate Link';
+  document.getElementById('shareModalDesc').textContent = 'Checking for existing link…';
+
+  const res  = await fetch('/api/share/info', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job: currentJob, category: currentCategory, filename: currentFile})
+  });
+  const data = await res.json();
+  if (data.token) {
+    showShareLink(data.token);
+  } else {
+    document.getElementById('shareModalDesc').textContent = 'Generate a link anyone can use to view this file — no login needed.';
+  }
+}
+
+function showShareLink(token) {
+  const url = `${location.origin}/share/${token}`;
+  document.getElementById('shareLinkInput').value = url;
+  document.getElementById('shareLinkSection').style.display = 'flex';
+  document.getElementById('shareDelBtn').style.display = 'inline-flex';
+  document.getElementById('shareGenBtn').textContent = '↺ New Link';
+  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view the document without logging in.';
+}
+
+async function generateShareLink() {
+  const res  = await fetch('/api/share', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job: currentJob, category: currentCategory, filename: currentFile})
+  });
+  const data = await res.json();
+  if (data.token) showShareLink(data.token);
+}
+
+async function deleteShareLink() {
+  const token = new URL(document.getElementById('shareLinkInput').value).pathname.split('/').pop();
+  await fetch('/api/share/delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({token})
+  });
+  document.getElementById('shareLinkSection').style.display = 'none';
+  document.getElementById('shareDelBtn').style.display = 'none';
+  document.getElementById('shareGenBtn').textContent = 'Generate Link';
+  document.getElementById('shareModalDesc').textContent = 'Link deleted. Generate a new one anytime.';
+}
+
+function copyShareLink() {
+  const input = document.getElementById('shareLinkInput');
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.querySelector('.share-copy-btn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+
+function closeShareModal() {
+  document.getElementById('shareModalBg').style.display = 'none';
+}
+
 loadJobs();
 </script>
 
@@ -673,6 +791,7 @@ loadJobs();
     </button>
     <span class="fullscreen-title" id="fullscreenTitle"></span>
     <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button class="share-btn" id="shareBtn" onclick="openShareModal()">🔗 Share</button>
       <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
         🧭 Compass Lock
       </button>
@@ -682,6 +801,26 @@ loadJobs();
     </div>
   </div>
   <iframe id="fullscreenFrame" class="fullscreen-frame" title="PDF Viewer" allowfullscreen></iframe>
+</div>
+
+
+<!-- ── Share Modal ── -->
+<div id="shareModalBg" class="share-modal-bg" style="display:none;" onclick="if(event.target===this)closeShareModal()">
+  <div class="share-modal">
+    <h3>🔗 Share This Blueprint</h3>
+    <p id="shareModalDesc">Generate a link anyone can use to view this file — no login needed.</p>
+    <div id="shareLinkSection" style="display:none;">
+      <div class="share-link-row">
+        <input class="share-link-input" id="shareLinkInput" readonly/>
+        <button class="share-copy-btn" onclick="copyShareLink()">Copy</button>
+      </div>
+    </div>
+    <div class="share-actions">
+      <button class="share-del-btn" id="shareDelBtn" style="display:none" onclick="deleteShareLink()">🗑 Delete Link</button>
+      <button class="share-close-btn" onclick="closeShareModal()">Close</button>
+      <button class="share-copy-btn" id="shareGenBtn" onclick="generateShareLink()">Generate Link</button>
+    </div>
+  </div>
 </div>
 
 <!-- ── Compass Mode Overlay ── -->
