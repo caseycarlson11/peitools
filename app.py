@@ -76,6 +76,7 @@ def logout():
     return redirect(url_for("login"))
 
 CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets"]
+CAD_FOLDER = "Cad File"
 IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 
 def safe_join(*parts):
@@ -175,6 +176,21 @@ def sheet_extractor():
 
     str_mapping = {str(k): v for k, v in sorted(mapping.items())}
     return jsonify({"mapping": str_mapping, "job_name": "", "count": len(str_mapping)})
+
+# ── CAD file listing ─────────────────────────────────────────
+@app.route("/api/jobs/<path:job>/dxf-files")
+def api_dxf_files(job):
+    cad_path = safe_join(job, CAD_FOLDER)
+    if not os.path.isdir(cad_path):
+        return jsonify([])
+    files = sorted([f for f in os.listdir(cad_path) if f.lower().endswith(".dxf")])
+    return jsonify(files)
+
+@app.route("/cad-files/<path:filepath>")
+@login_required
+def serve_cad_file(filepath):
+    full = safe_join(filepath)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 # ── Blueprint viewer (public) ────────────────────────────────
 @app.route("/blueprints")

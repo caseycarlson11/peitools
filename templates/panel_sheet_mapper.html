@@ -256,6 +256,29 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
 }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); flex-shrink: 0; box-shadow: 0 0 6px rgba(38,201,122,0.6); }
 
+/* SERVER LOAD */
+.server-section {
+  margin-top: 28px; width: 100%; max-width: 480px;
+  display: flex; flex-direction: column; align-items: center; gap: 12px;
+}
+.server-divider {
+  font-size: 11px; color: var(--text3); letter-spacing: 1px;
+  text-transform: uppercase; text-align: center;
+}
+.job-select-input {
+  width: 100%;
+  background: var(--glass); border: 1px solid var(--border2);
+  color: var(--text); padding: 10px 36px 10px 14px;
+  border-radius: 10px; font-family: 'Inter', sans-serif;
+  font-size: 14px; font-weight: 500; cursor: pointer; outline: none;
+  transition: border-color 0.15s; appearance: none;
+  backdrop-filter: blur(8px);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ffffff60' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center;
+}
+.job-select-input:focus { border-color: var(--blue); }
+.job-select-input option { background: #1a2332; color: var(--text); }
+
 @media (max-width: 600px) {
   .content-area { padding: 12px; }
   .stats-row { gap: 8px; }
@@ -306,6 +329,15 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
     <div class="feat"><span class="feat-dot"></span>Reads PANELS layer directly</div>
     <div class="feat"><span class="feat-dot"></span>Handles multiple DXF files</div>
     <div class="feat"><span class="feat-dot"></span>Export to Excel</div>
+  </div>
+
+  <!-- Load from job -->
+  <div class="server-section">
+    <div class="server-divider">— or load from job folder —</div>
+    <select id="jobSelect" class="job-select-input" onchange="onJobSelect(this.value)">
+      <option value="">Loading jobs…</option>
+    </select>
+    <div id="jobLoadStatus" style="font-size:12px;color:var(--text2);text-align:center;display:none;"></div>
   </div>
 </div>
 
@@ -553,8 +585,58 @@ function resetTool() {
   setHeaderBadge('Ready');
 }
 
+// ── Job loader ──
+async function loadJobDropdown() {
+  const sel = document.getElementById('jobSelect');
+  try {
+    const jobs = await fetch('/api/jobs').then(r => r.json());
+    const cadJobs = [];
+    for (const job of jobs) {
+      const files = await fetch(`/api/jobs/${encodeURIComponent(job)}/dxf-files`).then(r => r.json());
+      if (files.length > 0) cadJobs.push({ job, files });
+    }
+    sel.innerHTML = cadJobs.length
+      ? '<option value="">— Select a job —</option>' + cadJobs.map(j => `<option value="${j.job}">${j.job}</option>`).join('')
+      : '<option value="">No jobs with CAD files found</option>';
+    window._cadJobData = Object.fromEntries(cadJobs.map(j => [j.job, j.files]));
+  } catch(e) {
+    sel.innerHTML = '<option value="">Could not load jobs</option>';
+  }
+}
+
+async function onJobSelect(job) {
+  if (!job) return;
+  const files = (window._cadJobData || {})[job] || [];
+  if (!files.length) return;
+
+  const status = document.getElementById('jobLoadStatus');
+  status.style.display = 'block';
+  status.textContent = `Fetching ${files.length} file${files.length !== 1 ? 's' : ''}…`;
+
+  const fetched = [];
+  for (const fname of files) {
+    try {
+      const url = `/cad-files/${encodeURIComponent(job)}/Cad File/${encodeURIComponent(fname)}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(res.status);
+      const buf = await res.arrayBuffer();
+      fetched.push(new File([buf], fname, { type: 'application/octet-stream' }));
+    } catch(e) {
+      console.warn('Could not fetch', fname, e);
+    }
+  }
+
+  if (fetched.length) {
+    addFiles(fetched);
+    status.textContent = `✓ Loaded ${fetched.length} file${fetched.length !== 1 ? 's' : ''} from ${job}`;
+  } else {
+    status.textContent = 'No files could be loaded.';
+  }
+}
+
 // Init
 showScreen('upload');
+loadJobDropdown();
 </script>
 </body>
 </html>
