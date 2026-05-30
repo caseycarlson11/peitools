@@ -545,20 +545,23 @@ async function openCompassFromCanvas(thumbnailCanvas) {
     try {
       const pageEl   = thumbnailCanvas.closest('.page-thumb');
       const pageNum  = pageEl ? Array.from(pageEl.parentNode.children).indexOf(pageEl) + 1 : 1;
+      compassPageNum = pageNum;
       const page     = await pdfDoc.getPage(pageNum);
       const baseVP   = page.getViewport({ scale: 1 });
+      basePageW = baseVP.width; basePageH = baseVP.height;
       const scale    = getSafeRenderScale(baseVP.width, baseVP.height);
       const vp       = page.getViewport({ scale });
       compassCanvas.width  = vp.width;
       compassCanvas.height = vp.height;
       await page.render({ canvasContext: compassCanvas.getContext('2d'), viewport: vp }).promise;
     } catch(e) {
-      // Fallback to thumbnail copy if re-render fails
+      compassPageNum = null;
       compassCanvas.width  = thumbnailCanvas.width;
       compassCanvas.height = thumbnailCanvas.height;
       compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
     }
   } else {
+    compassPageNum = null;
     compassCanvas.width  = thumbnailCanvas.width;
     compassCanvas.height = thumbnailCanvas.height;
     compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
@@ -605,13 +608,18 @@ async function requestOrientationPermission() {
 // ── Compass state ──────────────────────────────────────────
 let panX = 0, panY = 0;
 let panStartX = 0, panStartY = 0, panBaseX = 0, panBaseY = 0;
-let isPanning = false;
+let isPanning    = false;
+let rafPending   = false;       // throttle orientation → RAF
+let compassPageNum = null;      // track current page for re-render on zoom
+let basePageW = 0, basePageH = 0; // original page dimensions for re-render
+let reRenderTimer = null;
 
 function startCompass() {
-  lockedAlpha  = null;
-  currentScale = 1;
-  compassRot   = 0;
+  lockedAlpha    = null;
+  currentScale   = 1;
+  compassRot     = 0;
   panX = 0; panY = 0;
+  rafPending     = false;
   applyTransform();
 
   document.getElementById('compassScreen').classList.add('active');
@@ -634,8 +642,14 @@ function exitCompass() {
   wrap.removeEventListener('touchstart', onTouchStart);
   wrap.removeEventListener('touchmove',  onTouchMove);
   wrap.removeEventListener('touchend',   onTouchEnd);
+
+  // Free canvas memory
+  const c = document.getElementById('compassCanvas');
+  c.width = 1; c.height = 1;
+  if (reRenderTimer) { clearTimeout(reRenderTimer); reRenderTimer = null; }
 }
 
+// Throttle orientation events via RAF — prevents Android crash from 100Hz DOM writes
 function onOrientation(e) {
   if (e.alpha === null || e.alpha === undefined) return;
   currentAlpha = e.alpha;
@@ -644,7 +658,10 @@ function onOrientation(e) {
   if (delta >  180) delta -= 360;
   if (delta < -180) delta += 360;
   compassRot = delta;
-  applyTransform();
+  if (!rafPending) {
+    rafPending = true;
+    requestAnimationFrame(() => { applyTransform(); rafPending = false; });
+  }
 }
 
 function lockCompass() {
@@ -664,6 +681,34 @@ function lockCompass() {
 function applyTransform() {
   document.getElementById('compassContent').style.transform =
     `translate(calc(-50% + ${panX}px), calc(-50% + ${panY}px)) rotate(${compassRot}deg) scale(${currentScale})`;
+}
+
+// Re-render canvas at higher res after zoom settles
+async function reRenderAtZoom() {
+  if (!pdfDoc || !compassPageNum || basePageW === 0) return;
+  const isAndroid  = /android/i.test(navigator.userAgent);
+  const MAX_PIXELS = isAndroid ? 4_000_000 : 8_000_000;
+  const MAX_DIM    = isAndroid ? 2048 : 4096;
+  try {
+    const page   = await pdfDoc.getPage(compassPageNum);
+    const baseVP = page.getViewport({ scale: 1 });
+    // Target: current zoom * screen width, but capped
+    let targetScale = (window.innerWidth * Math.min(currentScale, 4)) / baseVP.width;
+    if (baseVP.width * targetScale * baseVP.height * targetScale > MAX_PIXELS)
+      targetScale = Math.sqrt(MAX_PIXELS / (baseVP.width * baseVP.height));
+    if (baseVP.width  * targetScale > MAX_DIM) targetScale = MAX_DIM / baseVP.width;
+    if (baseVP.height * targetScale > MAX_DIM) targetScale = MAX_DIM / baseVP.height;
+    targetScale = Math.max(targetScale, 0.3);
+
+    const vp     = page.getViewport({ scale: targetScale });
+    const canvas = document.getElementById('compassCanvas');
+    canvas.width  = vp.width;
+    canvas.height = vp.height;
+    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+    // Reset CSS scale to 1 since the canvas is now rendered at the zoomed resolution
+    currentScale = 1;
+    applyTransform();
+  } catch(e) { /* silently ignore re-render failures */ }
 }
 
 // ── Touch: pinch zoom + pan ────────────────────────────────
@@ -702,7 +747,14 @@ function onTouchMove(e) {
 }
 
 function onTouchEnd(e) {
-  if (e.touches.length < 2) pinchDist0 = null;
+  if (e.touches.length < 2) {
+    pinchDist0 = null;
+    // Re-render at higher quality after zoom settles (600ms debounce)
+    if (currentScale > 1.3 && pdfDoc && compassPageNum) {
+      if (reRenderTimer) clearTimeout(reRenderTimer);
+      reRenderTimer = setTimeout(reRenderAtZoom, 600);
+    }
+  }
   if (e.touches.length === 0) isPanning = false;
 }
 
