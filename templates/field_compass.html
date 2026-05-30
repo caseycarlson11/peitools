@@ -158,6 +158,8 @@
     }
     .hud-btn:hover { background: rgba(255,255,255,0.15); }
     .hud-btn.exit { border-color: rgba(219,21,35,0.5); color: #ff6b6b; }
+    .hud-btn.lock-btn { border-color: rgba(96,180,240,0.4); color: var(--blue); }
+    .hud-btn.lock-btn.locked { background: var(--blue); color: #0d1117; border-color: var(--blue); }
     .hud-btn.exit:hover { background: rgba(219,21,35,0.2); }
 
     .compass-wrap {
@@ -259,7 +261,7 @@
       <span class="compass-status" id="compassStatus">🧭 Calibrating…</span>
     </div>
     <div class="compass-hud-right">
-      <button class="hud-btn" onclick="recalibrate()">↺ Re-lock</button>
+      <button class="hud-btn lock-btn" id="lockBtn" onclick="lockCompass()">🔒 Lock</button>
       <button class="hud-btn exit" onclick="exitCompass()">✕ Exit</button>
     </div>
   </div>
@@ -275,6 +277,7 @@ let currentFile    = null;
 let pdfDoc         = null;
 let compassMode    = false;
 let lockedAlpha    = null;
+let currentAlpha   = 0;
 let compassRot     = 0;
 let pinchDist0     = null;
 let pinchScale0    = 1;
@@ -436,7 +439,9 @@ async function startCompass() {
   applyTransform();
 
   document.getElementById('compassScreen').classList.add('active');
-  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+  document.getElementById('compassStatus').textContent = '🔄 Rotate to orient, then Lock';
+  document.getElementById('lockBtn').textContent = '🔒 Lock';
+  document.getElementById('lockBtn').classList.remove('locked');
 
   // iOS permission
   if (typeof DeviceOrientationEvent !== 'undefined' &&
@@ -471,22 +476,38 @@ function exitCompass() {
   screen.removeEventListener('touchend',   onPinchEnd);
 }
 
-function recalibrate() {
-  lockedAlpha = null;
-  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
-}
+
 
 function onOrientation(e) {
   if (e.alpha === null) return;
+  currentAlpha = e.alpha;
   if (lockedAlpha === null) {
-    lockedAlpha = e.alpha;
-    document.getElementById('compassStatus').textContent = '🧭 Locked';
+    // Free rotation — blueprint follows device
+    compassRot = 0; // no delta yet, show straight
+    applyTransform();
+    return;
   }
-  let delta = e.alpha - lockedAlpha;
+  let delta = currentAlpha - lockedAlpha;
   if (delta >  180) delta -= 360;
   if (delta < -180) delta += 360;
   compassRot = delta;
   applyTransform();
+}
+
+function lockCompass() {
+  if (lockedAlpha === null) {
+    // Lock to current heading
+    lockedAlpha = currentAlpha;
+    document.getElementById('compassStatus').textContent = '🧭 Locked';
+    document.getElementById('lockBtn').textContent = '🔓 Unlock';
+    document.getElementById('lockBtn').classList.add('locked');
+  } else {
+    // Unlock — free rotation again
+    lockedAlpha = null;
+    document.getElementById('compassStatus').textContent = '🔄 Rotate to orient, then Lock';
+    document.getElementById('lockBtn').textContent = '🔒 Lock';
+    document.getElementById('lockBtn').classList.remove('locked');
+  }
 }
 
 function applyTransform() {
