@@ -489,6 +489,8 @@ function selectCategory(cat, tab) {
 }
 
 // ── Open a PDF ─────────────────────────────────────────────
+const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth <= 900;
+
 function openFile(fname, item) {
   document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
   if (item) item.classList.add('active');
@@ -496,7 +498,13 @@ function openFile(fname, item) {
   const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
   currentFile = fname;
   currentFileUrl = url;
-  openFullscreen(fname, url);
+
+  if (isMobile()) {
+    // On mobile/iPad: open in new tab so native PDF viewer handles pinch zoom
+    window.open(url, '_blank');
+  } else {
+    openFullscreen(fname, url);
+  }
 }
 
 function openFullscreen(fname, url) {
@@ -504,7 +512,6 @@ function openFullscreen(fname, url) {
   document.getElementById('fullscreenFrame').src = url;
   document.getElementById('fullscreenViewer').style.display = 'flex';
   document.body.style.overflow = 'hidden';
-  // Show compass button in fullscreen mode
   document.getElementById('compassBtn').classList.add('visible');
 }
 
