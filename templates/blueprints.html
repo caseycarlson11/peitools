@@ -84,6 +84,17 @@
       touch-action: auto;
     }
 
+
+    .open-tab-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .open-tab-btn:hover { border-color: var(--blue); color: var(--blue); }
+
     /* ── Compass button ── */
     .compass-btn {
       display: none; /* hidden until a file is open */
@@ -488,8 +499,6 @@ function selectCategory(cat, tab) {
 }
 
 // ── Open a PDF ─────────────────────────────────────────────
-const isMobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || window.innerWidth <= 900;
-
 function openFile(fname, item) {
   document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
   if (item) item.classList.add('active');
@@ -497,13 +506,7 @@ function openFile(fname, item) {
   const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
   currentFile = fname;
   currentFileUrl = url;
-
-  if (isMobile()) {
-    // On mobile/iPad: open in new tab so native PDF viewer handles pinch zoom
-    window.open(url, '_blank');
-  } else {
-    openFullscreen(fname, url);
-  }
+  openFullscreen(fname, url);
 }
 
 function openFullscreen(fname, url) {
@@ -668,9 +671,14 @@ loadJobs();
       Back
     </button>
     <span class="fullscreen-title" id="fullscreenTitle"></span>
-    <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
-      🧭 Compass Lock
-    </button>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+      <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
+        🧭 Compass Lock
+      </button>
+      <button class="open-tab-btn" onclick="window.open(currentFileUrl,'_blank')" title="Open in browser tab for full zoom">
+        ⤢ Full Zoom
+      </button>
+    </div>
   </div>
   <iframe id="fullscreenFrame" class="fullscreen-frame" title="PDF Viewer" allowfullscreen></iframe>
 </div>
