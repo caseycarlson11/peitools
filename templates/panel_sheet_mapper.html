@@ -593,19 +593,25 @@ async function exportExcel() {
 // ── Google Sheets ──
 function openInGoogleSheets() {
   const panels = Object.keys(results).map(Number).sort((a,b) => a-b);
-  let tsv = 'Panel #\tSheet(s)\tSource File\n';
+  let csv = 'Panel #,Sheet(s),Source File\n';
   panels.forEach(p => {
     const info = results[p];
-    const sheets = (info.sheets || []).join(', ');
-    tsv += `${p}\t${sheets}\t${info.file || ''}\n`;
+    const sheets = (info.sheets || []).join('; ');
+    csv += `${p},"${sheets}","${info.file || ''}"\n`;
   });
 
-  navigator.clipboard.writeText(tsv).then(() => {
-    window.open('https://sheets.new', '_blank');
-    showToast('📋 Data copied! Paste it into the new sheet (Ctrl+V or ⌘+V)', 6000);
-  }).catch(() => {
-    showToast('⚠️ Could not copy — try the Export Excel button instead.', 4000);
-  });
+  // Download the CSV
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href = url; a.download = 'Panel_Sheet_Map.csv'; a.click();
+  URL.revokeObjectURL(url);
+
+  // Open Google Sheets import
+  setTimeout(() => {
+    window.open('https://docs.google.com/spreadsheets/u/0/create', '_blank');
+    showToast('CSV downloaded! In Google Sheets → File → Import → Upload the downloaded file', 8000);
+  }, 400);
 }
 
 function showToast(msg, duration = 4000) {
