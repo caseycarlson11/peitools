@@ -332,7 +332,7 @@ def serve_file(filepath):
     filename  = os.path.basename(full)
     return send_from_directory(directory, filename)
 
-# ── Share links ───────────────────────────────────────────────
+# ── Share links (job-level) ───────────────────────────────────
 import json, secrets
 from datetime import datetime
 
@@ -355,21 +355,14 @@ def save_shares(shares):
 @login_required
 def create_share():
     data = request.get_json()
-    job      = (data or {}).get("job", "").strip()
-    category = (data or {}).get("category", "").strip()
-    filename = (data or {}).get("filename", "").strip()
-    if not job or not category or not filename:
-        return jsonify({"error": "Missing parameters"}), 400
-
+    job = (data or {}).get("job", "").strip()
+    if not job:
+        return jsonify({"error": "Missing job"}), 400
     shares = load_shares()
-    file_key = f"{job}/{category}/{filename}"
-
-    # Remove existing token for this file
-    shares = {t: v for t, v in shares.items() if f"{v['job']}/{v['category']}/{v['filename']}" != file_key}
-
+    # Remove existing token for this job
+    shares = {t: v for t, v in shares.items() if v.get("job") != job}
     token = secrets.token_urlsafe(16)
-    shares[token] = {"job": job, "category": category, "filename": filename,
-                     "created": datetime.utcnow().isoformat()}
+    shares[token] = {"job": job, "created": datetime.utcnow().isoformat()}
     save_shares(shares)
     return jsonify({"token": token, "url": f"/share/{token}"})
 
@@ -377,13 +370,10 @@ def create_share():
 @login_required
 def share_info():
     data = request.get_json()
-    job      = (data or {}).get("job", "").strip()
-    category = (data or {}).get("category", "").strip()
-    filename = (data or {}).get("filename", "").strip()
-    file_key = f"{job}/{category}/{filename}"
+    job = (data or {}).get("job", "").strip()
     shares = load_shares()
     for token, v in shares.items():
-        if f"{v['job']}/{v['category']}/{v['filename']}" == file_key:
+        if v.get("job") == job:
             return jsonify({"token": token, "url": f"/share/{token}"})
     return jsonify({"token": None})
 
@@ -403,16 +393,24 @@ def view_share(token):
     info = shares.get(token)
     if not info:
         return "This link has expired or does not exist.", 404
-    return render_template("share_view.html", token=token, filename=info["filename"],
-                           file_url=f"/share/{token}/file")
+    job = info["job"]
+    job_path = os.path.join(JOBS_DIR, job)
+    files = {}
+    for cat in CATEGORIES:
+        cat_path = os.path.join(job_path, cat)
+        if os.path.isdir(cat_path):
+            cat_files = sorted([f for f in os.listdir(cat_path) if f.lower().endswith(".pdf")])
+            if cat_files:
+                files[cat] = cat_files
+    return render_template("share_view.html", token=token, job=job, files=files)
 
-@app.route("/share/<token>/file")
-def serve_share_file(token):
+@app.route("/share/<token>/file/<path:filepath>")
+def serve_share_file(token, filepath):
     shares = load_shares()
     info = shares.get(token)
     if not info:
         return "Link not found", 404
-    full = safe_join(info["job"], info["category"], info["filename"])
+    full = safe_join(info["job"], filepath)
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 if __name__ == "__main__":
