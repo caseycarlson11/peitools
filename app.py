@@ -188,7 +188,6 @@ def field_compass():
     return render_template("field_compass.html")
 
 @app.route("/api/jobs")
-@login_required
 def api_jobs():
     if not os.path.isdir(JOBS_DIR):
         return jsonify([])
@@ -197,7 +196,6 @@ def api_jobs():
     return jsonify(jobs)
 
 @app.route("/api/jobs/<path:job>")
-@login_required
 def api_job_files(job):
     job_path = safe_join(job)
     if not os.path.isdir(job_path):
@@ -213,7 +211,6 @@ def api_job_files(job):
     return jsonify(result)
 
 @app.route("/api/jobs/<path:job>/all-files")
-@login_required
 def api_job_all_files(job):
     """Return all viewable files (PDF + images) across all categories."""
     job_path = safe_join(job)
