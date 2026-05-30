@@ -107,24 +107,27 @@
       padding: 12px 16px; border-bottom: 1px solid var(--border);
       background: var(--surface);
     }
-    .page-hint { padding: 10px 16px; font-size: 0.78rem; color: var(--text2); text-align: center; border-bottom: 1px solid var(--border); }
-    .page-grid { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
-    .page-thumb {
-      border-radius: 10px; overflow: hidden;
-      border: 2px solid var(--border); cursor: pointer;
-      transition: all 0.15s; position: relative; background: white;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+    .page-hint {
+      padding: 10px 16px; font-size: 0.78rem; color: var(--text2);
+      text-align: center; border-bottom: 1px solid var(--border);
+      background: var(--surface);
     }
-    .page-thumb:hover, .page-thumb:active { border-color: var(--blue); transform: scale(1.01); }
+    .page-grid { flex: 1; overflow-y: auto; background: #222; display: flex; flex-direction: column; gap: 2px; }
+    .page-thumb {
+      position: relative; background: white; cursor: pointer;
+      width: 100%; user-select: none;
+    }
     .page-thumb canvas { display: block; width: 100%; height: auto; }
     .page-thumb img { display: block; width: 100%; height: auto; }
     .page-thumb-label {
-      position: absolute; top: 0; left: 0; right: 0;
-      background: rgba(13,17,23,0.75); color: var(--text);
-      font-size: 0.72rem; font-weight: 700; padding: 6px 10px;
+      position: sticky; top: 0; left: 0; right: 0; z-index: 10;
+      background: rgba(13,17,23,0.85); color: var(--text);
+      font-size: 0.72rem; font-weight: 700; padding: 5px 10px;
       display: flex; align-items: center; justify-content: space-between;
+      backdrop-filter: blur(4px);
     }
     .page-thumb-tap { font-size: 0.68rem; color: var(--blue); font-weight: 600; }
+    .page-thumb.double-tapped { outline: 3px solid var(--blue); }
     .loading-pages {
       display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 12px;
@@ -249,7 +252,7 @@
     </button>
     <span class="screen-title" id="pageScreenTitle">Choose a Page</span>
   </div>
-  <div class="page-hint">Scroll through the document — tap any page to open it in Compass Mode</div>
+  <div class="page-hint">Scroll through the document — <strong>double-tap</strong> any page to open in Compass Mode</div>
   <div class="page-grid" id="pageGrid"></div>
 </div>
 
@@ -355,44 +358,63 @@ async function selectJob(job) {
 }
 
 // ── Step 3: Page picker ────────────────────────────────────
+// Double-tap detection
+let lastTapTime = 0;
+let lastTapEl   = null;
+
+function handleDoubleTap(el, callback) {
+  const now = Date.now();
+  if (lastTapEl === el && now - lastTapTime < 350) {
+    callback();
+    lastTapTime = 0; lastTapEl = null;
+  } else {
+    lastTapTime = now; lastTapEl = el;
+  }
+}
+
 async function selectFile(file) {
   currentFile = file;
   document.getElementById('pageScreenTitle').textContent = file.name;
   goToStep(3);
 
   const grid = document.getElementById('pageGrid');
-  grid.innerHTML = '<div class="loading-pages"><div class="spinner"></div><span>Loading pages…</span></div>';
+  grid.innerHTML = '<div class="loading-pages"><div class="spinner"></div><span>Loading…</span></div>';
 
   if (file.type === 'image') {
-    // Single image — go straight to compass
     grid.innerHTML = '';
     const thumb = document.createElement('div');
     thumb.className = 'page-thumb';
+    const label = document.createElement('div');
+    label.className = 'page-thumb-label';
+    label.innerHTML = `<span>${file.name}</span><span class="page-thumb-tap">Double-tap to use</span>`;
     const img = document.createElement('img');
     img.src = file.url;
     img.alt = file.name;
-    const label = document.createElement('div');
-    label.className = 'page-thumb-label';
-    label.innerHTML = `<span>${file.name}</span><span class="page-thumb-tap">Tap to use →</span>`;
     thumb.appendChild(label);
     thumb.appendChild(img);
-    thumb.onclick = () => openCompassImage(file.url);
+    thumb.addEventListener('click', () => handleDoubleTap(thumb, () => openCompassImage(file.url)));
+    thumb.addEventListener('touchend', (e) => { e.preventDefault(); handleDoubleTap(thumb, () => openCompassImage(file.url)); });
     grid.appendChild(thumb);
     return;
   }
 
-  // PDF — render thumbnails
+  // PDF — render full-width pages
   try {
     const resp   = await fetch(file.url);
     const buffer = await resp.arrayBuffer();
     pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
-
     grid.innerHTML = '';
 
+    // Scale to fill screen width
+    const containerW = grid.clientWidth || window.innerWidth;
+    const firstPage  = await pdfDoc.getPage(1);
+    const baseVP     = firstPage.getViewport({ scale: 1 });
+    const scale      = containerW / baseVP.width;
+
     for (let i = 1; i <= pdfDoc.numPages; i++) {
-      const page    = await pdfDoc.getPage(i);
-      const vp      = page.getViewport({ scale: 0.4 });
-      const canvas  = document.createElement('canvas');
+      const page   = await pdfDoc.getPage(i);
+      const vp     = page.getViewport({ scale });
+      const canvas = document.createElement('canvas');
       canvas.width  = vp.width;
       canvas.height = vp.height;
       await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
@@ -401,11 +423,13 @@ async function selectFile(file) {
       thumb.className = 'page-thumb';
       const label = document.createElement('div');
       label.className = 'page-thumb-label';
-      label.innerHTML = `<span>Page ${i} of ${pdfDoc.numPages}</span><span class="page-thumb-tap">Tap to use →</span>`;
+      label.innerHTML = `<span>Page ${i} of ${pdfDoc.numPages}</span><span class="page-thumb-tap">Double-tap to use</span>`;
       thumb.appendChild(label);
       thumb.appendChild(canvas);
+
       const pageNum = i;
-      thumb.onclick = () => openCompassPage(pageNum);
+      thumb.addEventListener('click',    ()  => handleDoubleTap(thumb, () => openCompassPage(pageNum)));
+      thumb.addEventListener('touchend', (e) => { e.preventDefault(); handleDoubleTap(thumb, () => openCompassPage(pageNum)); });
       grid.appendChild(thumb);
     }
   } catch(e) {
