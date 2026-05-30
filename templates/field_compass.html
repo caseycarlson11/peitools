@@ -626,20 +626,20 @@ function startCompass() {
     window.addEventListener('deviceorientation', onOrientation, true);
   }
 
-  const screen = document.getElementById('compassScreen');
-  screen.addEventListener('touchstart',  onTouchStart, { passive: false });
-  screen.addEventListener('touchmove',   onTouchMove,  { passive: false });
-  screen.addEventListener('touchend',    onTouchEnd,   { passive: false });
+  const wrap = document.getElementById('compassWrap');
+  wrap.addEventListener('touchstart',  onTouchStart, { passive: false });
+  wrap.addEventListener('touchmove',   onTouchMove,  { passive: false });
+  wrap.addEventListener('touchend',    onTouchEnd,   { passive: false });
 }
 
 function exitCompass() {
   document.getElementById('compassScreen').classList.remove('active');
   window.removeEventListener('deviceorientationabsolute', onOrientation, true);
   window.removeEventListener('deviceorientation', onOrientation, true);
-  const screen = document.getElementById('compassScreen');
-  screen.removeEventListener('touchstart', onTouchStart);
-  screen.removeEventListener('touchmove',  onTouchMove);
-  screen.removeEventListener('touchend',   onTouchEnd);
+  const wrap = document.getElementById('compassWrap');
+  wrap.removeEventListener('touchstart', onTouchStart);
+  wrap.removeEventListener('touchmove',  onTouchMove);
+  wrap.removeEventListener('touchend',   onTouchEnd);
 }
 
 function onOrientation(e) {
