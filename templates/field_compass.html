@@ -56,6 +56,7 @@
     .job-grid {
       flex: 1; overflow-y: auto; padding: 10px;
       display: flex; flex-direction: column; gap: 6px;
+      align-items: flex-start;
     }
     .job-card {
       background: var(--surface); border: 1px solid var(--border);
@@ -320,6 +321,14 @@ async function loadJobs() {
       <span class="job-card-arrow">›</span>`;
     card.onclick = () => selectJob(job);
     grid.appendChild(card);
+  });
+
+  // Size all cards to the width of the widest one
+  requestAnimationFrame(() => {
+    const cards = grid.querySelectorAll('.job-card');
+    let maxW = 0;
+    cards.forEach(c => { c.style.width = 'auto'; maxW = Math.max(maxW, c.offsetWidth); });
+    cards.forEach(c => c.style.width = maxW + 'px');
   });
 }
 
