@@ -506,9 +506,8 @@ async function selectFile(file) {
       thumb.appendChild(label);
       thumb.appendChild(canvas);
 
-      const pageNum = i;
-      thumb.addEventListener('click',    ()  => handleDoubleTap(thumb, () => openCompassPage(pageNum)));
-      thumb.addEventListener('touchend', (e) => { e.preventDefault(); handleDoubleTap(thumb, () => openCompassPage(pageNum)); });
+      thumb.addEventListener('click',    ()  => handleDoubleTap(thumb, () => openCompassFromCanvas(canvas)));
+      thumb.addEventListener('touchend', (e) => { e.preventDefault(); handleDoubleTap(thumb, () => openCompassFromCanvas(canvas)); });
       grid.appendChild(thumb);
     }
   } catch(e) {
@@ -517,29 +516,20 @@ async function selectFile(file) {
 }
 
 // ── Open in compass ────────────────────────────────────────
-// Step 1: request permission immediately (must be in user gesture context)
-// Step 2: render page, then start listening
-async function openCompassPage(pageNum) {
-  // Request iOS permission FIRST — still in tap gesture context
+// Uses the already-rendered thumbnail canvas directly — avoids iOS canvas size limits
+async function openCompassFromCanvas(thumbnailCanvas) {
+  // Request permission FIRST — must be in user gesture context on iOS
   const granted = await requestOrientationPermission();
   if (!granted) return;
 
-  // Show screen BEFORE rendering so canvas is in a visible DOM context (required on iOS)
+  // Show screen before drawing so canvas is in visible DOM
   document.getElementById('compassScreen').classList.add('active');
   document.getElementById('compassStatus').textContent = '⏳ Loading…';
 
-  // Render to offscreen canvas first, then copy — avoids iOS hidden-canvas bug
-  const page     = await pdfDoc.getPage(pageNum);
-  const vp       = page.getViewport({ scale: 2.5 });
-  const offscreen = document.createElement('canvas');
-  offscreen.width  = vp.width;
-  offscreen.height = vp.height;
-  await page.render({ canvasContext: offscreen.getContext('2d'), viewport: vp }).promise;
-
-  const canvas = document.getElementById('compassCanvas');
-  canvas.width  = vp.width;
-  canvas.height = vp.height;
-  canvas.getContext('2d').drawImage(offscreen, 0, 0);
+  const compassCanvas = document.getElementById('compassCanvas');
+  compassCanvas.width  = thumbnailCanvas.width;
+  compassCanvas.height = thumbnailCanvas.height;
+  compassCanvas.getContext('2d').drawImage(thumbnailCanvas, 0, 0);
 
   startCompass();
 }
@@ -547,12 +537,14 @@ async function openCompassPage(pageNum) {
 function openCompassImage(url) {
   requestOrientationPermission().then(granted => {
     if (!granted) return;
-    const canvas = document.getElementById('compassCanvas');
+    document.getElementById('compassScreen').classList.add('active');
+    document.getElementById('compassStatus').textContent = '⏳ Loading…';
+    const compassCanvas = document.getElementById('compassCanvas');
     const img = new Image();
     img.onload = () => {
-      canvas.width  = img.naturalWidth;
-      canvas.height = img.naturalHeight;
-      canvas.getContext('2d').drawImage(img, 0, 0);
+      compassCanvas.width  = img.naturalWidth;
+      compassCanvas.height = img.naturalHeight;
+      compassCanvas.getContext('2d').drawImage(img, 0, 0);
       startCompass();
     };
     img.src = url;
