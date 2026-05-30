@@ -52,6 +52,38 @@
     .back-btn:hover { color: var(--text); border-color: var(--text2); }
 
 
+
+    /* ── Full-screen PDF viewer ── */
+    .fullscreen-viewer {
+      position: fixed; inset: 0; z-index: 150;
+      background: #fff;
+      display: flex; flex-direction: column;
+    }
+    .fullscreen-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; flex-shrink: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .fullscreen-back {
+      display: flex; align-items: center; gap: 6px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px;
+      padding: 7px 14px; font-size: 0.82rem; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .fullscreen-back:hover { border-color: var(--blue); color: var(--blue); }
+    .fullscreen-title {
+      font-size: 0.85rem; font-weight: 700; color: var(--text2);
+      text-align: center; flex: 1; padding: 0 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fullscreen-frame {
+      flex: 1; width: 100%; border: none;
+      /* Let browser PDF viewer handle pinch zoom */
+      touch-action: auto;
+    }
+
     /* ── Compass button ── */
     .compass-btn {
       display: none; /* hidden until a file is open */
@@ -237,11 +269,7 @@
     }
     .pdf-placeholder svg { width: 40px; height: 40px; stroke: var(--text2); fill: none; stroke-width: 1.5; opacity: 0.5; }
     .pdf-placeholder p { font-size: 0.85rem; }
-    iframe#pdfFrame {
-      flex: 1; width: 100%; border: none;
-      display: none;
-    }
-    iframe#pdfFrame.visible { display: block; }
+
 
     /* ── Mobile / iPad ── */
     /* Mobile dropdown */
@@ -327,9 +355,7 @@
     <div class="job-content" id="jobContent" style="display:none;">
       <div class="job-titlebar">
         <span class="job-title" id="jobTitle">—</span>
-        <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
-          🧭 Compass Lock
-        </button>
+
       </div>
       <div class="cat-tabs" id="catTabs"></div>
       <div class="file-viewer">
@@ -337,9 +363,8 @@
         <div class="pdf-pane">
           <div class="pdf-placeholder" id="pdfPlaceholder">
             <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-            <p>Select a file to view it</p>
+            <p>Tap a file to open it</p>
           </div>
-          <iframe id="pdfFrame" title="PDF Viewer"></iframe>
         </div>
       </div>
     </div>
@@ -348,6 +373,8 @@
 
 <script>
 let currentJob      = null;
+let currentFile     = null;
+let currentFileUrl  = null;
 let currentCategory = null;
 let jobFiles        = {};
 
@@ -464,21 +491,33 @@ function selectCategory(cat, tab) {
 // ── Open a PDF ─────────────────────────────────────────────
 function openFile(fname, item) {
   document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
-  item.classList.add('active');
+  if (item) item.classList.add('active');
 
   const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
-  const frame = document.getElementById('pdfFrame');
-  frame.src = url;
-  frame.classList.add('visible');
-  document.getElementById('pdfPlaceholder').style.display = 'none';
+  currentFile = fname;
+  currentFileUrl = url;
+  openFullscreen(fname, url);
+}
+
+function openFullscreen(fname, url) {
+  document.getElementById('fullscreenTitle').textContent = fname;
+  document.getElementById('fullscreenFrame').src = url;
+  document.getElementById('fullscreenViewer').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  // Show compass button in fullscreen mode
   document.getElementById('compassBtn').classList.add('visible');
 }
 
+function closeFullscreen() {
+  document.getElementById('fullscreenViewer').style.display = 'none';
+  document.getElementById('fullscreenFrame').src = '';
+  document.body.style.overflow = '';
+  document.getElementById('compassBtn').classList.remove('visible');
+}
+
 function clearPDF() {
-  const frame = document.getElementById('pdfFrame');
-  frame.src = '';
-  frame.classList.remove('visible');
   document.getElementById('pdfPlaceholder').style.display = 'flex';
+  currentFile = null; currentFileUrl = null;
   document.getElementById('compassBtn').classList.remove('visible');
 }
 
@@ -521,7 +560,7 @@ async function enableCompassMode() {
   currentScale = 1;
 
   // Mirror current PDF into compass frame
-  const src = document.getElementById('pdfFrame').src;
+  const src = currentFileUrl || '';
   document.getElementById('compassFrame').src = src;
 
   // Show overlay
@@ -611,6 +650,24 @@ function onPinchEnd(e) {
 
 loadJobs();
 </script>
+
+
+<!-- ── Full-Screen PDF Viewer ── -->
+<div id="fullscreenViewer" class="fullscreen-viewer" style="display:none;">
+  <div class="fullscreen-topbar">
+    <button class="fullscreen-back" onclick="closeFullscreen()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+        <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+      </svg>
+      Back
+    </button>
+    <span class="fullscreen-title" id="fullscreenTitle"></span>
+    <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
+      🧭 Compass Lock
+    </button>
+  </div>
+  <iframe id="fullscreenFrame" class="fullscreen-frame" title="PDF Viewer" allowfullscreen></iframe>
+</div>
 
 <!-- ── Compass Mode Overlay ── -->
 <div id="compassOverlay" class="compass-overlay" style="display:none;">
