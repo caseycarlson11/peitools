@@ -291,6 +291,9 @@ async function selectFile(fname) {
 }
 
 async function openCompassPage(pageNum) {
+  const granted = await requestOrientationPermission();
+  if (!granted) return;
+
   const page   = await pdfDoc.getPage(pageNum);
   const vp     = page.getViewport({ scale: 2.5 });
   const canvas = document.getElementById('compassCanvas');
@@ -300,7 +303,24 @@ async function openCompassPage(pageNum) {
   startCompass();
 }
 
-async function startCompass() {
+async function requestOrientationPermission() {
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        alert('Compass access denied. Go to Settings → Safari → Motion & Orientation Access and turn it on.');
+        return false;
+      }
+    } catch(e) {
+      alert('Could not get compass permission: ' + e.message);
+      return false;
+    }
+  }
+  return true;
+}
+
+function startCompass() {
   lockedAlpha  = null;
   currentScale = 1;
   compassRot   = 0;
@@ -310,21 +330,12 @@ async function startCompass() {
   document.getElementById('lockBtn').textContent = '🔒 Lock';
   document.getElementById('lockBtn').classList.remove('locked');
 
-  if (typeof DeviceOrientationEvent !== 'undefined' &&
-      typeof DeviceOrientationEvent.requestPermission === 'function') {
-    try {
-      const perm = await DeviceOrientationEvent.requestPermission();
-      if (perm !== 'granted') {
-        document.getElementById('compassStatus').textContent = '⚠️ Compass access denied';
-        return;
-      }
-    } catch(e) {
-      document.getElementById('compassStatus').textContent = '⚠️ ' + e.message;
-      return;
-    }
+  if (window.ondeviceorientationabsolute !== undefined || 'ondeviceorientationabsolute' in window) {
+    window.addEventListener('deviceorientationabsolute', onOrientation, true);
+  } else {
+    window.addEventListener('deviceorientation', onOrientation, true);
   }
 
-  window.addEventListener('deviceorientation', onOrientation, true);
   const screen = document.getElementById('compassScreen');
   screen.addEventListener('touchstart', onPinchStart, { passive: false });
   screen.addEventListener('touchmove',  onPinchMove,  { passive: false });
@@ -333,6 +344,7 @@ async function startCompass() {
 
 function exitCompass() {
   document.getElementById('compassScreen').classList.remove('active');
+  window.removeEventListener('deviceorientationabsolute', onOrientation, true);
   window.removeEventListener('deviceorientation', onOrientation, true);
   const screen = document.getElementById('compassScreen');
   screen.removeEventListener('touchstart', onPinchStart);
@@ -341,8 +353,9 @@ function exitCompass() {
 }
 
 function onOrientation(e) {
-  if (e.alpha === null) return;
-  currentAlpha = e.alpha;
+  const alpha = e.alpha !== null ? e.alpha : (e.webkitCompassHeading ? (360 - e.webkitCompassHeading) : null);
+  if (alpha === null) return;
+  currentAlpha = alpha;
   if (lockedAlpha === null) return;
   let delta = currentAlpha - lockedAlpha;
   if (delta >  180) delta -= 360;
