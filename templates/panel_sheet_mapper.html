@@ -10,58 +10,38 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
 <style>
 :root {
-  --steel:        #1a2332;
-  --steel-mid:    #243045;
-  --steel-light:  #2d3d56;
-  --glass:        rgba(255,255,255,0.08);
-  --glass-hover:  rgba(255,255,255,0.14);
-  --glass-border: rgba(255,255,255,0.15);
+  --steel:        #0d1117;
+  --steel-mid:    #161b22;
+  --steel-light:  #1c2230;
+  --glass:        #1c2230;
+  --glass-hover:  #243045;
+  --glass-border: #30363d;
   --blue:         #60b4f0;
   --blue-dim:     rgba(96,180,240,0.15);
   --blue-glow:    rgba(96,180,240,0.3);
   --gold:         #f0a500;
   --green:        #26c97a;
   --red:          #e8304a;
-  --text:         rgba(255,255,255,0.92);
-  --text2:        rgba(255,255,255,0.5);
-  --text3:        rgba(255,255,255,0.25);
-  --border:       rgba(255,255,255,0.1);
-  --border2:      rgba(255,255,255,0.18);
+  --text:         #e6edf3;
+  --text2:        #8b949e;
+  --text3:        #484f58;
+  --border:       #30363d;
+  --border2:      #3d444d;
 }
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body {
-  background: var(--steel);
+  background: #0d1117;
   color: var(--text);
   font-family: 'Inter', sans-serif;
   min-height: 100vh;
   overflow-x: hidden;
-  position: relative;
 }
-body::before {
-  content: '';
-  position: fixed; inset: 0;
-  background-image: url('/static/bg.jpg');
-  background-size: cover;
-  background-position: center;
-  filter: brightness(0.18) saturate(0.6);
-  z-index: 0;
-  pointer-events: none;
-}
-body::after {
-  content: '';
-  position: fixed; inset: 0;
-  background: rgba(10,18,30,0.55);
-  z-index: 0;
-  pointer-events: none;
-}
-header, main, .status-bar { position: relative; z-index: 1; }
 
 /* HEADER */
 .site-header {
   display: flex; align-items: center;
   padding: 0 24px; height: 56px;
-  background: rgba(10,18,30,0.7);
-  backdrop-filter: blur(16px);
+  background: var(--steel-mid);
   border-bottom: 1px solid var(--border);
   position: sticky; top: 0; z-index: 200;
 }
@@ -92,7 +72,7 @@ header, main, .status-bar { position: relative; z-index: 1; }
   border: 1px solid var(--border); padding: 7px 16px;
   border-radius: 9px; cursor: pointer; font-size: 13px;
   font-family: 'Inter', sans-serif; font-weight: 500;
-  transition: all 0.15s; backdrop-filter: blur(8px);
+  transition: all 0.15s;
   display: inline-flex; align-items: center; gap: 7px;
 }
 .btn:hover { background: var(--glass-hover); border-color: var(--border2); }
@@ -128,8 +108,8 @@ header, main, .status-bar { position: relative; z-index: 1; }
   text-align: center; max-width: 480px; margin-bottom: 36px;
 }
 .drop-zone {
-  background: var(--glass); border: 2px dashed var(--border2);
-  backdrop-filter: blur(12px); border-radius: 16px;
+  background: var(--steel-mid); border: 2px dashed var(--border2);
+  border-radius: 16px;
   padding: 48px 40px; text-align: center; cursor: pointer;
   transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
   max-width: 480px; width: 100%;
@@ -178,7 +158,7 @@ header, main, .status-bar { position: relative; z-index: 1; }
 
 /* TOOLBAR */
 .toolbar {
-  background: rgba(10,18,30,0.65); backdrop-filter: blur(16px);
+  background: var(--steel-mid);
   border-bottom: 1px solid var(--border); padding: 0 16px;
   height: 48px; display: flex; align-items: center; gap: 8px;
   overflow-x: auto; position: relative; z-index: 10;
@@ -193,12 +173,11 @@ header, main, .status-bar { position: relative; z-index: 1; }
   display: flex; justify-content: center;
   padding: 28px; min-height: calc(100vh - 140px);
   padding-bottom: 64px;
-  background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
-  background-size: 24px 24px;
+  background: var(--steel);
 }
 .tool-card {
-  background: var(--glass); border: 1px solid var(--border);
-  backdrop-filter: blur(12px); border-radius: 16px;
+  background: var(--steel-mid); border: 1px solid var(--border);
+  border-radius: 16px;
   padding: 24px; width: 100%; max-width: 900px;
 }
 
@@ -251,7 +230,7 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
 /* STATUS BAR */
 .status-bar {
   position: fixed; bottom: 0; left: 0; right: 0; height: 32px;
-  background: rgba(10,18,30,0.85); backdrop-filter: blur(16px);
+  background: var(--steel-mid);
   border-top: 1px solid var(--border); padding: 0 16px;
   display: none; align-items: center; gap: 16px;
   font-size: 11px; color: var(--text3); z-index: 100;
@@ -283,14 +262,14 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
   <div class="upload-eyebrow">CAD · Blueprints · Field Tools</div>
   <h1 class="upload-headline">Find every panel<br>on its <em>blueprint sheet.</em></h1>
   <p class="upload-sub">
-    Upload your DXF files exported from BricsCAD. The tool reads the PANELS layer
-    and maps each panel number to the exact sheet it lives on.
+    Change the name of the Layer that has the panel numbers on it to "PANELS" — Save As — AutoCAD 2018 ASCII DXF<br>
+    You can upload multiple files at once.
   </p>
 
   <div class="drop-zone" id="dropZone">
     <div class="drop-icon">📐</div>
     <div class="drop-title">Drop DXF files here</div>
-    <div class="drop-sub">Export from BricsCAD: File → Save As → AutoCAD 2018 ASCII DXF<br>You can upload multiple files at once.</div>
+    <div class="drop-sub">Drop your DXF files here or click below to choose</div>
     <button class="btn btn-primary" onclick="document.getElementById('fileInput').click()">
       ⬆ Choose Files
     </button>
