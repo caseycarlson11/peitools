@@ -51,6 +51,70 @@
     }
     .back-btn:hover { color: var(--text); border-color: var(--text2); }
 
+
+    /* ── Compass button ── */
+    .compass-btn {
+      display: none; /* hidden until a file is open */
+      align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .compass-btn.visible { display: flex; }
+    .compass-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .compass-btn.active { background: var(--accent); border-color: var(--blue); color: var(--blue); }
+
+    /* ── Compass overlay ── */
+    .compass-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .compass-rotate-wrap {
+      position: absolute;
+      /* Oversized so corners don't show during rotation */
+      width: 200vmax; height: 200vmax;
+      top: 50%; left: 50%;
+      transform-origin: center center;
+      transform: translate(-50%, -50%) rotate(0deg) scale(1);
+      will-change: transform;
+    }
+    .compass-frame {
+      position: absolute;
+      /* Center the actual viewport within the large wrap */
+      width: 100vw; height: 100vh;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border: none;
+      background: white;
+    }
+    .compass-hud {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      z-index: 201;
+    }
+    .compass-status {
+      font-size: 0.85rem; font-weight: 700; color: var(--blue);
+    }
+    .compass-hud-right { display: flex; gap: 10px; }
+    .compass-hud-btn {
+      padding: 8px 16px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08); color: var(--text);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .compass-hud-btn:hover { background: rgba(255,255,255,0.15); }
+    .compass-hud-btn.exit { border-color: rgba(219,21,35,0.4); color: #ff6b6b; }
+    .compass-hud-btn.exit:hover { background: rgba(219,21,35,0.15); }
+
     /* ── Main layout ── */
     .main { display: flex; height: calc(100vh - 57px); }
 
@@ -263,6 +327,9 @@
     <div class="job-content" id="jobContent" style="display:none;">
       <div class="job-titlebar">
         <span class="job-title" id="jobTitle">—</span>
+        <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
+          🧭 Compass Lock
+        </button>
       </div>
       <div class="cat-tabs" id="catTabs"></div>
       <div class="file-viewer">
@@ -404,6 +471,7 @@ function openFile(fname, item) {
   frame.src = url;
   frame.classList.add('visible');
   document.getElementById('pdfPlaceholder').style.display = 'none';
+  document.getElementById('compassBtn').classList.add('visible');
 }
 
 function clearPDF() {
@@ -411,9 +479,153 @@ function clearPDF() {
   frame.src = '';
   frame.classList.remove('visible');
   document.getElementById('pdfPlaceholder').style.display = 'flex';
+  document.getElementById('compassBtn').classList.remove('visible');
+}
+
+
+// ── Compass Mode ───────────────────────────────────────────
+let compassMode   = false;
+let lockedAlpha   = null;
+let compassRotation = 0;
+let pinchStartDist  = null;
+let pinchScale      = 1;
+let currentScale    = 1;
+
+function toggleCompassMode() {
+  compassMode ? disableCompassMode() : enableCompassMode();
+}
+
+async function enableCompassMode() {
+  // Request permission on iOS 13+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        alert('Compass access denied. Go to Settings → Safari → Motion & Orientation Access and enable it.');
+        return;
+      }
+    } catch(e) {
+      alert('Could not get compass permission: ' + e.message);
+      return;
+    }
+  }
+
+  if (typeof DeviceOrientationEvent === 'undefined') {
+    alert('Compass is not supported on this device.');
+    return;
+  }
+
+  compassMode = true;
+  lockedAlpha = null;
+  currentScale = 1;
+
+  // Mirror current PDF into compass frame
+  const src = document.getElementById('pdfFrame').src;
+  document.getElementById('compassFrame').src = src;
+
+  // Show overlay
+  document.getElementById('compassOverlay').style.display = 'block';
+  document.getElementById('compassBtn').classList.add('active');
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+
+  window.addEventListener('deviceorientation', handleOrientation, true);
+
+  // Pinch zoom
+  const overlay = document.getElementById('compassOverlay');
+  overlay.addEventListener('touchstart',  onPinchStart,  { passive: false });
+  overlay.addEventListener('touchmove',   onPinchMove,   { passive: false });
+  overlay.addEventListener('touchend',    onPinchEnd,    { passive: false });
+}
+
+function disableCompassMode() {
+  compassMode = false;
+  lockedAlpha = null;
+
+  window.removeEventListener('deviceorientation', handleOrientation, true);
+
+  const overlay = document.getElementById('compassOverlay');
+  overlay.removeEventListener('touchstart', onPinchStart);
+  overlay.removeEventListener('touchmove',  onPinchMove);
+  overlay.removeEventListener('touchend',   onPinchEnd);
+
+  document.getElementById('compassOverlay').style.display = 'none';
+  document.getElementById('compassBtn').classList.remove('active');
+  document.getElementById('compassFrame').src = '';
+}
+
+function recalibrateCompass() {
+  lockedAlpha = null;
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+}
+
+function handleOrientation(e) {
+  if (e.alpha === null) return;
+
+  if (lockedAlpha === null) {
+    lockedAlpha = e.alpha;
+    document.getElementById('compassStatus').textContent = '🧭 Locked';
+  }
+
+  let delta = e.alpha - lockedAlpha;
+  if (delta >  180) delta -= 360;
+  if (delta < -180) delta += 360;
+
+  compassRotation = -delta;
+  applyCompassTransform();
+}
+
+function applyCompassTransform() {
+  const wrap = document.getElementById('compassWrap');
+  wrap.style.transform =
+    `translate(-50%, -50%) rotate(${compassRotation}deg) scale(${currentScale})`;
+}
+
+// ── Pinch zoom ─────────────────────────────────────────────
+function getTouchDist(e) {
+  const dx = e.touches[0].clientX - e.touches[1].clientX;
+  const dy = e.touches[0].clientY - e.touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function onPinchStart(e) {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    pinchStartDist = getTouchDist(e);
+    pinchScale = currentScale;
+  }
+}
+
+function onPinchMove(e) {
+  if (e.touches.length === 2 && pinchStartDist) {
+    e.preventDefault();
+    const dist = getTouchDist(e);
+    currentScale = Math.min(5, Math.max(0.5, pinchScale * (dist / pinchStartDist)));
+    applyCompassTransform();
+  }
+}
+
+function onPinchEnd(e) {
+  if (e.touches.length < 2) pinchStartDist = null;
 }
 
 loadJobs();
 </script>
+
+<!-- ── Compass Mode Overlay ── -->
+<div id="compassOverlay" class="compass-overlay" style="display:none;">
+  <div class="compass-rotate-wrap" id="compassWrap">
+    <iframe id="compassFrame" title="Compass PDF" class="compass-frame"></iframe>
+  </div>
+  <div class="compass-hud">
+    <div class="compass-hud-left">
+      <span class="compass-status" id="compassStatus">🧭 Locked</span>
+    </div>
+    <div class="compass-hud-right">
+      <button class="compass-hud-btn" onclick="recalibrateCompass()" title="Re-lock to current orientation">↺ Re-lock</button>
+      <button class="compass-hud-btn exit" onclick="disableCompassMode()">✕ Exit</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
