@@ -410,5 +410,76 @@ def serve_share_file(token, filepath):
     full = safe_join(info["job"], filepath)
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
+# ── Compass Share Links ───────────────────────────────────────
+COMPASS_SHARES_FILE = os.path.join(JOBS_DIR, ".compass_shares.json")
+
+def load_compass_shares():
+    if os.path.exists(COMPASS_SHARES_FILE):
+        try:
+            with open(COMPASS_SHARES_FILE) as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def save_compass_shares(shares):
+    with open(COMPASS_SHARES_FILE, "w") as f:
+        json.dump(shares, f)
+
+@app.route("/api/compass-share", methods=["POST"])
+@login_required
+def create_compass_share():
+    data = request.get_json()
+    job = (data or {}).get("job", "").strip()
+    if not job:
+        return jsonify({"error": "Missing job"}), 400
+    shares = load_compass_shares()
+    shares = {t: v for t, v in shares.items() if v.get("job") != job}
+    token = secrets.token_urlsafe(16)
+    shares[token] = {"job": job, "created": datetime.utcnow().isoformat()}
+    save_compass_shares(shares)
+    return jsonify({"token": token, "url": f"/compass/{token}"})
+
+@app.route("/api/compass-share/info", methods=["POST"])
+@login_required
+def compass_share_info():
+    data = request.get_json()
+    job = (data or {}).get("job", "").strip()
+    shares = load_compass_shares()
+    for token, v in shares.items():
+        if v.get("job") == job:
+            return jsonify({"token": token, "url": f"/compass/{token}"})
+    return jsonify({"token": None})
+
+@app.route("/api/compass-share/delete", methods=["POST"])
+@login_required
+def delete_compass_share():
+    data = request.get_json()
+    token = (data or {}).get("token", "").strip()
+    shares = load_compass_shares()
+    shares.pop(token, None)
+    save_compass_shares(shares)
+    return jsonify({"ok": True})
+
+@app.route("/compass/<token>")
+def view_compass_share(token):
+    shares = load_compass_shares()
+    info = shares.get(token)
+    if not info:
+        return "This link has expired or does not exist.", 404
+    job = info["job"]
+    bp_path = os.path.join(JOBS_DIR, job, "Blueprints")
+    blueprints = sorted([f for f in os.listdir(bp_path) if f.lower().endswith(".pdf")]) if os.path.isdir(bp_path) else []
+    return render_template("compass_share.html", token=token, job=job, blueprints=blueprints)
+
+@app.route("/compass/<token>/file/<path:filepath>")
+def serve_compass_share_file(token, filepath):
+    shares = load_compass_shares()
+    info = shares.get(token)
+    if not info:
+        return "Link not found", 404
+    full = safe_join(info["job"], "Blueprints", filepath)
+    return send_from_directory(os.path.dirname(full), os.path.basename(full))
+
 if __name__ == "__main__":
     app.run(debug=True)

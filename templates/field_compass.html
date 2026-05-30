@@ -328,8 +328,8 @@
 <!-- Share Modal -->
 <div id="shareModalBg" class="share-modal-bg" style="display:none;" onclick="if(event.target===this)closeShareModal()">
   <div class="share-modal">
-    <h3>🔗 Share Job Folder</h3>
-    <p id="shareModalDesc">Generate a link anyone can use to view all files in this job — no login needed.</p>
+    <h3>🔗 Share Field Compass</h3>
+    <p id="shareModalDesc">Generate a link that opens the Field Compass app for this job — no login needed.</p>
     <div id="shareLinkSection" style="display:none;">
       <div class="share-link-row">
         <input class="share-link-input" id="shareLinkInput" readonly/>
@@ -641,7 +641,7 @@ function onPinchMove(e) {
 }
 function onPinchEnd(e) { if (e.touches.length < 2) pinchDist0 = null; }
 
-// ── Share Links ───────────────────────────────────────────
+// ── Share Compass Link ────────────────────────────────────
 async function openShareModal() {
   document.getElementById('shareModalBg').style.display = 'flex';
   document.getElementById('shareLinkSection').style.display = 'none';
@@ -650,7 +650,7 @@ async function openShareModal() {
   document.getElementById('shareGenBtn').textContent = 'Generate Link';
   document.getElementById('shareModalDesc').textContent = 'Checking for existing link…';
 
-  const res  = await fetch('/api/share/info', {
+  const res  = await fetch('/api/compass-share/info', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({job: currentJob})
   });
@@ -658,21 +658,21 @@ async function openShareModal() {
   if (data.token) {
     showShareLink(data.token);
   } else {
-    document.getElementById('shareModalDesc').textContent = 'Generate a link anyone can use to view all files in this job — no login needed.';
+    document.getElementById('shareModalDesc').textContent = 'Generate a link that opens the Field Compass app for this job — no login needed.';
   }
 }
 
 function showShareLink(token) {
-  const url = `${location.origin}/share/${token}`;
+  const url = `${location.origin}/compass/${token}`;
   document.getElementById('shareLinkInput').value = url;
   document.getElementById('shareLinkSection').style.display = 'flex';
   document.getElementById('shareDelBtn').style.display = 'inline-flex';
   document.getElementById('shareGenBtn').style.display = 'none';
-  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view all documents in this job folder — no login needed.';
+  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can open the Field Compass app for this job — no login needed.';
 }
 
 async function generateShareLink() {
-  const res  = await fetch('/api/share', {
+  const res  = await fetch('/api/compass-share', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({job: currentJob})
   });
@@ -682,7 +682,7 @@ async function generateShareLink() {
 
 async function deleteShareLink() {
   const token = new URL(document.getElementById('shareLinkInput').value).pathname.split('/').pop();
-  await fetch('/api/share/delete', {
+  await fetch('/api/compass-share/delete', {
     method: 'POST', headers: {'Content-Type':'application/json'},
     body: JSON.stringify({token})
   });
