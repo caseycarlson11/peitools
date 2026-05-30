@@ -518,18 +518,17 @@ async function selectFile(file) {
 // ── Open in compass ────────────────────────────────────────
 // ── Render at max safe scale for device ────────────────────
 function getSafeRenderScale(pageW, pageH) {
-  const MAX_PIXELS = 8_000_000;
-  const MAX_DIM    = 4096;
-  const dpr        = Math.min(window.devicePixelRatio || 1, 2);
-  const screenW    = window.innerWidth;
-  let scale        = (screenW * dpr) / pageW;
-  // Cap total pixels
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const MAX_PIXELS = isAndroid ? 3_000_000 : 6_000_000;
+  const MAX_DIM    = isAndroid ? 2048 : 4096;
+  // Don't multiply by devicePixelRatio — blueprint detail doesn't need it and it causes crashes
+  const screenW = window.innerWidth;
+  let scale = screenW / pageW;
   if (pageW * scale * pageH * scale > MAX_PIXELS)
     scale = Math.sqrt(MAX_PIXELS / (pageW * pageH));
-  // Cap single dimension
   if (pageW * scale > MAX_DIM) scale = MAX_DIM / pageW;
   if (pageH * scale > MAX_DIM) scale = MAX_DIM / pageH;
-  return Math.max(scale, 0.5);
+  return Math.max(scale, 0.3);
 }
 
 async function openCompassFromCanvas(thumbnailCanvas) {

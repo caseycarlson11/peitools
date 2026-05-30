@@ -291,14 +291,14 @@ async function selectFile(fname) {
 }
 
 function getSafeRenderScale(pageW, pageH) {
-  const MAX_PIXELS = 8_000_000;
-  const MAX_DIM    = 4096;
-  const dpr        = Math.min(window.devicePixelRatio || 1, 2);
-  let scale        = (window.innerWidth * dpr) / pageW;
+  const isAndroid = /android/i.test(navigator.userAgent);
+  const MAX_PIXELS = isAndroid ? 3_000_000 : 6_000_000;
+  const MAX_DIM    = isAndroid ? 2048 : 4096;
+  let scale = window.innerWidth / pageW;
   if (pageW * scale * pageH * scale > MAX_PIXELS) scale = Math.sqrt(MAX_PIXELS / (pageW * pageH));
   if (pageW * scale > MAX_DIM) scale = MAX_DIM / pageW;
   if (pageH * scale > MAX_DIM) scale = MAX_DIM / pageH;
-  return Math.max(scale, 0.5);
+  return Math.max(scale, 0.3);
 }
 
 async function openCompassFromCanvas(thumbnailCanvas) {
