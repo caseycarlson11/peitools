@@ -365,3 +365,55 @@ async function selectJob(job, btn) {
 }
 
 // ── 
+// ── Select a category ──────────────────────────────────────
+function selectCategory(cat, tab) {
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentCategory = cat;
+
+  const files = jobFiles[cat] || [];
+  const list  = document.getElementById('fileList');
+  list.innerHTML = '';
+
+  if (!files.length) {
+    list.innerHTML = '<div class="no-files">No files in this category.</div>';
+    clearPDF();
+    return;
+  }
+
+  files.forEach(fname => {
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.innerHTML = `
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span class="file-name">${fname}</span>`;
+    item.onclick = () => openFile(fname, item);
+    list.appendChild(item);
+  });
+
+  openFile(files[0], list.querySelector('.file-item'));
+}
+
+// ── Open a PDF ─────────────────────────────────────────────
+function openFile(fname, item) {
+  document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+  item.classList.add('active');
+
+  const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
+  const frame = document.getElementById('pdfFrame');
+  frame.src = url;
+  frame.classList.add('visible');
+  document.getElementById('pdfPlaceholder').style.display = 'none';
+}
+
+function clearPDF() {
+  const frame = document.getElementById('pdfFrame');
+  frame.src = '';
+  frame.classList.remove('visible');
+  document.getElementById('pdfPlaceholder').style.display = 'flex';
+}
+
+loadJobs();
+</script>
+</body>
+</html>
