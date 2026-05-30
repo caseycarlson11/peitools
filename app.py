@@ -76,7 +76,8 @@ def logout():
     return redirect(url_for("login"))
 
 CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets"]
-CAD_FOLDER = "Cad File"
+CAD_FOLDER = "DXF CAD FILE"
+ALL_FOLDERS = CATEGORIES + [CAD_FOLDER]
 IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 
 def safe_join(*parts):
@@ -272,7 +273,7 @@ def admin_create_job():
     if not job_name or re.search(r'[\\/:*?"<>|]', job_name):
         return jsonify({"error": "Invalid job name"}), 400
     job_path = safe_join(job_name)
-    for cat in CATEGORIES:
+    for cat in ALL_FOLDERS:
         os.makedirs(os.path.join(job_path, cat), exist_ok=True)
     return jsonify({"ok": True})
 
@@ -283,14 +284,15 @@ def admin_upload():
         return jsonify({"error": "Unauthorized"}), 401
     job      = request.form.get("job", "").strip()
     category = request.form.get("category", "").strip()
-    if not job or category not in CATEGORIES:
+    if not job or category not in ALL_FOLDERS:
         return jsonify({"error": "Invalid job or category"}), 400
     cat_path = safe_join(job, category)
     os.makedirs(cat_path, exist_ok=True)
+    ALLOWED_EXTS = IMAGE_EXTS | {".dxf", ".dwg"}
     uploaded = []
     for f in request.files.getlist("files"):
         ext = os.path.splitext(f.filename)[1].lower()
-        if ext in IMAGE_EXTS:
+        if ext in ALLOWED_EXTS:
             fname = re.sub(r'[\\/:*?"<>|]', "_", f.filename)
             f.save(os.path.join(cat_path, fname))
             uploaded.append(fname)
