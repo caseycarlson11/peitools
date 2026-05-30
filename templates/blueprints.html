@@ -499,6 +499,7 @@ async function selectJob(job, btn) {
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('jobContent').style.display    = 'flex';
   document.getElementById('jobTitle').textContent        = job;
+  document.getElementById('jobShareBtn').style.display  = 'flex';
 
   // Build category tabs
   const tabs = document.getElementById('catTabs');
@@ -793,7 +794,6 @@ loadJobs();
     </button>
     <span class="fullscreen-title" id="fullscreenTitle"></span>
     <div style="display:flex;gap:8px;flex-shrink:0;">
-      <button class="share-btn" id="shareBtn" onclick="openShareModal()">🔗 Share</button>
       <button class="compass-btn" id="compassBtn" onclick="toggleCompassMode()" title="Lock blueprint to compass">
         🧭 Compass Lock
       </button>

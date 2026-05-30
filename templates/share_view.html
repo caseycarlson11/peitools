@@ -3,35 +3,83 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
-  <title>{{ filename }} | PEI Tools</title>
+  <title>{{ job }} | PEI Tools</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: sans-serif; background: #1a1a1a; display: flex; flex-direction: column; height: 100vh; }
+    :root {
+      --bg: #0d1117; --surface: #161b22; --card: #1c2230;
+      --border: #30363d; --text: #e6edf3; --text2: #8b949e;
+      --blue: #60b4f0; --accent: rgba(96,180,240,0.12);
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; display: flex; flex-direction: column; }
     .topbar {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 16px; background: #161b22;
-      border-bottom: 1px solid #30363d; flex-shrink: 0;
+      padding: 12px 20px; background: var(--surface); border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 10;
     }
     .logo { display: flex; align-items: center; gap: 8px; text-decoration: none; }
-    .logo img { width: 26px; height: 26px; border-radius: 5px; object-fit: cover; }
-    .logo span { font-size: 0.85rem; font-weight: 800; color: white; }
-    .logo .blue { color: #60b4f0; }
-    .logo .dim  { color: rgba(255,255,255,0.4); font-weight: 400; }
-    .fname { font-size: 0.8rem; font-weight: 600; color: #8b949e;
-             white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
-    iframe { flex: 1; width: 100%; border: none; background: white; }
+    .logo img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+    .logo-text { font-size: 0.9rem; font-weight: 800; color: var(--text); }
+    .logo-text .blue { color: var(--blue); }
+    .logo-text .dim  { color: var(--text2); font-weight: 400; }
+    .job-name { font-size: 0.85rem; font-weight: 700; color: var(--text2); }
+    .content { padding: 20px; max-width: 700px; margin: 0 auto; width: 100%; }
+    .cat-section { margin-bottom: 28px; }
+    .cat-title {
+      font-size: 0.68rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text2);
+      margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border);
+    }
+    .file-list { display: flex; flex-direction: column; gap: 6px; }
+    .file-item {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      text-decoration: none; color: var(--text); transition: all 0.15s;
+    }
+    .file-item:hover { border-color: var(--blue); background: var(--accent); }
+    .file-icon { font-size: 1.2rem; flex-shrink: 0; }
+    .file-name { font-size: 0.85rem; font-weight: 600; flex: 1; }
+    .file-arrow { color: var(--text2); font-size: 1rem; }
+    .empty { padding: 40px; text-align: center; color: var(--text2); font-size: 0.85rem; }
+    .badge {
+      display: inline-block; background: rgba(96,180,240,0.15);
+      color: var(--blue); border-radius: 6px; padding: 2px 8px;
+      font-size: 0.7rem; font-weight: 700; margin-left: 8px;
+    }
   </style>
 </head>
 <body>
   <div class="topbar">
     <a class="logo" href="/">
       <img src="/static/logo.jpg" alt="PEI"/>
-      <span><span class="blue">PEI</span><span class="dim">tools.com</span></span>
+      <div class="logo-text"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
     </a>
-    <span class="fname">{{ filename }}</span>
-    <div style="width:80px"></div>
+    <span class="job-name">{{ job }}</span>
+    <div style="width:90px"></div>
   </div>
-  <iframe src="{{ file_url }}" title="{{ filename }}"></iframe>
+
+  <div class="content">
+    {% if files %}
+      {% for cat, fnames in files.items() %}
+      <div class="cat-section">
+        <div class="cat-title">{{ cat }} <span class="badge">{{ fnames|length }}</span></div>
+        <div class="file-list">
+          {% for fname in fnames %}
+          <a class="file-item" href="/share/{{ token }}/file/{{ cat }}/{{ fname }}" target="_blank">
+            <span class="file-icon">📄</span>
+            <span class="file-name">{{ fname }}</span>
+            <span class="file-arrow">›</span>
+          </a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">No documents are available in this shared folder.</div>
+    {% endif %}
+  </div>
 </body>
 </html>
