@@ -108,22 +108,25 @@
       background: var(--surface);
     }
     .page-hint { padding: 10px 16px; font-size: 0.78rem; color: var(--text2); text-align: center; border-bottom: 1px solid var(--border); }
-    .page-grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .page-grid { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 12px; }
     .page-thumb {
       border-radius: 10px; overflow: hidden;
       border: 2px solid var(--border); cursor: pointer;
       transition: all 0.15s; position: relative; background: white;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.4);
     }
-    .page-thumb:hover, .page-thumb:active { border-color: var(--blue); }
+    .page-thumb:hover, .page-thumb:active { border-color: var(--blue); transform: scale(1.01); }
     .page-thumb canvas { display: block; width: 100%; height: auto; }
     .page-thumb img { display: block; width: 100%; height: auto; }
     .page-thumb-label {
-      position: absolute; bottom: 0; left: 0; right: 0;
-      background: rgba(13,17,23,0.8); color: var(--text);
-      font-size: 0.7rem; font-weight: 700; text-align: center; padding: 4px;
+      position: absolute; top: 0; left: 0; right: 0;
+      background: rgba(13,17,23,0.75); color: var(--text);
+      font-size: 0.72rem; font-weight: 700; padding: 6px 10px;
+      display: flex; align-items: center; justify-content: space-between;
     }
+    .page-thumb-tap { font-size: 0.68rem; color: var(--blue); font-weight: 600; }
     .loading-pages {
-      grid-column: 1/-1; display: flex; flex-direction: column;
+      display: flex; flex-direction: column;
       align-items: center; justify-content: center; gap: 12px;
       padding: 40px; color: var(--text2); font-size: 0.85rem;
     }
@@ -246,7 +249,7 @@
     </button>
     <span class="screen-title" id="pageScreenTitle">Choose a Page</span>
   </div>
-  <div class="page-hint">Tap a page to open it in Compass Mode</div>
+  <div class="page-hint">Scroll through the document — tap any page to open it in Compass Mode</div>
   <div class="page-grid" id="pageGrid"></div>
 </div>
 
@@ -370,9 +373,9 @@ async function selectFile(file) {
     img.alt = file.name;
     const label = document.createElement('div');
     label.className = 'page-thumb-label';
-    label.textContent = file.name;
-    thumb.appendChild(img);
+    label.innerHTML = `<span>${file.name}</span><span class="page-thumb-tap">Tap to use →</span>`;
     thumb.appendChild(label);
+    thumb.appendChild(img);
     thumb.onclick = () => openCompassImage(file.url);
     grid.appendChild(thumb);
     return;
@@ -398,9 +401,9 @@ async function selectFile(file) {
       thumb.className = 'page-thumb';
       const label = document.createElement('div');
       label.className = 'page-thumb-label';
-      label.textContent = `Page ${i}`;
-      thumb.appendChild(canvas);
+      label.innerHTML = `<span>Page ${i} of ${pdfDoc.numPages}</span><span class="page-thumb-tap">Tap to use →</span>`;
       thumb.appendChild(label);
+      thumb.appendChild(canvas);
       const pageNum = i;
       thumb.onclick = () => openCompassPage(pageNum);
       grid.appendChild(thumb);
