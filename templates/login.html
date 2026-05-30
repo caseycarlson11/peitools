@@ -124,12 +124,7 @@
       <div class="site-title"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
     </div>
 
-    <div>
-      <h2>Sign in to <span>PEI Tools</span></h2>
-      <p class="sub" style="margin-top:6px;">Use your Pacific Erectors email and password.</p>
-    </div>
-
-    <form method="POST" action="/login{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
+<form method="POST" action="/login{% if request.args.get('next') %}?next={{ request.args.get('next') }}{% endif %}">
       {% if error %}
       <div class="error">⚠ {{ error }}</div>
       {% endif %}
