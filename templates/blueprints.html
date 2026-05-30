@@ -392,6 +392,7 @@ let jobFiles        = {};
 // ── Load job list ──────────────────────────────────────────
 async function loadJobs() {
   const res  = await fetch('/api/jobs');
+  if (res.status === 401) { window.location.href = '/login'; return; }
   const jobs = await res.json();
   const list   = document.getElementById('jobList');
   const select = document.getElementById('jobSelect');

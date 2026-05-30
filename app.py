@@ -49,6 +49,9 @@ def login_required(f):
     @wraps(f)
     def decorated(*args, **kwargs):
         if not session.get("user"):
+            # API routes get a JSON 401; page routes get a redirect to login
+            if request.path.startswith("/api/") or request.path.startswith("/files/"):
+                return jsonify({"error": "Unauthorized"}), 401
             return redirect(url_for("login", next=request.path))
         return f(*args, **kwargs)
     return decorated
@@ -317,6 +320,20 @@ def admin_check_auth():
     return jsonify({"authenticated": bool(session.get("admin"))})
 
 # ── Static files ─────────────────────────────────────────────
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
+
+if __name__ == "__main__":
+    app.run(debug=True)
+@app.route("/files/<path:filepath>")
+@login_required
+def serve_file(filepath):
+    full = safe_join(filepath)
+    directory = os.path.dirname(full)
+    filename  = os.path.basename(full)
+    return send_from_directory(directory, filename)
+
 @app.route("/static/<path:filename>")
 def static_files(filename):
     return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
