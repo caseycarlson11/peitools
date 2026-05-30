@@ -524,12 +524,23 @@ async function openCompassPage(pageNum) {
   const granted = await requestOrientationPermission();
   if (!granted) return;
 
-  const page   = await pdfDoc.getPage(pageNum);
-  const vp     = page.getViewport({ scale: 2.5 });
+  // Show screen BEFORE rendering so canvas is in a visible DOM context (required on iOS)
+  document.getElementById('compassScreen').classList.add('active');
+  document.getElementById('compassStatus').textContent = '⏳ Loading…';
+
+  // Render to offscreen canvas first, then copy — avoids iOS hidden-canvas bug
+  const page     = await pdfDoc.getPage(pageNum);
+  const vp       = page.getViewport({ scale: 2.5 });
+  const offscreen = document.createElement('canvas');
+  offscreen.width  = vp.width;
+  offscreen.height = vp.height;
+  await page.render({ canvasContext: offscreen.getContext('2d'), viewport: vp }).promise;
+
   const canvas = document.getElementById('compassCanvas');
   canvas.width  = vp.width;
   canvas.height = vp.height;
-  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  canvas.getContext('2d').drawImage(offscreen, 0, 0);
+
   startCompass();
 }
 
@@ -573,6 +584,7 @@ function startCompass() {
   compassRot   = 0;
   applyTransform();
 
+  // Screen may already be visible (shown before render to fix iOS canvas bug)
   document.getElementById('compassScreen').classList.add('active');
   document.getElementById('compassStatus').textContent = '🔄 Rotate to orient, then Lock';
   document.getElementById('lockBtn').textContent = '🔒 Lock';
