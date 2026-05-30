@@ -781,6 +781,87 @@ header, #uploadScreen, #processingScreen, #editorScreen,
 }
 .preset-btn:hover { background: rgba(219,21,35,0.12); border-color: #DB1523; color: #DB1523; }
 
+/* ── SERVER LOAD SECTION ── */
+.server-section {
+  margin-top: 28px;
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.server-divider {
+  font-size: 11px;
+  color: var(--text3);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  text-align: center;
+}
+.server-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.job-select-input {
+  width: 100%;
+  background: var(--glass);
+  border: 1px solid var(--border2);
+  color: var(--text);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ffffff60' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+.job-select-input:focus { border-color: var(--blue); }
+.job-select-input option { background: #1a2332; color: var(--text); }
+
+.fab-file-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fab-file-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 11px 14px;
+  cursor: pointer;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  text-align: left;
+  transition: all 0.15s;
+  backdrop-filter: blur(8px);
+}
+.fab-file-btn:hover {
+  border-color: var(--blue);
+  background: var(--blue-dim);
+  color: var(--blue);
+}
+.fab-file-btn .file-icon { font-size: 15px; flex-shrink: 0; }
+.fab-loading {
+  text-align: center;
+  color: var(--text3);
+  font-size: 12px;
+  padding: 10px 0;
+}
+
 @media (max-width: 600px) {
   .canvas-wrap { padding: 10px; }
   .modal { padding: 18px; }
@@ -875,6 +956,17 @@ header, #uploadScreen, #processingScreen, #editorScreen,
     <div class="feat"><span class="feat-dot"></span>No account required</div>
     <div class="feat"><span class="feat-dot"></span>Supports all KPS sheets</div>
     <div class="feat"><span class="feat-dot"></span>Red text overlay on export</div>
+  </div>
+
+  <!-- Server load section -->
+  <div class="server-section">
+    <div class="server-divider">— or load from job folder —</div>
+    <div class="server-controls">
+      <select id="jobSelect" class="job-select-input" onchange="onJobSelect(this.value)">
+        <option value="">Loading jobs…</option>
+      </select>
+      <div id="fabFileList" class="fab-file-list" style="display:none;"></div>
+    </div>
   </div>
 </div>
 
@@ -1014,6 +1106,67 @@ header, #uploadScreen, #processingScreen, #editorScreen,
 </div>
 
 <script>
+// ─────────────────────────────────────────────────────────────────
+//  SERVER JOB LOADER
+// ─────────────────────────────────────────────────────────────────
+async function loadServerJobs() {
+  const sel = document.getElementById('jobSelect');
+  try {
+    const jobs = await fetch('/api/jobs').then(r => r.json());
+    // For each job, check if it has Fab Sheets
+    const fabJobs = [];
+    for (const job of jobs) {
+      const files = await fetch(`/api/jobs/${encodeURIComponent(job)}`).then(r => r.json());
+      if (files['Fab Sheets'] && files['Fab Sheets'].length > 0) {
+        fabJobs.push({ job, files: files['Fab Sheets'] });
+      }
+    }
+    sel.innerHTML = fabJobs.length
+      ? '<option value="">— Select a job —</option>' + fabJobs.map(j => `<option value="${j.job}">${j.job}</option>`).join('')
+      : '<option value="">No jobs with Fab Sheets found</option>';
+    // Store for later lookup
+    window._fabJobData = Object.fromEntries(fabJobs.map(j => [j.job, j.files]));
+  } catch (e) {
+    sel.innerHTML = '<option value="">Could not load jobs</option>';
+  }
+}
+
+function onJobSelect(job) {
+  const listEl = document.getElementById('fabFileList');
+  if (!job) { listEl.style.display = 'none'; listEl.innerHTML = ''; return; }
+  const files = (window._fabJobData || {})[job] || [];
+  listEl.style.display = 'flex';
+  listEl.innerHTML = files.map(fname =>
+    `<button class="fab-file-btn" onclick="loadServerFile('${job}', '${fname}')">
+      <span class="file-icon">📄</span>${fname}
+    </button>`
+  ).join('');
+}
+
+async function loadServerFile(job, filename) {
+  try {
+    document.getElementById('uploadScreen').style.display     = 'none';
+    document.getElementById('processingScreen').style.display = 'flex';
+    setProgress(0, 1, 'Fetching file from server…');
+
+    const url = `/files/${encodeURIComponent(job)}/Fab Sheets/${encodeURIComponent(filename)}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`Server returned ${res.status}`);
+    const buffer = await res.arrayBuffer();
+
+    // Reuse loadFile logic with a synthetic File object
+    const file = new File([buffer], filename, { type: 'application/pdf' });
+    await loadFile(file);
+  } catch (e) {
+    document.getElementById('processingScreen').style.display = 'none';
+    document.getElementById('uploadScreen').style.display     = 'flex';
+    alert('Could not load file: ' + e.message);
+  }
+}
+
+// Kick off job load on page ready
+document.addEventListener('DOMContentLoaded', loadServerJobs);
+
 // ─────────────────────────────────────────────────────────────────
 //  PDF.JS WORKER
 // ─────────────────────────────────────────────────────────────────
