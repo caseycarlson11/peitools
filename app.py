@@ -225,4 +225,101 @@ def api_job_all_files(job):
                 if ext in IMAGE_EXTS:
                     files.append({"name": f, "category": cat,
                                   "url": f"/files/{job}/{cat}/{f}",
-                                  "type": "pdf" if ext ==
+                                  "type": "pdf" if ext == ".pdf" else "image"})
+    return jsonify(files)
+
+@app.route("/admin", methods=["GET"])
+@login_required
+def admin():
+    return render_template("admin.html")
+
+@app.route("/admin/login", methods=["POST"])
+def admin_login():
+    data = request.get_json()
+    if data and data.get("password") == ADMIN_PASSWORD:
+        session["admin"] = True
+        return jsonify({"ok": True})
+    return jsonify({"ok": False, "error": "Wrong password"}), 401
+
+@app.route("/admin/logout", methods=["POST"])
+def admin_logout():
+    session.pop("admin", None)
+    return jsonify({"ok": True})
+
+@app.route("/admin/create-job", methods=["POST"])
+@login_required
+def admin_create_job():
+    if not session.get("admin"):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    job_name = (data or {}).get("name", "").strip()
+    if not job_name or re.search(r'[\\/:*?"<>|]', job_name):
+        return jsonify({"error": "Invalid job name"}), 400
+    job_path = safe_join(job_name)
+    for cat in CATEGORIES:
+        os.makedirs(os.path.join(job_path, cat), exist_ok=True)
+    return jsonify({"ok": True})
+
+@app.route("/admin/upload", methods=["POST"])
+@login_required
+def admin_upload():
+    if not session.get("admin"):
+        return jsonify({"error": "Unauthorized"}), 401
+    job      = request.form.get("job", "").strip()
+    category = request.form.get("category", "").strip()
+    if not job or category not in CATEGORIES:
+        return jsonify({"error": "Invalid job or category"}), 400
+    cat_path = safe_join(job, category)
+    os.makedirs(cat_path, exist_ok=True)
+    uploaded = []
+    for f in request.files.getlist("files"):
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext in IMAGE_EXTS:
+            fname = re.sub(r'[\\/:*?"<>|]', "_", f.filename)
+            f.save(os.path.join(cat_path, fname))
+            uploaded.append(fname)
+    return jsonify({"ok": True, "uploaded": uploaded})
+
+@app.route("/admin/delete-file", methods=["POST"])
+@login_required
+def admin_delete_file():
+    if not session.get("admin"):
+        return jsonify({"error": "Unauthorized"}), 401
+    data     = request.get_json()
+    job      = (data or {}).get("job", "").strip()
+    category = (data or {}).get("category", "").strip()
+    filename = (data or {}).get("filename", "").strip()
+    if not job or category not in CATEGORIES or not filename:
+        return jsonify({"error": "Invalid parameters"}), 400
+    filepath = safe_join(job, category, filename)
+    if os.path.isfile(filepath):
+        os.remove(filepath)
+    return jsonify({"ok": True})
+
+@app.route("/admin/delete-job", methods=["POST"])
+@login_required
+def admin_delete_job():
+    if not session.get("admin"):
+        return jsonify({"error": "Unauthorized"}), 401
+    data = request.get_json()
+    job  = (data or {}).get("job", "").strip()
+    if not job:
+        return jsonify({"error": "Invalid job"}), 400
+    import shutil
+    job_path = safe_join(job)
+    if os.path.isdir(job_path):
+        shutil.rmtree(job_path)
+    return jsonify({"ok": True})
+
+@app.route("/admin/check-auth")
+@login_required
+def admin_check_auth():
+    return jsonify({"authenticated": bool(session.get("admin"))})
+
+# ── Static files ─────────────────────────────────────────────
+@app.route("/static/<path:filename>")
+def static_files(filename):
+    return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
+
+if __name__ == "__main__":
+    app.run(debug=True)
