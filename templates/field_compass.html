@@ -326,7 +326,8 @@ async function selectJob(job) {
   scroll.innerHTML = '<div class="loading-pages"><div class="spinner"></div><span>Loading files…</span></div>';
 
   const res   = await fetch(`/api/jobs/${encodeURIComponent(job)}/all-files`);
-  const files = await res.json();
+  const allFiles = await res.json();
+  const files = allFiles.filter(f => f.category === 'Blueprints');
 
   scroll.innerHTML = '';
 
@@ -343,7 +344,6 @@ async function selectJob(job) {
       <span class="file-row-icon">${icon}</span>
       <div class="file-row-info">
         <div class="file-row-name">${f.name}</div>
-        <div class="file-row-cat">${f.category}</div>
       </div>
       <span class="file-row-arrow">›</span>`;
     row.onclick = () => selectFile(f);
