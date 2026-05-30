@@ -326,6 +326,7 @@ def static_files(filename):
 
 if __name__ == "__main__":
     app.run(debug=True)
+
 @app.route("/files/<path:filepath>")
 @login_required
 def serve_file(filepath):
@@ -333,10 +334,6 @@ def serve_file(filepath):
     directory = os.path.dirname(full)
     filename  = os.path.basename(full)
     return send_from_directory(directory, filename)
-
-@app.route("/static/<path:filename>")
-def static_files(filename):
-    return send_from_directory(os.path.join(os.path.dirname(__file__), "static"), filename)
 
 if __name__ == "__main__":
     app.run(debug=True)
