@@ -719,7 +719,6 @@ async function openShareModal() {
   document.getElementById('shareModalBg').style.display = 'flex';
   document.getElementById('shareLinkSection').style.display = 'none';
   document.getElementById('shareDelBtn').style.display = 'none';
-  document.getElementById('shareGenBtn').style.display = 'inline-flex';
   document.getElementById('shareGenBtn').textContent = 'Generate Link';
   document.getElementById('shareModalDesc').textContent = 'Checking for existing link…';
 
@@ -740,7 +739,8 @@ function showShareLink(token) {
   document.getElementById('shareLinkInput').value = url;
   document.getElementById('shareLinkSection').style.display = 'flex';
   document.getElementById('shareDelBtn').style.display = 'inline-flex';
-  document.getElementById('shareGenBtn').style.display = 'none';
+  document.getElementById('shareGenBtn').style.display = 'inline-flex';
+  document.getElementById('shareGenBtn').textContent = '↺ New Link';
   document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view the document without logging in.';
 }
 
@@ -761,7 +761,6 @@ async function deleteShareLink() {
   });
   document.getElementById('shareLinkSection').style.display = 'none';
   document.getElementById('shareDelBtn').style.display = 'none';
-  document.getElementById('shareGenBtn').style.display = 'inline-flex';
   document.getElementById('shareGenBtn').textContent = 'Generate Link';
   document.getElementById('shareModalDesc').textContent = 'Link deleted. Generate a new one anytime.';
 }
