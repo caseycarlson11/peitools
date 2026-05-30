@@ -279,6 +279,21 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
 .job-select-input:focus { border-color: var(--blue); }
 .job-select-input option { background: #1a2332; color: var(--text); }
 
+.toast {
+  position: fixed; bottom: 48px; left: 50%; transform: translateX(-50%);
+  background: #1c2230; border: 1px solid var(--blue);
+  color: var(--text); border-radius: 10px; padding: 12px 20px;
+  font-size: 13px; font-weight: 600; z-index: 999;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.5);
+  display: flex; align-items: center; gap: 10px;
+  animation: fadeInUp 0.2s ease;
+  max-width: 90vw; text-align: center;
+}
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
 @media (max-width: 600px) {
   .content-area { padding: 12px; }
   .stats-row { gap: 8px; }
@@ -358,6 +373,7 @@ tbody td:first-child { text-align: center; font-weight: 700; color: var(--blue);
     <span class="tb-label" id="tbJobName"></span>
     <div class="tb-sep"></div>
     <button class="btn btn-success" onclick="exportExcel()">⬇ Export Excel</button>
+    <button class="btn btn-primary" onclick="openInGoogleSheets()">📋 Open in Google Sheets</button>
   </div>
 
   <div class="content-area">
@@ -574,6 +590,35 @@ async function exportExcel() {
   URL.revokeObjectURL(url);
 }
 
+// ── Google Sheets ──
+function openInGoogleSheets() {
+  const panels = Object.keys(results).map(Number).sort((a,b) => a-b);
+  let tsv = 'Panel #\tSheet(s)\tSource File\n';
+  panels.forEach(p => {
+    const info = results[p];
+    const sheets = (info.sheets || []).join(', ');
+    tsv += `${p}\t${sheets}\t${info.file || ''}\n`;
+  });
+
+  navigator.clipboard.writeText(tsv).then(() => {
+    window.open('https://sheets.new', '_blank');
+    showToast('📋 Data copied! Paste it into the new sheet (Ctrl+V or ⌘+V)', 6000);
+  }).catch(() => {
+    showToast('⚠️ Could not copy — try the Export Excel button instead.', 4000);
+  });
+}
+
+function showToast(msg, duration = 4000) {
+  const existing = document.getElementById('toastEl');
+  if (existing) existing.remove();
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.id = 'toastEl';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), duration);
+}
+
 // ── Reset ──
 function resetTool() {
   selectedFiles = [];
@@ -616,7 +661,7 @@ async function onJobSelect(job) {
   const fetched = [];
   for (const fname of files) {
     try {
-      const url = `/cad-files/${encodeURIComponent(job)}/Cad File/${encodeURIComponent(fname)}`;
+      const url = `/cad-files/${encodeURIComponent(job)}/DXF CAD FILE/${encodeURIComponent(fname)}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(res.status);
       const buf = await res.arrayBuffer();
