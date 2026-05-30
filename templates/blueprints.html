@@ -419,7 +419,9 @@
     <div class="job-content" id="jobContent" style="display:none;">
       <div class="job-titlebar">
         <span class="job-title" id="jobTitle">—</span>
-
+        <button class="share-btn" id="jobShareBtn" onclick="openShareModal()" style="display:none;">
+          🔗 Share Job
+        </button>
       </div>
       <div class="cat-tabs" id="catTabs"></div>
       <div class="file-viewer">
@@ -499,6 +501,7 @@ async function selectJob(job, btn) {
   document.getElementById('welcomeScreen').style.display = 'none';
   document.getElementById('jobContent').style.display    = 'flex';
   document.getElementById('jobTitle').textContent        = job;
+  document.getElementById('jobShareBtn').style.display  = 'flex';
 
   // Build category tabs
   const tabs = document.getElementById('catTabs');
@@ -712,9 +715,9 @@ function onPinchEnd(e) {
 }
 
 
-// ── Share Links ────────────────────────────────────────────
+// ── Share Links (job-level) ────────────────────────────────
 async function openShareModal() {
-  if (!currentJob || !currentCategory || !currentFile) return;
+  if (!currentJob) return;
   document.getElementById('shareModalBg').style.display = 'flex';
   document.getElementById('shareLinkSection').style.display = 'none';
   document.getElementById('shareDelBtn').style.display = 'none';
@@ -723,13 +726,13 @@ async function openShareModal() {
 
   const res  = await fetch('/api/share/info', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({job: currentJob, category: currentCategory, filename: currentFile})
+    body: JSON.stringify({job: currentJob})
   });
   const data = await res.json();
   if (data.token) {
     showShareLink(data.token);
   } else {
-    document.getElementById('shareModalDesc').textContent = 'Generate a link anyone can use to view this file — no login needed.';
+    document.getElementById('shareModalDesc').textContent = 'Generate a link anyone can use to view all files in this job — no login needed.';
   }
 }
 
@@ -740,13 +743,13 @@ function showShareLink(token) {
   document.getElementById('shareDelBtn').style.display = 'inline-flex';
   document.getElementById('shareGenBtn').style.display = 'inline-flex';
   document.getElementById('shareGenBtn').textContent = '↺ New Link';
-  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view the document without logging in.';
+  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view all documents in this job folder — no login needed.';
 }
 
 async function generateShareLink() {
   const res  = await fetch('/api/share', {
     method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({job: currentJob, category: currentCategory, filename: currentFile})
+    body: JSON.stringify({job: currentJob})
   });
   const data = await res.json();
   if (data.token) showShareLink(data.token);
@@ -804,7 +807,7 @@ loadJobs();
 <!-- ── Share Modal ── -->
 <div id="shareModalBg" class="share-modal-bg" style="display:none;" onclick="if(event.target===this)closeShareModal()">
   <div class="share-modal">
-    <h3>🔗 Share This Blueprint</h3>
+    <h3>🔗 Share Job Folder</h3>
     <p id="shareModalDesc">Generate a link anyone can use to view this file — no login needed.</p>
     <div id="shareLinkSection" style="display:none;">
       <div class="share-link-row">
