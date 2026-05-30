@@ -591,27 +591,31 @@ async function exportExcel() {
 }
 
 // ── Google Sheets ──
-function openInGoogleSheets() {
+async function openInGoogleSheets() {
   const panels = Object.keys(results).map(Number).sort((a,b) => a-b);
-  let csv = 'Panel #,Sheet(s),Source File\n';
+  let tsv = 'Panel #\tSheet(s)\tSource File\n';
   panels.forEach(p => {
     const info = results[p];
-    const sheets = (info.sheets || []).join('; ');
-    csv += `${p},"${sheets}","${info.file || ''}"\n`;
+    const sheets = (info.sheets || []).join(', ');
+    tsv += `${p}\t${sheets}\t${info.file || ''}\n`;
   });
 
-  // Download the CSV
-  const blob = new Blob([csv], { type: 'text/csv' });
-  const url  = URL.createObjectURL(blob);
-  const a    = document.createElement('a');
-  a.href = url; a.download = 'Panel_Sheet_Map.csv'; a.click();
-  URL.revokeObjectURL(url);
-
-  // Open Google Sheets import
-  setTimeout(() => {
+  try {
+    await navigator.clipboard.writeText(tsv);
     window.open('https://docs.google.com/spreadsheets/u/0/create', '_blank');
-    showToast('CSV downloaded! In Google Sheets → File → Import → Upload the downloaded file', 8000);
-  }, 400);
+    showToast('✅ Data copied! Click on cell A1 in the new sheet, then paste (Ctrl+V)', 7000);
+  } catch(e) {
+    // Fallback: select from a hidden textarea
+    const ta = document.createElement('textarea');
+    ta.value = tsv;
+    ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0;';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    window.open('https://docs.google.com/spreadsheets/u/0/create', '_blank');
+    showToast('✅ Data copied! Click on cell A1 in the new sheet, then paste (Ctrl+V)', 7000);
+  }
 }
 
 function showToast(msg, duration = 4000) {
