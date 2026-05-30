@@ -11,6 +11,7 @@ os.makedirs(JOBS_DIR, exist_ok=True)
 ADMIN_PASSWORD = "PEI2024"
 
 CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets"]
+IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
 
 def safe_join(*parts):
     """Resolve a path and ensure it stays inside JOBS_DIR."""
@@ -112,6 +113,10 @@ def sheet_extractor():
 def blueprints():
     return render_template("blueprints.html")
 
+@app.route("/field-compass")
+def field_compass():
+    return render_template("field_compass.html")
+
 @app.route("/api/jobs")
 def api_jobs():
     if not os.path.isdir(JOBS_DIR):
@@ -134,6 +139,24 @@ def api_job_files(job):
             if files:
                 result[cat] = files
     return jsonify(result)
+
+@app.route("/api/jobs/<path:job>/all-files")
+def api_job_all_files(job):
+    """Return all viewable files (PDF + images) across all categories."""
+    job_path = safe_join(job)
+    if not os.path.isdir(job_path):
+        return jsonify({"error": "Job not found"}), 404
+    files = []
+    for cat in CATEGORIES:
+        cat_path = os.path.join(job_path, cat)
+        if os.path.isdir(cat_path):
+            for f in sorted(os.listdir(cat_path)):
+                ext = os.path.splitext(f)[1].lower()
+                if ext in IMAGE_EXTS:
+                    files.append({"name": f, "category": cat,
+                                  "url": f"/files/{job}/{cat}/{f}",
+                                  "type": "pdf" if ext == ".pdf" else "image"})
+    return jsonify(files)
 
 @app.route("/files/<path:filepath>")
 def serve_file(filepath):
@@ -185,7 +208,8 @@ def admin_upload():
     os.makedirs(cat_path, exist_ok=True)
     uploaded = []
     for f in request.files.getlist("files"):
-        if f.filename.lower().endswith(".pdf"):
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext in IMAGE_EXTS:
             fname = re.sub(r'[\\/:*?"<>|]', "_", f.filename)
             f.save(os.path.join(cat_path, fname))
             uploaded.append(fname)

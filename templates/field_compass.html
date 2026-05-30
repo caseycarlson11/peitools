@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no"/>
+  <title>Field Compass | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --card:    #1c2230;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --blue:    #60b4f0;
+      --red:     #DB1523;
+      --green:   #3fb950;
+      --accent:  rgba(96,180,240,0.12);
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow: hidden; }
+
+    /* ── Header ── */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 12px 20px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .logo-img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+    .site-name { font-size: 0.88rem; font-weight: 800; }
+    .site-name .blue { color: var(--blue); }
+    .site-name .dim  { color: var(--text2); font-weight: 400; }
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--text2); text-decoration: none; font-size: 0.8rem; font-weight: 600;
+      padding: 6px 12px; border-radius: 8px; border: 1px solid var(--border);
+      transition: all 0.15s;
+    }
+    .back-btn:hover { color: var(--text); border-color: var(--text2); }
+
+    /* ── Screens ── */
+    .screen { display: none; flex-direction: column; height: calc(100vh - 53px); }
+    .screen.active { display: flex; }
+
+    /* ── Step 1: Job picker ── */
+    .step-header {
+      padding: 16px 20px 10px;
+      font-size: 0.7rem; font-weight: 700; letter-spacing: 0.08em;
+      text-transform: uppercase; color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+    .job-grid {
+      flex: 1; overflow-y: auto; padding: 12px;
+      display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
+    }
+    .job-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 16px 14px;
+      cursor: pointer; transition: all 0.15s;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .job-card:hover, .job-card:active { border-color: var(--blue); background: var(--accent); }
+    .job-card-icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: rgba(96,180,240,0.15); flex-shrink: 0;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .job-card-icon svg { width: 16px; height: 16px; stroke: var(--blue); fill: none; stroke-width: 2; }
+    .job-card-name { font-size: 0.82rem; font-weight: 700; line-height: 1.3; }
+
+    /* ── Step 2: File picker ── */
+    .file-screen-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .btn-back-step {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text2); border-radius: 8px; padding: 6px 12px;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer;
+      display: flex; align-items: center; gap: 5px; transition: all 0.15s;
+    }
+    .btn-back-step:hover { border-color: var(--blue); color: var(--blue); }
+    .screen-title { font-size: 0.95rem; font-weight: 800; }
+    .file-list-scroll { flex: 1; overflow-y: auto; padding: 10px; display: flex; flex-direction: column; gap: 6px; }
+    .file-row {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 14px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .file-row:hover, .file-row:active { border-color: var(--blue); background: var(--accent); }
+    .file-row-icon { font-size: 1.3rem; flex-shrink: 0; }
+    .file-row-info { flex: 1; min-width: 0; }
+    .file-row-name { font-size: 0.85rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-row-cat { font-size: 0.72rem; color: var(--text2); margin-top: 2px; }
+    .file-row-arrow { color: var(--text2); font-size: 1rem; }
+
+    /* ── Step 3: Page picker ── */
+    .page-screen-header {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px 16px; border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .page-hint { padding: 10px 16px; font-size: 0.78rem; color: var(--text2); text-align: center; border-bottom: 1px solid var(--border); }
+    .page-grid { flex: 1; overflow-y: auto; padding: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .page-thumb {
+      border-radius: 10px; overflow: hidden;
+      border: 2px solid var(--border); cursor: pointer;
+      transition: all 0.15s; position: relative; background: white;
+    }
+    .page-thumb:hover, .page-thumb:active { border-color: var(--blue); }
+    .page-thumb canvas { display: block; width: 100%; height: auto; }
+    .page-thumb img { display: block; width: 100%; height: auto; }
+    .page-thumb-label {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(13,17,23,0.8); color: var(--text);
+      font-size: 0.7rem; font-weight: 700; text-align: center; padding: 4px;
+    }
+    .loading-pages {
+      grid-column: 1/-1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 12px;
+      padding: 40px; color: var(--text2); font-size: 0.85rem;
+    }
+    .spinner {
+      width: 28px; height: 28px; border: 3px solid var(--border);
+      border-top-color: var(--blue); border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Compass mode ── */
+    .compass-screen {
+      position: fixed; inset: 0; z-index: 100;
+      background: #000;
+      display: none; flex-direction: column;
+    }
+    .compass-screen.active { display: flex; }
+    .compass-hud {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 102;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      background: rgba(13,17,23,0.9); backdrop-filter: blur(12px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+    }
+    .compass-hud-left { display: flex; align-items: center; gap: 12px; }
+    .compass-status { font-size: 0.82rem; font-weight: 700; color: var(--blue); }
+    .compass-hud-right { display: flex; gap: 8px; }
+    .hud-btn {
+      padding: 8px 16px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08); color: var(--text);
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .hud-btn:hover { background: rgba(255,255,255,0.15); }
+    .hud-btn.exit { border-color: rgba(219,21,35,0.5); color: #ff6b6b; }
+    .hud-btn.exit:hover { background: rgba(219,21,35,0.2); }
+
+    .compass-wrap {
+      position: absolute; inset: 0; bottom: 60px;
+      display: flex; align-items: center; justify-content: center;
+      overflow: hidden;
+    }
+    .compass-content {
+      position: absolute;
+      width: 200vmax; height: 200vmax;
+      top: 50%; left: 50%;
+      transform-origin: center center;
+      transform: translate(-50%, -50%) rotate(0deg) scale(1);
+      will-change: transform;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .compass-image {
+      width: 100vw; height: calc(100vh - 60px);
+      object-fit: contain; background: #fff;
+      display: block;
+    }
+    .compass-canvas {
+      width: 100vw; height: calc(100vh - 60px);
+      object-fit: contain; background: #fff;
+      display: block; max-width: 100vw;
+    }
+
+    /* Empty state */
+    .empty-state {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      gap: 14px; color: var(--text2); padding: 40px; text-align: center;
+    }
+    .empty-state svg { width: 40px; height: 40px; stroke: var(--text2); fill: none; stroke-width: 1.5; opacity: 0.5; }
+    .empty-state p { font-size: 0.85rem; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+<header class="site-header">
+  <a class="header-left" href="/" style="text-decoration:none;color:inherit;">
+    <img class="logo-img" src="/static/logo.jpg" alt="PEI"/>
+    <div class="site-name"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
+  </a>
+  <a class="back-btn" href="/">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="13" height="13">
+      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+    </svg>
+    Home
+  </a>
+</header>
+
+<!-- Step 1: Job picker -->
+<div class="screen active" id="screenJob">
+  <div class="step-header">🧭 Field Compass — Choose a Job</div>
+  <div class="job-grid" id="jobGrid">
+    <div class="loading-pages"><div class="spinner"></div><span>Loading jobs…</span></div>
+  </div>
+</div>
+
+<!-- Step 2: File picker -->
+<div class="screen" id="screenFile">
+  <div class="file-screen-header">
+    <button class="btn-back-step" onclick="goToStep(1)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+        <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+      </svg>
+      Jobs
+    </button>
+    <span class="screen-title" id="fileScreenTitle">Select a File</span>
+  </div>
+  <div class="file-list-scroll" id="fileListScroll"></div>
+</div>
+
+<!-- Step 3: Page picker -->
+<div class="screen" id="screenPage">
+  <div class="page-screen-header">
+    <button class="btn-back-step" onclick="goToStep(2)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="12" height="12">
+        <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+      </svg>
+      Files
+    </button>
+    <span class="screen-title" id="pageScreenTitle">Choose a Page</span>
+  </div>
+  <div class="page-hint">Tap a page to open it in Compass Mode</div>
+  <div class="page-grid" id="pageGrid"></div>
+</div>
+
+<!-- Compass mode overlay -->
+<div class="compass-screen" id="compassScreen">
+  <div class="compass-wrap">
+    <div class="compass-content" id="compassContent">
+      <canvas class="compass-canvas" id="compassCanvas"></canvas>
+    </div>
+  </div>
+  <div class="compass-hud">
+    <div class="compass-hud-left">
+      <span class="compass-status" id="compassStatus">🧭 Calibrating…</span>
+    </div>
+    <div class="compass-hud-right">
+      <button class="hud-btn" onclick="recalibrate()">↺ Re-lock</button>
+      <button class="hud-btn exit" onclick="exitCompass()">✕ Exit</button>
+    </div>
+  </div>
+</div>
+
+<script>
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+// ── State ──────────────────────────────────────────────────
+let currentJob     = null;
+let currentFile    = null;
+let pdfDoc         = null;
+let compassMode    = false;
+let lockedAlpha    = null;
+let compassRot     = 0;
+let pinchDist0     = null;
+let pinchScale0    = 1;
+let currentScale   = 1;
+
+// ── Navigation ─────────────────────────────────────────────
+function goToStep(n) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById(['', 'screenJob', 'screenFile', 'screenPage'][n]).classList.add('active');
+}
+
+// ── Step 1: Load jobs ──────────────────────────────────────
+async function loadJobs() {
+  const res  = await fetch('/api/jobs');
+  const jobs = await res.json();
+  const grid = document.getElementById('jobGrid');
+
+  if (!jobs.length) {
+    grid.innerHTML = '<div class="loading-pages"><p>No jobs yet. Ask your PM to add files via the Admin page.</p></div>';
+    return;
+  }
+
+  grid.innerHTML = '';
+  jobs.forEach(job => {
+    const card = document.createElement('div');
+    card.className = 'job-card';
+    card.innerHTML = `
+      <div class="job-card-icon">
+        <svg viewBox="0 0 24 24"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
+      </div>
+      <div class="job-card-name">${job}</div>`;
+    card.onclick = () => selectJob(job);
+    grid.appendChild(card);
+  });
+}
+
+// ── Step 2: Load files for job ─────────────────────────────
+async function selectJob(job) {
+  currentJob = job;
+  document.getElementById('fileScreenTitle').textContent = job;
+  goToStep(2);
+
+  const scroll = document.getElementById('fileListScroll');
+  scroll.innerHTML = '<div class="loading-pages"><div class="spinner"></div><span>Loading files…</span></div>';
+
+  const res   = await fetch(`/api/jobs/${encodeURIComponent(job)}/all-files`);
+  const files = await res.json();
+
+  scroll.innerHTML = '';
+
+  if (!files.length) {
+    scroll.innerHTML = '<div class="empty-state"><svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg><p>No files uploaded for this job yet.</p></div>';
+    return;
+  }
+
+  files.forEach(f => {
+    const row = document.createElement('div');
+    row.className = 'file-row';
+    const icon = f.type === 'pdf' ? '📄' : '🖼️';
+    row.innerHTML = `
+      <span class="file-row-icon">${icon}</span>
+      <div class="file-row-info">
+        <div class="file-row-name">${f.name}</div>
+        <div class="file-row-cat">${f.category}</div>
+      </div>
+      <span class="file-row-arrow">›</span>`;
+    row.onclick = () => selectFile(f);
+    scroll.appendChild(row);
+  });
+}
+
+// ── Step 3: Page picker ────────────────────────────────────
+async function selectFile(file) {
+  currentFile = file;
+  document.getElementById('pageScreenTitle').textContent = file.name;
+  goToStep(3);
+
+  const grid = document.getElementById('pageGrid');
+  grid.innerHTML = '<div class="loading-pages"><div class="spinner"></div><span>Loading pages…</span></div>';
+
+  if (file.type === 'image') {
+    // Single image — go straight to compass
+    grid.innerHTML = '';
+    const thumb = document.createElement('div');
+    thumb.className = 'page-thumb';
+    const img = document.createElement('img');
+    img.src = file.url;
+    img.alt = file.name;
+    const label = document.createElement('div');
+    label.className = 'page-thumb-label';
+    label.textContent = file.name;
+    thumb.appendChild(img);
+    thumb.appendChild(label);
+    thumb.onclick = () => openCompassImage(file.url);
+    grid.appendChild(thumb);
+    return;
+  }
+
+  // PDF — render thumbnails
+  try {
+    const resp   = await fetch(file.url);
+    const buffer = await resp.arrayBuffer();
+    pdfDoc = await pdfjsLib.getDocument({ data: buffer }).promise;
+
+    grid.innerHTML = '';
+
+    for (let i = 1; i <= pdfDoc.numPages; i++) {
+      const page    = await pdfDoc.getPage(i);
+      const vp      = page.getViewport({ scale: 0.4 });
+      const canvas  = document.createElement('canvas');
+      canvas.width  = vp.width;
+      canvas.height = vp.height;
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+
+      const thumb = document.createElement('div');
+      thumb.className = 'page-thumb';
+      const label = document.createElement('div');
+      label.className = 'page-thumb-label';
+      label.textContent = `Page ${i}`;
+      thumb.appendChild(canvas);
+      thumb.appendChild(label);
+      const pageNum = i;
+      thumb.onclick = () => openCompassPage(pageNum);
+      grid.appendChild(thumb);
+    }
+  } catch(e) {
+    grid.innerHTML = `<div class="loading-pages"><p>Could not load PDF: ${e.message}</p></div>`;
+  }
+}
+
+// ── Open in compass ────────────────────────────────────────
+async function openCompassPage(pageNum) {
+  const page   = await pdfDoc.getPage(pageNum);
+  const vp     = page.getViewport({ scale: 2.5 });
+  const canvas = document.getElementById('compassCanvas');
+  canvas.width  = vp.width;
+  canvas.height = vp.height;
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  startCompass();
+}
+
+function openCompassImage(url) {
+  const canvas = document.getElementById('compassCanvas');
+  const img = new Image();
+  img.onload = () => {
+    canvas.width  = img.naturalWidth;
+    canvas.height = img.naturalHeight;
+    canvas.getContext('2d').drawImage(img, 0, 0);
+    startCompass();
+  };
+  img.src = url;
+}
+
+// ── Compass logic ──────────────────────────────────────────
+async function startCompass() {
+  lockedAlpha  = null;
+  currentScale = 1;
+  compassRot   = 0;
+  applyTransform();
+
+  document.getElementById('compassScreen').classList.add('active');
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+
+  // iOS permission
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        document.getElementById('compassStatus').textContent = '⚠️ Compass denied';
+        return;
+      }
+    } catch(e) {
+      document.getElementById('compassStatus').textContent = '⚠️ ' + e.message;
+      return;
+    }
+  }
+
+  window.addEventListener('deviceorientation', onOrientation, true);
+
+  // Pinch zoom
+  const screen = document.getElementById('compassScreen');
+  screen.addEventListener('touchstart',  onPinchStart, { passive: false });
+  screen.addEventListener('touchmove',   onPinchMove,  { passive: false });
+  screen.addEventListener('touchend',    onPinchEnd,   { passive: false });
+}
+
+function exitCompass() {
+  document.getElementById('compassScreen').classList.remove('active');
+  window.removeEventListener('deviceorientation', onOrientation, true);
+  const screen = document.getElementById('compassScreen');
+  screen.removeEventListener('touchstart', onPinchStart);
+  screen.removeEventListener('touchmove',  onPinchMove);
+  screen.removeEventListener('touchend',   onPinchEnd);
+}
+
+function recalibrate() {
+  lockedAlpha = null;
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+}
+
+function onOrientation(e) {
+  if (e.alpha === null) return;
+  if (lockedAlpha === null) {
+    lockedAlpha = e.alpha;
+    document.getElementById('compassStatus').textContent = '🧭 Locked';
+  }
+  let delta = e.alpha - lockedAlpha;
+  if (delta >  180) delta -= 360;
+  if (delta < -180) delta += 360;
+  compassRot = delta;
+  applyTransform();
+}
+
+function applyTransform() {
+  document.getElementById('compassContent').style.transform =
+    `translate(-50%, -50%) rotate(${compassRot}deg) scale(${currentScale})`;
+}
+
+// Pinch zoom
+function dist(e) {
+  const dx = e.touches[0].clientX - e.touches[1].clientX;
+  const dy = e.touches[0].clientY - e.touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+function onPinchStart(e) {
+  if (e.touches.length === 2) { e.preventDefault(); pinchDist0 = dist(e); pinchScale0 = currentScale; }
+}
+function onPinchMove(e) {
+  if (e.touches.length === 2 && pinchDist0) {
+    e.preventDefault();
+    currentScale = Math.min(6, Math.max(0.3, pinchScale0 * dist(e) / pinchDist0));
+    applyTransform();
+  }
+}
+function onPinchEnd(e) { if (e.touches.length < 2) pinchDist0 = null; }
+
+loadJobs();
+</script>
+</body>
+</html>
