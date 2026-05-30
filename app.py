@@ -42,6 +42,7 @@ _USERS_RAW = {
     "kishag@pacificerectors.com":   "Gann4460",
     "jennab@pacificerectors.com":   "Bearden4460",
     "meganf@pacificerectors.com":   "Friery4460",
+    "nicholaskoron@gmail.com":      "REDFredf",
 }
 USERS = {email: generate_password_hash(pwd) for email, pwd in _USERS_RAW.items()}
 

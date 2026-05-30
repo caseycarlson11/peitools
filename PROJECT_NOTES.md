@@ -144,6 +144,7 @@ All emails are `@pacificerectors.com`. Passwords follow the pattern `Lastname446
 | kishag | Gann4460 |
 | jennab | Bearden4460 |
 | meganf | Friery4460 |
+| nicholaskoron@gmail.com | REDFredf |
 
 ---
 
