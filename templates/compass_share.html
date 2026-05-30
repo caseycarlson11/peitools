@@ -386,7 +386,7 @@ function onOrientation(e) {
   if (e.alpha === null || e.alpha === undefined) return;
   currentAlpha = e.alpha;
   if (lockedAlpha === null) return;
-  let delta = lockedAlpha - currentAlpha;
+  let delta = currentAlpha - lockedAlpha;
   if (delta >  180) delta -= 360;
   if (delta < -180) delta += 360;
   compassRot = delta;
