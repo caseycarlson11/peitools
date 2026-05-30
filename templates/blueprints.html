@@ -741,8 +741,7 @@ function showShareLink(token) {
   document.getElementById('shareLinkInput').value = url;
   document.getElementById('shareLinkSection').style.display = 'flex';
   document.getElementById('shareDelBtn').style.display = 'inline-flex';
-  document.getElementById('shareGenBtn').style.display = 'inline-flex';
-  document.getElementById('shareGenBtn').textContent = '↺ New Link';
+  document.getElementById('shareGenBtn').style.display = 'none';
   document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view all documents in this job folder — no login needed.';
 }
 
