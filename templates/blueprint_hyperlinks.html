@@ -433,8 +433,10 @@
       try {
         const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
         if (!res.ok) {
-          const err = await res.json().catch(() => ({ error: 'Processing failed.' }));
-          throw new Error(err.error || 'Processing failed.');
+          const text = await res.text();
+          let msg = `Server error ${res.status}`;
+          try { msg = JSON.parse(text).error || msg; } catch(e) { msg += ': ' + text.slice(0, 200); }
+          throw new Error(msg);
         }
 
         const count = res.headers.get('X-Links-Added');

@@ -530,27 +530,34 @@ def blueprint_hyperlinks():
     if request.method == "GET":
         return render_template("blueprint_hyperlinks.html")
 
+    import shutil, traceback
+
     # Accept either a server-side file (job+filename) or a direct upload
     job_name = request.form.get("job", "").strip()
     job_file = request.form.get("filename", "").strip()
     uploaded = request.files.get("pdf")
 
+    # Resolve source path before creating the temp file
+    if job_name and job_file:
+        server_path = safe_join(job_name, "Blueprints", job_file)
+        if not os.path.isfile(server_path):
+            return jsonify({"error": f"File not found on server: {job_file}"}), 404
+        display_name = job_file
+    elif uploaded and uploaded.filename.lower().endswith(".pdf"):
+        server_path = None
+        display_name = uploaded.filename
+    else:
+        return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
+
+    # Write to temp file (closed before fitz opens it)
     tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     try:
-        if job_name and job_file:
-            # Use file already on server
-            server_path = safe_join(job_name, "Blueprints", job_file)
-            if not os.path.isfile(server_path):
-                return jsonify({"error": "File not found on server."}), 404
-            import shutil
+        if server_path:
+            tmp_in.close()
             shutil.copy2(server_path, tmp_in.name)
-            display_name = job_file
-        elif uploaded and uploaded.filename.lower().endswith(".pdf"):
-            uploaded.save(tmp_in.name)
-            display_name = uploaded.filename
         else:
-            return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
-        tmp_in.close()
+            uploaded.save(tmp_in)
+            tmp_in.close()
 
         import fitz
         from callout_engine import detect_callouts_on_page
@@ -645,7 +652,7 @@ def blueprint_hyperlinks():
         return response
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
     finally:
         try:
             os.unlink(tmp_in.name)
