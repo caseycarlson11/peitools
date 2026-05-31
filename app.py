@@ -1,7 +1,10 @@
-from flask import Flask, send_from_directory, render_template, request, jsonify, session, abort, redirect, url_for
+from flask import Flask, send_from_directory, send_file, render_template, request, jsonify, session, abort, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
-import os, re
+import os, re, sys, io, tempfile
+
+# Make BlueprintLinker importable
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'BlueprintLinker'))
 
 app = Flask(__name__)
 app.secret_key = "pei-tools-secret-2024"
@@ -499,6 +502,124 @@ def serve_compass_share_file(token, filepath):
         return "Link not found", 404
     full = safe_join(info["job"], "Blueprints", filepath)
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
+
+# ── Blueprint Hyperlinks ──────────────────────────────────────
+@app.route("/blueprint/hyperlinks", methods=["GET", "POST"])
+@login_required
+def blueprint_hyperlinks():
+    if request.method == "GET":
+        return render_template("blueprint_hyperlinks.html")
+
+    f = request.files.get("pdf")
+    if not f or not f.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Please upload a PDF file."}), 400
+
+    # Save upload to a temp file (fitz needs a file path)
+    tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    try:
+        f.save(tmp_in.name)
+        tmp_in.close()
+
+        import fitz
+        from callout_engine import detect_callouts_on_page
+
+        doc = fitz.open(tmp_in.name)
+        n_pages = len(doc)
+
+        # ── Detect callouts on every page ──
+        all_callouts = []
+        for pi in range(n_pages):
+            all_callouts.extend(detect_callouts_on_page(doc, pi))
+
+        # ── Auto-detect D-pages by scanning for "ARCH" + "REF" text ──
+        d_page_map = {}  # D-number -> page index
+        for pi in range(n_pages):
+            page = doc[pi]
+            blocks = page.get_text("blocks")
+            has_arch_ref = any(
+                "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88
+                for b in blocks
+            )
+            if has_arch_ref:
+                full_text = page.get_text()
+                m = re.search(r'\bD(\d{1,2})\b', full_text)
+                if m:
+                    dn = int(m.group(1))
+                    if 1 <= dn <= 30 and dn not in d_page_map:
+                        d_page_map[dn] = pi
+
+        # ── Build D-page zones ──
+        def get_zones(page, n):
+            blocks = page.get_text("blocks")
+            pos = []
+            for b in blocks:
+                txt = b[4].replace("\n", " ")
+                if "ARCH" in txt and "REF" in txt and b[0] < page.rect.width * 0.88:
+                    pos.append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
+            pw, ph = page.rect.width, page.rect.height
+            DX = pw * 0.88
+            if pos:
+                pos.sort(key=lambda p: (round(p[0] / 300) * 300, p[1]))
+                zones = []
+                for cx, cy in pos:
+                    hw = min(DX / n * 0.55, 700)
+                    z = fitz.Rect(cx - hw, cy - 100, cx + hw, cy + 600) & fitz.Rect(0, 0, DX, ph)
+                    zones.append(z)
+                return zones
+            sw = DX / n
+            return [fitz.Rect(i * sw, 0, (i + 1) * sw, ph) for i in range(n)]
+
+        d_zones = {}
+        for dn, pi in d_page_map.items():
+            page = doc[pi]
+            n = sum(
+                1 for b in page.get_text("blocks")
+                if "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88
+            )
+            if n == 0:
+                n = 1
+            d_zones[dn] = get_zones(page, n)
+
+        # ── Apply orange highlights + GoTo links ──
+        ORANGE = (1.0, 0.65, 0.2)
+        BORDER = (0.85, 0.45, 0.0)
+        added = 0
+        for c in all_callouts:
+            dest_pi = d_page_map.get(c["dp"])
+            if dest_pi is None:
+                continue
+            zones = d_zones.get(c["dp"], [])
+            zi = min(c["det"] - 1, max(0, len(zones) - 1))
+            rect = fitz.Rect(c["r"])
+            page = doc[c["pi"]]
+            sh = page.new_shape()
+            sh.draw_rect(rect)
+            sh.finish(color=BORDER, fill=ORANGE, fill_opacity=0.35, width=1.2)
+            sh.commit()
+            to_pt = fitz.Point(zones[zi].x0, zones[zi].y0) if zones else fitz.Point(0, 0)
+            page.insert_link({"kind": fitz.LINK_GOTO, "from": rect, "page": dest_pi, "to": to_pt})
+            added += 1
+
+        # ── Save to BytesIO and return ──
+        buf = io.BytesIO()
+        doc.save(buf, garbage=4, deflate=True, incremental=False)
+        doc.close()
+        buf.seek(0)
+
+        out_name = re.sub(r'\.pdf$', '', f.filename, flags=re.IGNORECASE) + "_linked.pdf"
+        response = send_file(buf, mimetype="application/pdf",
+                             as_attachment=True, download_name=out_name)
+        response.headers["X-Links-Added"] = str(added)
+        return response
+
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    finally:
+        try:
+            os.unlink(tmp_in.name)
+        except Exception:
+            pass
+
 
 if __name__ == "__main__":
     app.run(debug=True)

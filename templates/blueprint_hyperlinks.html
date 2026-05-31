@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Blueprint Hyperlinks | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      background: #0d1520;
+      color: white;
+    }
+
+    /* ── Top bar ── */
+    .topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.75rem 1.5rem;
+      background: rgba(255,255,255,0.04);
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+    .topbar-left { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+    .logo-img { width: 30px; height: 30px; object-fit: cover; border-radius: 6px; }
+    .site-title { font-size: 0.9rem; font-weight: 900; letter-spacing: 0.02em; }
+    .site-title .blue { color: #60b4f0; }
+    .site-title .dim { color: rgba(255,255,255,0.4); font-weight: 400; }
+    .topbar-right { display: flex; gap: 0.75rem; align-items: center; }
+    .nav-link {
+      color: rgba(255,255,255,0.45); text-decoration: none;
+      font-size: 0.78rem; font-weight: 600;
+      padding: 5px 12px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.04);
+      transition: all 0.15s;
+    }
+    .nav-link:hover { color: white; border-color: rgba(255,255,255,0.25); }
+
+    /* ── Main layout ── */
+    .main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem 1rem;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 18px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 520px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .card-title {
+      font-size: 1.4rem;
+      font-weight: 900;
+      letter-spacing: -0.01em;
+    }
+    .card-title span { color: #60b4f0; }
+    .card-desc {
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.45);
+      line-height: 1.6;
+      margin-top: -0.75rem;
+    }
+
+    /* ── Drop zone ── */
+    .drop-zone {
+      border: 2px dashed rgba(96,180,240,0.35);
+      border-radius: 12px;
+      padding: 2.5rem 1rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .drop-zone:hover, .drop-zone.drag-over {
+      border-color: rgba(96,180,240,0.7);
+      background: rgba(96,180,240,0.06);
+    }
+    .drop-zone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%;
+    }
+    .drop-icon { margin-bottom: 0.6rem; opacity: 0.5; }
+    .drop-label { font-size: 0.85rem; color: rgba(255,255,255,0.55); }
+    .drop-label strong { color: #60b4f0; font-weight: 600; }
+    .file-name {
+      margin-top: 0.5rem;
+      font-size: 0.8rem;
+      color: #60b4f0;
+      font-weight: 600;
+      display: none;
+    }
+
+    /* ── Process button ── */
+    .process-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 1rem;
+      border-radius: 12px;
+      font-size: 1rem; font-weight: 700;
+      color: white; border: none; cursor: pointer;
+      background: linear-gradient(135deg, #1e64c8, #2d8bef);
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .process-btn:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
+    .process-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* ── Spinner ── */
+    .spinner {
+      width: 18px; height: 18px;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      display: none;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Status ── */
+    .status {
+      font-size: 0.82rem;
+      color: rgba(255,255,255,0.45);
+      text-align: center;
+      min-height: 1.2em;
+    }
+    .status.error { color: #f87171; }
+    .status.success { color: #4ade80; }
+
+    /* ── Download button ── */
+    .download-btn {
+      display: none;
+      align-items: center; justify-content: center; gap: 10px;
+      width: 100%; padding: 1rem;
+      border-radius: 12px;
+      font-size: 1rem; font-weight: 700;
+      color: white; border: none; cursor: pointer; text-decoration: none;
+      background: linear-gradient(135deg, #166534, #16a34a);
+      transition: opacity 0.2s;
+    }
+    .download-btn:hover { opacity: 0.9; }
+
+    /* ── Info box ── */
+    .info-box {
+      background: rgba(96,180,240,0.07);
+      border: 1px solid rgba(96,180,240,0.2);
+      border-radius: 10px;
+      padding: 0.9rem 1rem;
+      font-size: 0.78rem;
+      color: rgba(255,255,255,0.5);
+      line-height: 1.6;
+    }
+    .info-box strong { color: rgba(255,255,255,0.75); }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <a class="topbar-left" href="/">
+      <img class="logo-img" src="/static/logo.jpg" alt="PEI"/>
+      <div class="site-title"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
+    </a>
+    <div class="topbar-right">
+      <a class="nav-link" href="/">← Home</a>
+      <a class="nav-link" href="/logout">Sign out</a>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="card">
+      <div>
+        <div class="card-title"><span>Blueprint</span> Hyperlinks</div>
+        <p class="card-desc" style="margin-top:0.4rem;">
+          Upload a KPS blueprint PDF. Callout circles (e.g. <strong style="color:rgba(255,255,255,0.7)">1/D5</strong>) will be detected and turned into clickable links that jump directly to the correct detail page.
+        </p>
+      </div>
+
+      <div class="drop-zone" id="dropZone">
+        <input type="file" id="fileInput" accept=".pdf"/>
+        <div class="drop-icon">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="12" y1="12" x2="12" y2="18"/>
+            <polyline points="9 15 12 18 15 15"/>
+          </svg>
+        </div>
+        <div class="drop-label">Drop blueprint PDF here or <strong>click to browse</strong></div>
+        <div class="file-name" id="fileName"></div>
+      </div>
+
+      <button class="process-btn" id="processBtn" disabled>
+        <span class="spinner" id="spinner"></span>
+        <span id="btnLabel">Process Blueprint</span>
+      </button>
+
+      <div class="status" id="status"></div>
+
+      <a class="download-btn" id="downloadBtn" href="#" download>
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
+          <polyline points="7 10 12 15 17 10"/>
+          <line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+        Download Linked PDF
+      </a>
+
+      <div class="info-box">
+        <strong>How it works:</strong> The tool scans each page for callout circles bisected by a horizontal line — the standard <em>N/Dx</em> symbols used in KPS blueprints. It reads the detail number and D-page using OCR, then embeds a clickable orange highlight that jumps to the correct section on the detail page.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const fileNameEl = document.getElementById('fileName');
+    const processBtn = document.getElementById('processBtn');
+    const spinner = document.getElementById('spinner');
+    const btnLabel = document.getElementById('btnLabel');
+    const statusEl = document.getElementById('status');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let selectedFile = null;
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files[0]) selectFile(fileInput.files[0]);
+    });
+
+    dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+    dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+    dropZone.addEventListener('drop', e => {
+      e.preventDefault();
+      dropZone.classList.remove('drag-over');
+      const f = e.dataTransfer.files[0];
+      if (f && f.name.toLowerCase().endsWith('.pdf')) selectFile(f);
+      else setStatus('Please drop a PDF file.', 'error');
+    });
+
+    function selectFile(f) {
+      selectedFile = f;
+      fileNameEl.textContent = f.name;
+      fileNameEl.style.display = 'block';
+      processBtn.disabled = false;
+      downloadBtn.style.display = 'none';
+      setStatus('');
+    }
+
+    function setStatus(msg, type='') {
+      statusEl.textContent = msg;
+      statusEl.className = 'status' + (type ? ' ' + type : '');
+    }
+
+    processBtn.addEventListener('click', async () => {
+      if (!selectedFile) return;
+
+      // UI: loading state
+      processBtn.disabled = true;
+      spinner.style.display = 'block';
+      btnLabel.textContent = 'Processing…';
+      downloadBtn.style.display = 'none';
+      setStatus('Scanning pages for callout circles. This may take a minute…');
+
+      const form = new FormData();
+      form.append('pdf', selectedFile);
+
+      try {
+        const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: 'Processing failed.' }));
+          throw new Error(err.error || 'Processing failed.');
+        }
+
+        // Get stats from header if available
+        const count = res.headers.get('X-Links-Added');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const outName = selectedFile.name.replace(/\.pdf$/i, '_linked.pdf');
+
+        downloadBtn.href = url;
+        downloadBtn.download = outName;
+        downloadBtn.style.display = 'flex';
+
+        const msg = count ? `Done — ${count} hyperlink${count == 1 ? '' : 's'} added.` : 'Done — linked PDF ready.';
+        setStatus(msg, 'success');
+
+      } catch (e) {
+        setStatus(e.message, 'error');
+      } finally {
+        spinner.style.display = 'none';
+        btnLabel.textContent = 'Process Blueprint';
+        processBtn.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
