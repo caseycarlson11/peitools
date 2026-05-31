@@ -504,20 +504,52 @@ def serve_compass_share_file(token, filepath):
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 # ── Blueprint Hyperlinks ──────────────────────────────────────
+@app.route("/api/blueprint-hyperlinks/files")
+@login_required
+def api_blueprint_hyperlink_files():
+    """Return all Blueprint PDFs grouped by job."""
+    if not os.path.isdir(JOBS_DIR):
+        return jsonify([])
+    result = []
+    for job in sorted(os.listdir(JOBS_DIR)):
+        job_path = os.path.join(JOBS_DIR, job)
+        if not os.path.isdir(job_path):
+            continue
+        bp_path = os.path.join(job_path, "Blueprints")
+        if not os.path.isdir(bp_path):
+            continue
+        files = sorted([f for f in os.listdir(bp_path) if f.lower().endswith(".pdf")])
+        for f in files:
+            result.append({"job": job, "filename": f})
+    return jsonify(result)
+
+
 @app.route("/blueprint/hyperlinks", methods=["GET", "POST"])
 @login_required
 def blueprint_hyperlinks():
     if request.method == "GET":
         return render_template("blueprint_hyperlinks.html")
 
-    f = request.files.get("pdf")
-    if not f or not f.filename.lower().endswith(".pdf"):
-        return jsonify({"error": "Please upload a PDF file."}), 400
+    # Accept either a server-side file (job+filename) or a direct upload
+    job_name = request.form.get("job", "").strip()
+    job_file = request.form.get("filename", "").strip()
+    uploaded = request.files.get("pdf")
 
-    # Save upload to a temp file (fitz needs a file path)
     tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
     try:
-        f.save(tmp_in.name)
+        if job_name and job_file:
+            # Use file already on server
+            server_path = safe_join(job_name, "Blueprints", job_file)
+            if not os.path.isfile(server_path):
+                return jsonify({"error": "File not found on server."}), 404
+            import shutil
+            shutil.copy2(server_path, tmp_in.name)
+            display_name = job_file
+        elif uploaded and uploaded.filename.lower().endswith(".pdf"):
+            uploaded.save(tmp_in.name)
+            display_name = uploaded.filename
+        else:
+            return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
         tmp_in.close()
 
         import fitz
@@ -606,7 +638,7 @@ def blueprint_hyperlinks():
         doc.close()
         buf.seek(0)
 
-        out_name = re.sub(r'\.pdf$', '', f.filename, flags=re.IGNORECASE) + "_linked.pdf"
+        out_name = re.sub(r'\.pdf$', '', display_name, flags=re.IGNORECASE) + "_linked.pdf"
         response = send_file(buf, mimetype="application/pdf",
                              as_attachment=True, download_name=out_name)
         response.headers["X-Links-Added"] = str(added)

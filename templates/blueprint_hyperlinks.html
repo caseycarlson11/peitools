@@ -168,6 +168,40 @@
     }
     .download-btn:hover { opacity: 0.9; }
 
+    /* ── Dropdown ── */
+    .select-label {
+      font-size: 0.78rem; font-weight: 600;
+      color: rgba(255,255,255,0.5);
+      text-transform: uppercase; letter-spacing: 0.06em;
+      margin-bottom: 0.4rem;
+    }
+    .bp-select {
+      width: 100%; padding: 0.75rem 1rem;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.15);
+      color: white;
+      font-family: 'Inter', sans-serif;
+      font-size: 0.88rem;
+      cursor: pointer;
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='rgba(255,255,255,0.4)' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 0.9rem center;
+      padding-right: 2.5rem;
+    }
+    .bp-select:focus { outline: none; border-color: rgba(96,180,240,0.5); }
+    .bp-select option { background: #1a2540; color: white; }
+
+    .divider {
+      display: flex; align-items: center; gap: 0.75rem;
+      color: rgba(255,255,255,0.25); font-size: 0.75rem;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1;
+      height: 1px; background: rgba(255,255,255,0.1);
+    }
+
     /* ── Info box ── */
     .info-box {
       background: rgba(96,180,240,0.07);
@@ -204,6 +238,15 @@
           Upload a KPS blueprint PDF. Callout circles (e.g. <strong style="color:rgba(255,255,255,0.7)">1/D5</strong>) will be detected and turned into clickable links that jump directly to the correct detail page.
         </p>
       </div>
+
+      <div>
+        <div class="select-label">Select from jobs</div>
+        <select class="bp-select" id="bpSelect">
+          <option value="">Loading blueprints…</option>
+        </select>
+      </div>
+
+      <div class="divider">or upload a PDF</div>
 
       <div class="drop-zone" id="dropZone">
         <input type="file" id="fileInput" accept=".pdf"/>
@@ -250,13 +293,60 @@
     const btnLabel = document.getElementById('btnLabel');
     const statusEl = document.getElementById('status');
     const downloadBtn = document.getElementById('downloadBtn');
+    const bpSelect = document.getElementById('bpSelect');
 
-    let selectedFile = null;
+    let selectedFile = null;       // uploaded file
+    let selectedServer = null;     // { job, filename } from dropdown
 
+    // ── Load blueprint list from server ──
+    async function loadBlueprints() {
+      try {
+        const res = await fetch('/api/blueprint-hyperlinks/files');
+        const files = await res.json();
+        bpSelect.innerHTML = '<option value="">— Pick a blueprint from jobs —</option>';
+        let lastJob = null;
+        let group = null;
+        for (const f of files) {
+          if (f.job !== lastJob) {
+            group = document.createElement('optgroup');
+            group.label = f.job;
+            bpSelect.appendChild(group);
+            lastJob = f.job;
+          }
+          const opt = document.createElement('option');
+          opt.value = JSON.stringify({ job: f.job, filename: f.filename });
+          opt.textContent = f.filename;
+          group.appendChild(opt);
+        }
+        if (files.length === 0) {
+          bpSelect.innerHTML = '<option value="">No blueprints found in jobs folder</option>';
+        }
+      } catch(e) {
+        bpSelect.innerHTML = '<option value="">Could not load blueprints</option>';
+      }
+    }
+    loadBlueprints();
+
+    // ── Dropdown selection clears file upload ──
+    bpSelect.addEventListener('change', () => {
+      if (bpSelect.value) {
+        selectedServer = JSON.parse(bpSelect.value);
+        selectedFile = null;
+        fileNameEl.style.display = 'none';
+        fileInput.value = '';
+        processBtn.disabled = false;
+        downloadBtn.style.display = 'none';
+        setStatus('');
+      } else {
+        selectedServer = null;
+        if (!selectedFile) processBtn.disabled = true;
+      }
+    });
+
+    // ── File upload clears dropdown selection ──
     fileInput.addEventListener('change', () => {
       if (fileInput.files[0]) selectFile(fileInput.files[0]);
     });
-
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
     dropZone.addEventListener('drop', e => {
@@ -269,6 +359,8 @@
 
     function selectFile(f) {
       selectedFile = f;
+      selectedServer = null;
+      bpSelect.value = '';
       fileNameEl.textContent = f.name;
       fileNameEl.style.display = 'block';
       processBtn.disabled = false;
@@ -281,10 +373,10 @@
       statusEl.className = 'status' + (type ? ' ' + type : '');
     }
 
+    // ── Process ──
     processBtn.addEventListener('click', async () => {
-      if (!selectedFile) return;
+      if (!selectedFile && !selectedServer) return;
 
-      // UI: loading state
       processBtn.disabled = true;
       spinner.style.display = 'block';
       btnLabel.textContent = 'Processing…';
@@ -292,7 +384,12 @@
       setStatus('Scanning pages for callout circles. This may take a minute…');
 
       const form = new FormData();
-      form.append('pdf', selectedFile);
+      if (selectedServer) {
+        form.append('job', selectedServer.job);
+        form.append('filename', selectedServer.filename);
+      } else {
+        form.append('pdf', selectedFile);
+      }
 
       try {
         const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
@@ -302,11 +399,11 @@
           throw new Error(err.error || 'Processing failed.');
         }
 
-        // Get stats from header if available
         const count = res.headers.get('X-Links-Added');
         const blob = await res.blob();
         const url = URL.createObjectURL(blob);
-        const outName = selectedFile.name.replace(/\.pdf$/i, '_linked.pdf');
+        const baseName = selectedServer ? selectedServer.filename : selectedFile.name;
+        const outName = baseName.replace(/\.pdf$/i, '_linked.pdf');
 
         downloadBtn.href = url;
         downloadBtn.download = outName;
