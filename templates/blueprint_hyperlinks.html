@@ -240,9 +240,16 @@
       </div>
 
       <div>
-        <div class="select-label">Select from jobs</div>
-        <select class="bp-select" id="bpSelect">
-          <option value="">Loading blueprints…</option>
+        <div class="select-label">Select job</div>
+        <select class="bp-select" id="jobSelect">
+          <option value="">Loading jobs…</option>
+        </select>
+      </div>
+
+      <div id="fileSelectWrap" style="display:none;">
+        <div class="select-label">Select blueprint</div>
+        <select class="bp-select" id="fileSelect">
+          <option value="">— Choose a blueprint —</option>
         </select>
       </div>
 
@@ -285,67 +292,92 @@
   </div>
 
   <script>
-    const dropZone = document.getElementById('dropZone');
-    const fileInput = document.getElementById('fileInput');
-    const fileNameEl = document.getElementById('fileName');
-    const processBtn = document.getElementById('processBtn');
-    const spinner = document.getElementById('spinner');
-    const btnLabel = document.getElementById('btnLabel');
-    const statusEl = document.getElementById('status');
-    const downloadBtn = document.getElementById('downloadBtn');
-    const bpSelect = document.getElementById('bpSelect');
+    const dropZone      = document.getElementById('dropZone');
+    const fileInput     = document.getElementById('fileInput');
+    const fileNameEl    = document.getElementById('fileName');
+    const processBtn    = document.getElementById('processBtn');
+    const spinner       = document.getElementById('spinner');
+    const btnLabel      = document.getElementById('btnLabel');
+    const statusEl      = document.getElementById('status');
+    const downloadBtn   = document.getElementById('downloadBtn');
+    const jobSelect     = document.getElementById('jobSelect');
+    const fileSelect    = document.getElementById('fileSelect');
+    const fileSelectWrap = document.getElementById('fileSelectWrap');
 
-    let selectedFile = null;       // uploaded file
-    let selectedServer = null;     // { job, filename } from dropdown
+    let allFiles = [];         // full list from API: [{job, filename}]
+    let selectedFile = null;   // uploaded file object
+    let selectedServer = null; // {job, filename} from dropdowns
 
-    // ── Load blueprint list from server ──
+    // ── Load jobs & blueprints ──
     async function loadBlueprints() {
       try {
         const res = await fetch('/api/blueprint-hyperlinks/files');
-        const files = await res.json();
-        bpSelect.innerHTML = '<option value="">— Pick a blueprint from jobs —</option>';
-        let lastJob = null;
-        let group = null;
-        for (const f of files) {
-          if (f.job !== lastJob) {
-            group = document.createElement('optgroup');
-            group.label = f.job;
-            bpSelect.appendChild(group);
-            lastJob = f.job;
-          }
+        allFiles = await res.json();
+
+        // Build unique job list
+        const jobs = [...new Set(allFiles.map(f => f.job))];
+        if (jobs.length === 0) {
+          jobSelect.innerHTML = '<option value="">No jobs found</option>';
+          return;
+        }
+        jobSelect.innerHTML = '<option value="">— Select a job —</option>';
+        jobs.forEach(job => {
           const opt = document.createElement('option');
-          opt.value = JSON.stringify({ job: f.job, filename: f.filename });
-          opt.textContent = f.filename;
-          group.appendChild(opt);
-        }
-        if (files.length === 0) {
-          bpSelect.innerHTML = '<option value="">No blueprints found in jobs folder</option>';
-        }
+          opt.value = job;
+          opt.textContent = job;
+          jobSelect.appendChild(opt);
+        });
       } catch(e) {
-        bpSelect.innerHTML = '<option value="">Could not load blueprints</option>';
+        jobSelect.innerHTML = '<option value="">Could not load jobs</option>';
       }
     }
     loadBlueprints();
 
-    // ── Dropdown selection clears file upload ──
-    bpSelect.addEventListener('change', () => {
-      if (bpSelect.value) {
-        selectedServer = JSON.parse(bpSelect.value);
-        selectedFile = null;
-        fileNameEl.style.display = 'none';
-        fileInput.value = '';
-        processBtn.disabled = false;
-        downloadBtn.style.display = 'none';
-        setStatus('');
+    // ── Job selected ──
+    jobSelect.addEventListener('change', () => {
+      const job = jobSelect.value;
+      fileSelectWrap.style.display = 'none';
+      selectedServer = null;
+      clearUpload();
+      if (!job) { processBtn.disabled = true; return; }
+
+      const jobFiles = allFiles.filter(f => f.job === job);
+
+      if (jobFiles.length === 1) {
+        // Only one blueprint — auto-select it
+        selectServer({ job, filename: jobFiles[0].filename });
       } else {
-        selectedServer = null;
-        if (!selectedFile) processBtn.disabled = true;
+        // Multiple — show file dropdown
+        fileSelect.innerHTML = '<option value="">— Choose a blueprint —</option>';
+        jobFiles.forEach(f => {
+          const opt = document.createElement('option');
+          opt.value = f.filename;
+          opt.textContent = f.filename;
+          fileSelect.appendChild(opt);
+        });
+        fileSelectWrap.style.display = 'block';
+        processBtn.disabled = true;
       }
     });
 
-    // ── File upload clears dropdown selection ──
+    // ── Blueprint file selected ──
+    fileSelect.addEventListener('change', () => {
+      if (!fileSelect.value) { selectedServer = null; processBtn.disabled = true; return; }
+      selectServer({ job: jobSelect.value, filename: fileSelect.value });
+    });
+
+    function selectServer(s) {
+      selectedServer = s;
+      selectedFile = null;
+      clearUpload();
+      processBtn.disabled = false;
+      downloadBtn.style.display = 'none';
+      setStatus(`Selected: ${s.filename}`);
+    }
+
+    // ── File upload ──
     fileInput.addEventListener('change', () => {
-      if (fileInput.files[0]) selectFile(fileInput.files[0]);
+      if (fileInput.files[0]) selectUpload(fileInput.files[0]);
     });
     dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
     dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
@@ -353,19 +385,26 @@
       e.preventDefault();
       dropZone.classList.remove('drag-over');
       const f = e.dataTransfer.files[0];
-      if (f && f.name.toLowerCase().endsWith('.pdf')) selectFile(f);
+      if (f && f.name.toLowerCase().endsWith('.pdf')) selectUpload(f);
       else setStatus('Please drop a PDF file.', 'error');
     });
 
-    function selectFile(f) {
+    function selectUpload(f) {
       selectedFile = f;
       selectedServer = null;
-      bpSelect.value = '';
+      jobSelect.value = '';
+      fileSelectWrap.style.display = 'none';
       fileNameEl.textContent = f.name;
       fileNameEl.style.display = 'block';
       processBtn.disabled = false;
       downloadBtn.style.display = 'none';
       setStatus('');
+    }
+
+    function clearUpload() {
+      selectedFile = null;
+      fileInput.value = '';
+      fileNameEl.style.display = 'none';
     }
 
     function setStatus(msg, type='') {
@@ -393,7 +432,6 @@
 
       try {
         const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
-
         if (!res.ok) {
           const err = await res.json().catch(() => ({ error: 'Processing failed.' }));
           throw new Error(err.error || 'Processing failed.');
