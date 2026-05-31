@@ -420,7 +420,7 @@
       spinner.style.display = 'block';
       btnLabel.textContent = 'Processing…';
       downloadBtn.style.display = 'none';
-      setStatus('Scanning pages for callout circles. This may take a minute…');
+      setStatus('Uploading and starting job…');
 
       const form = new FormData();
       if (selectedServer) {
@@ -431,6 +431,7 @@
       }
 
       try {
+        // Start the background job
         const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
         if (!res.ok) {
           const text = await res.text();
@@ -438,23 +439,49 @@
           try { msg = JSON.parse(text).error || msg; } catch(e) { msg += ': ' + text.slice(0, 200); }
           throw new Error(msg);
         }
+        const { job_id } = await res.json();
 
-        const count = res.headers.get('X-Links-Added');
-        const blob = await res.blob();
-        const url = URL.createObjectURL(blob);
-        const baseName = selectedServer ? selectedServer.filename : selectedFile.name;
-        const outName = baseName.replace(/\.pdf$/i, '_linked.pdf');
+        // Poll for completion
+        setStatus('Scanning pages for callout circles — this takes a few minutes for large blueprints…');
+        let dots = 0;
+        const poll = setInterval(async () => {
+          dots = (dots + 1) % 4;
+          const dotStr = '.'.repeat(dots + 1);
+          setStatus(`Processing${dotStr}`);
 
-        downloadBtn.href = url;
-        downloadBtn.download = outName;
-        downloadBtn.style.display = 'flex';
+          try {
+            const s = await fetch(`/blueprint/hyperlinks/status/${job_id}`);
+            const data = await s.json();
 
-        const msg = count ? `Done — ${count} hyperlink${count == 1 ? '' : 's'} added.` : 'Done — linked PDF ready.';
-        setStatus(msg, 'success');
+            if (data.status === 'done') {
+              clearInterval(poll);
+              const count = data.added;
+              const baseName = selectedServer ? selectedServer.filename : selectedFile.name;
+              downloadBtn.href = `/blueprint/hyperlinks/download/${job_id}`;
+              downloadBtn.download = baseName.replace(/\.pdf$/i, '_linked.pdf');
+              downloadBtn.style.display = 'flex';
+              setStatus(`Done — ${count} hyperlink${count === 1 ? '' : 's'} added.`, 'success');
+              spinner.style.display = 'none';
+              btnLabel.textContent = 'Process Blueprint';
+              processBtn.disabled = false;
+
+            } else if (data.status === 'error') {
+              clearInterval(poll);
+              throw new Error(data.error || 'Processing failed.');
+            }
+          } catch(pollErr) {
+            if (pollErr.message !== 'Processing failed.' && !pollErr.message.startsWith('Processing')) {
+              clearInterval(poll);
+              setStatus(pollErr.message, 'error');
+              spinner.style.display = 'none';
+              btnLabel.textContent = 'Process Blueprint';
+              processBtn.disabled = false;
+            }
+          }
+        }, 3000);
 
       } catch (e) {
         setStatus(e.message, 'error');
-      } finally {
         spinner.style.display = 'none';
         btnLabel.textContent = 'Process Blueprint';
         processBtn.disabled = false;

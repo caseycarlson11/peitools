@@ -504,90 +504,40 @@ def serve_compass_share_file(token, filepath):
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
 # ── Blueprint Hyperlinks ──────────────────────────────────────
-@app.route("/api/blueprint-hyperlinks/files")
-@login_required
-def api_blueprint_hyperlink_files():
-    """Return all Blueprint PDFs grouped by job."""
-    if not os.path.isdir(JOBS_DIR):
-        return jsonify([])
-    result = []
-    for job in sorted(os.listdir(JOBS_DIR)):
-        job_path = os.path.join(JOBS_DIR, job)
-        if not os.path.isdir(job_path):
-            continue
-        bp_path = os.path.join(job_path, "Blueprints")
-        if not os.path.isdir(bp_path):
-            continue
-        files = sorted([f for f in os.listdir(bp_path) if f.lower().endswith(".pdf")])
-        for f in files:
-            result.append({"job": job, "filename": f})
-    return jsonify(result)
+import threading, shutil, uuid as _uuid
+
+# In-memory job store: job_id -> {status, result_path, out_name, added, error}
+_hl_jobs = {}
+_hl_lock = threading.Lock()
 
 
-@app.route("/blueprint/hyperlinks", methods=["GET", "POST"])
-@login_required
-def blueprint_hyperlinks():
-    if request.method == "GET":
-        return render_template("blueprint_hyperlinks.html")
+def _run_hyperlink_job(job_id, pdf_path, display_name):
+    """Background thread: run callout detection and link insertion."""
+    import fitz
+    from callout_engine import detect_callouts_on_page
 
-    import shutil, traceback
-
-    # Accept either a server-side file (job+filename) or a direct upload
-    job_name = request.form.get("job", "").strip()
-    job_file = request.form.get("filename", "").strip()
-    uploaded = request.files.get("pdf")
-
-    # Resolve source path before creating the temp file
-    if job_name and job_file:
-        server_path = safe_join(job_name, "Blueprints", job_file)
-        if not os.path.isfile(server_path):
-            return jsonify({"error": f"File not found on server: {job_file}"}), 404
-        display_name = job_file
-    elif uploaded and uploaded.filename.lower().endswith(".pdf"):
-        server_path = None
-        display_name = uploaded.filename
-    else:
-        return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
-
-    # Write to temp file (closed before fitz opens it)
-    tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    out_path = pdf_path + "_out.pdf"
     try:
-        if server_path:
-            tmp_in.close()
-            shutil.copy2(server_path, tmp_in.name)
-        else:
-            uploaded.save(tmp_in)
-            tmp_in.close()
+        doc = fitz.open(pdf_path)
 
-        import fitz
-        from callout_engine import detect_callouts_on_page
-
-        doc = fitz.open(tmp_in.name)
-        n_pages = len(doc)
-
-        # ── Detect callouts on every page ──
+        # Detect callouts on every page
         all_callouts = []
-        for pi in range(n_pages):
+        for pi in range(len(doc)):
             all_callouts.extend(detect_callouts_on_page(doc, pi))
 
-        # ── Auto-detect D-pages by scanning for "ARCH" + "REF" text ──
-        d_page_map = {}  # D-number -> page index
-        for pi in range(n_pages):
+        # Auto-detect D-pages (pages with "ARCH" + "REF" text blocks)
+        d_page_map = {}
+        for pi in range(len(doc)):
             page = doc[pi]
             blocks = page.get_text("blocks")
-            has_arch_ref = any(
-                "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88
-                for b in blocks
-            )
-            if has_arch_ref:
-                full_text = page.get_text()
-                m = re.search(r'\bD(\d{1,2})\b', full_text)
+            if any("ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88 for b in blocks):
+                m = re.search(r'\bD(\d{1,2})\b', page.get_text())
                 if m:
                     dn = int(m.group(1))
                     if 1 <= dn <= 30 and dn not in d_page_map:
                         d_page_map[dn] = pi
 
-        # ── Build D-page zones ──
+        # Build D-page zones
         def get_zones(page, n):
             blocks = page.get_text("blocks")
             pos = []
@@ -611,17 +561,12 @@ def blueprint_hyperlinks():
         d_zones = {}
         for dn, pi in d_page_map.items():
             page = doc[pi]
-            n = sum(
-                1 for b in page.get_text("blocks")
-                if "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88
-            )
-            if n == 0:
-                n = 1
+            n = sum(1 for b in page.get_text("blocks")
+                    if "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88) or 1
             d_zones[dn] = get_zones(page, n)
 
-        # ── Apply orange highlights + GoTo links ──
-        ORANGE = (1.0, 0.65, 0.2)
-        BORDER = (0.85, 0.45, 0.0)
+        # Apply orange highlights + GoTo links
+        ORANGE, BORDER = (1.0, 0.65, 0.2), (0.85, 0.45, 0.0)
         added = 0
         for c in all_callouts:
             dest_pi = d_page_map.get(c["dp"])
@@ -639,25 +584,110 @@ def blueprint_hyperlinks():
             page.insert_link({"kind": fitz.LINK_GOTO, "from": rect, "page": dest_pi, "to": to_pt})
             added += 1
 
-        # ── Save to BytesIO and return ──
-        buf = io.BytesIO()
-        doc.save(buf, garbage=4, deflate=True, incremental=False)
+        doc.save(out_path, garbage=4, deflate=True, incremental=False)
         doc.close()
-        buf.seek(0)
 
         out_name = re.sub(r'\.pdf$', '', display_name, flags=re.IGNORECASE) + "_linked.pdf"
-        response = send_file(buf, mimetype="application/pdf",
-                             as_attachment=True, download_name=out_name)
-        response.headers["X-Links-Added"] = str(added)
-        return response
-
+        with _hl_lock:
+            _hl_jobs[job_id] = {"status": "done", "result_path": out_path,
+                                 "out_name": out_name, "added": added}
     except Exception as e:
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+        with _hl_lock:
+            _hl_jobs[job_id] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
     finally:
         try:
-            os.unlink(tmp_in.name)
+            os.unlink(pdf_path)
         except Exception:
             pass
+
+
+@app.route("/api/blueprint-hyperlinks/files")
+@login_required
+def api_blueprint_hyperlink_files():
+    """Return all Blueprint PDFs grouped by job."""
+    if not os.path.isdir(JOBS_DIR):
+        return jsonify([])
+    result = []
+    for job in sorted(os.listdir(JOBS_DIR)):
+        job_path = os.path.join(JOBS_DIR, job)
+        if not os.path.isdir(job_path):
+            continue
+        bp_path = os.path.join(job_path, "Blueprints")
+        if not os.path.isdir(bp_path):
+            continue
+        for f in sorted(os.listdir(bp_path)):
+            if f.lower().endswith(".pdf"):
+                result.append({"job": job, "filename": f})
+    return jsonify(result)
+
+
+@app.route("/blueprint/hyperlinks", methods=["GET", "POST"])
+@login_required
+def blueprint_hyperlinks():
+    if request.method == "GET":
+        return render_template("blueprint_hyperlinks.html")
+
+    job_name = request.form.get("job", "").strip()
+    job_file = request.form.get("filename", "").strip()
+    uploaded = request.files.get("pdf")
+
+    # Write PDF to a temp file for the background thread
+    tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    try:
+        if job_name and job_file:
+            server_path = safe_join(job_name, "Blueprints", job_file)
+            if not os.path.isfile(server_path):
+                return jsonify({"error": f"File not found: {job_file}"}), 404
+            tmp_in.close()
+            shutil.copy2(server_path, tmp_in.name)
+            display_name = job_file
+        elif uploaded and uploaded.filename.lower().endswith(".pdf"):
+            uploaded.save(tmp_in)
+            tmp_in.close()
+            display_name = uploaded.filename
+        else:
+            tmp_in.close()
+            os.unlink(tmp_in.name)
+            return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
+    except Exception as e:
+        try: os.unlink(tmp_in.name)
+        except: pass
+        return jsonify({"error": str(e)}), 500
+
+    job_id = str(_uuid.uuid4())
+    with _hl_lock:
+        _hl_jobs[job_id] = {"status": "processing"}
+
+    t = threading.Thread(target=_run_hyperlink_job,
+                         args=(job_id, tmp_in.name, display_name), daemon=True)
+    t.start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/blueprint/hyperlinks/status/<job_id>")
+@login_required
+def blueprint_hyperlinks_status(job_id):
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job:
+        return jsonify({"status": "not_found"}), 404
+    return jsonify({k: v for k, v in job.items() if k != "result_path"})
+
+
+@app.route("/blueprint/hyperlinks/download/<job_id>")
+@login_required
+def blueprint_hyperlinks_download(job_id):
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return "Not ready", 404
+    result_path = job["result_path"]
+    out_name = job["out_name"]
+    # Clean up job record after download
+    with _hl_lock:
+        _hl_jobs.pop(job_id, None)
+    return send_file(result_path, mimetype="application/pdf",
+                     as_attachment=True, download_name=out_name)
 
 
 if __name__ == "__main__":
