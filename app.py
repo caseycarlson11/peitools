@@ -511,8 +511,37 @@ _hl_jobs = {}
 _hl_lock = threading.Lock()
 
 
+def _find_d_pages(doc):
+    """
+    Scan every page for D-page titles using font size as the signal.
+    For each D-number (D1–D30), the page where it appears in the LARGEST
+    font is the title page for that detail — works on any KPS blueprint.
+    Returns dict: {dn: page_index}
+    """
+    import fitz
+    # d_best: dn -> (page_index, max_font_size_seen)
+    d_best = {}
+    for pi in range(len(doc)):
+        page = doc[pi]
+        try:
+            blocks = page.get_text("dict")["blocks"]
+        except Exception:
+            continue
+        for block in blocks:
+            for line in block.get("lines", []):
+                for span in line.get("spans", []):
+                    txt = span.get("text", "")
+                    sz  = span.get("size", 0)
+                    for m in re.finditer(r'\bD(\d{1,2})\b', txt):
+                        dn = int(m.group(1))
+                        if 1 <= dn <= 30:
+                            if dn not in d_best or sz > d_best[dn][1]:
+                                d_best[dn] = (pi, sz)
+    return {dn: pi for dn, (pi, _) in d_best.items()}
+
+
 def _run_hyperlink_job(job_id, pdf_path, display_name):
-    """Background thread: run callout detection and link insertion."""
+    """Background thread: detect callout circles, find D-pages, insert links."""
     import fitz
     from callout_engine import detect_callouts_on_page
 
@@ -520,68 +549,31 @@ def _run_hyperlink_job(job_id, pdf_path, display_name):
     try:
         doc = fitz.open(pdf_path)
 
-        # Detect callouts on every page
+        # 1. Detect callouts on every page
         all_callouts = []
         for pi in range(len(doc)):
             all_callouts.extend(detect_callouts_on_page(doc, pi))
 
-        # Auto-detect D-pages (pages with "ARCH" + "REF" text blocks)
-        d_page_map = {}
-        for pi in range(len(doc)):
-            page = doc[pi]
-            blocks = page.get_text("blocks")
-            if any("ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88 for b in blocks):
-                m = re.search(r'\bD(\d{1,2})\b', page.get_text())
-                if m:
-                    dn = int(m.group(1))
-                    if 1 <= dn <= 30 and dn not in d_page_map:
-                        d_page_map[dn] = pi
+        # 2. Find D-pages by largest font occurrence of "Dn"
+        needed_dns = {c["dp"] for c in all_callouts}
+        all_d_pages = _find_d_pages(doc)
+        d_page_map = {dn: pi for dn, pi in all_d_pages.items() if dn in needed_dns}
 
-        # Build D-page zones
-        def get_zones(page, n):
-            blocks = page.get_text("blocks")
-            pos = []
-            for b in blocks:
-                txt = b[4].replace("\n", " ")
-                if "ARCH" in txt and "REF" in txt and b[0] < page.rect.width * 0.88:
-                    pos.append(((b[0] + b[2]) / 2, (b[1] + b[3]) / 2))
-            pw, ph = page.rect.width, page.rect.height
-            DX = pw * 0.88
-            if pos:
-                pos.sort(key=lambda p: (round(p[0] / 300) * 300, p[1]))
-                zones = []
-                for cx, cy in pos:
-                    hw = min(DX / n * 0.55, 700)
-                    z = fitz.Rect(cx - hw, cy - 100, cx + hw, cy + 600) & fitz.Rect(0, 0, DX, ph)
-                    zones.append(z)
-                return zones
-            sw = DX / n
-            return [fitz.Rect(i * sw, 0, (i + 1) * sw, ph) for i in range(n)]
-
-        d_zones = {}
-        for dn, pi in d_page_map.items():
-            page = doc[pi]
-            n = sum(1 for b in page.get_text("blocks")
-                    if "ARCH" in b[4] and "REF" in b[4] and b[0] < page.rect.width * 0.88) or 1
-            d_zones[dn] = get_zones(page, n)
-
-        # Apply orange highlights + GoTo links
+        # 3. Apply orange highlights + GoTo links (link to top of D-page)
         ORANGE, BORDER = (1.0, 0.65, 0.2), (0.85, 0.45, 0.0)
         added = 0
         for c in all_callouts:
             dest_pi = d_page_map.get(c["dp"])
             if dest_pi is None:
                 continue
-            zones = d_zones.get(c["dp"], [])
-            zi = min(c["det"] - 1, max(0, len(zones) - 1))
             rect = fitz.Rect(c["r"])
             page = doc[c["pi"]]
             sh = page.new_shape()
             sh.draw_rect(rect)
             sh.finish(color=BORDER, fill=ORANGE, fill_opacity=0.35, width=1.2)
             sh.commit()
-            to_pt = fitz.Point(zones[zi].x0, zones[zi].y0) if zones else fitz.Point(0, 0)
-            page.insert_link({"kind": fitz.LINK_GOTO, "from": rect, "page": dest_pi, "to": to_pt})
+            page.insert_link({"kind": fitz.LINK_GOTO, "from": rect,
+                               "page": dest_pi, "to": fitz.Point(0, 0)})
             added += 1
 
         doc.save(out_path, garbage=4, deflate=True, incremental=False)
