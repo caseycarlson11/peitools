@@ -32,8 +32,9 @@
     .tb-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
     .tb-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .tb-btn.active { background: rgba(30,100,200,0.45); border-color: #60b4f0; color: #a8d8ff; }
-    .tb-btn.green  { background: linear-gradient(135deg,#14532d,#16a34a); border-color: #22c55e; }
-    .tb-btn.back   { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); display: none; }
+    .tb-btn.green   { background: linear-gradient(135deg,#14532d,#16a34a); border-color: #22c55e; }
+    .tb-btn.back    { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); display: none; }
+    .tb-btn.publish-btn { background: linear-gradient(135deg,#1e3a8a,#2563eb); border-color: #60a5fa; }
     .tb-zoom { display: flex; align-items: center; flex-shrink: 0; }
     .tb-zoom button {
       width: 28px; height: 28px; border: 1px solid rgba(255,255,255,0.13);
@@ -244,6 +245,12 @@
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Save & Download
     </button>
+    {% if source_job %}
+    <button class="tb-btn publish-btn" id="publishBtn" onclick="openPublishConfirm()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg>
+      Publish Prints
+    </button>
+    {% endif %}
     <div class="tb-hint" id="tbHint">Click a link to move it — click again or anywhere else to set</div>
   </div>
 
@@ -286,11 +293,29 @@
     </div>
   </div>
 
+  <!-- Publish confirmation -->
+  <div class="modal-bg" id="publishBg">
+    <div class="modal">
+      <h3>Publish Prints</h3>
+      <p>Are you sure you want this version of the prints to replace the existing version on the server?</p>
+      <p style="margin-top:0.4rem;color:rgba(255,255,255,0.6);font-size:0.72rem;">
+        The old file will be saved in <strong style="color:rgba(255,255,255,0.8)">Old Versions</strong> for 30 days, then deleted automatically.
+        {% if source_job %}<br/>Job: <strong style="color:#60b4f0;">{{ source_job }}</strong> &nbsp;·&nbsp; File: <strong style="color:#60b4f0;">{{ source_filename }}</strong>{% endif %}
+      </p>
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closePublishConfirm()">Cancel</button>
+        <button class="btn-confirm" onclick="publishPrints()">Yes, Publish</button>
+      </div>
+    </div>
+  </div>
+
   <div id="toast"></div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    const JOB_ID = {{ job_id | tojson }};
+    const JOB_ID         = {{ job_id | tojson }};
+    const SOURCE_JOB     = {{ source_job | tojson }};
+    const SOURCE_FILE    = {{ source_filename | tojson }};
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -853,6 +878,78 @@
       finally {
         btn.disabled=false;
         btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
+      }
+    }
+
+    // ────────────────────────────────────
+    // Publish Prints
+    // ────────────────────────────────────
+    function openPublishConfirm() {
+      document.getElementById('publishBg').classList.add('open');
+    }
+    function closePublishConfirm() {
+      document.getElementById('publishBg').classList.remove('open');
+    }
+    async function publishPrints() {
+      closePublishConfirm();
+      const btn = document.getElementById('publishBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+      try {
+        const res = await fetch(`/blueprint/hyperlinks/publish/${JOB_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ links: linksData })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Publish failed');
+        showToast('✓ Published — Blueprint Viewer updated');
+      } catch(e) {
+        showToast('Error: ' + e.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg> Publish Prints`;
+        }
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>
+" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
+      }
+    }
+
+    // ────────────────────────────────────
+    // Publish Prints
+    // ────────────────────────────────────
+    function openPublishConfirm() {
+      document.getElementById('publishBg').classList.add('open');
+    }
+    function closePublishConfirm() {
+      document.getElementById('publishBg').classList.remove('open');
+    }
+    async function publishPrints() {
+      closePublishConfirm();
+      const btn = document.getElementById('publishBtn');
+      if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
+      try {
+        const res = await fetch(`/blueprint/hyperlinks/publish/${JOB_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ links: linksData })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Publish failed');
+        showToast('✓ Published — Blueprint Viewer updated');
+      } catch(e) {
+        showToast('Error: ' + e.message);
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg> Publish Prints`;
+        }
       }
     }
 

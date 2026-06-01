@@ -549,14 +549,16 @@ def _run_hyperlink_job(job_id, pdf_path, display_name):
     try:
         doc = fitz.open(pdf_path)
 
-        # 1. Detect callouts on every page
+        # 1. Find D-pages first so the engine can validate D-numbers
+        all_d_pages = _find_d_pages(doc)
+        known_dpages = set(all_d_pages.keys())
+
+        # 2. Detect callouts — engine validates dp against known D-pages
         all_callouts = []
         for pi in range(len(doc)):
-            all_callouts.extend(detect_callouts_on_page(doc, pi))
-
-        # 2. Find D-pages by largest font occurrence of "Dn"
+            all_callouts.extend(detect_callouts_on_page(doc, pi,
+                                                         known_dpages=known_dpages))
         needed_dns = {c["dp"] for c in all_callouts}
-        all_d_pages = _find_d_pages(doc)
         d_page_map = {dn: pi for dn, pi in all_d_pages.items() if dn in needed_dns}
 
         # 3. Apply orange highlights + GoTo links (link to top of D-page)
@@ -653,7 +655,11 @@ def blueprint_hyperlinks():
 
     job_id = str(_uuid.uuid4())
     with _hl_lock:
-        _hl_jobs[job_id] = {"status": "processing"}
+        _hl_jobs[job_id] = {
+            "status": "processing",
+            "source_job": job_name if job_name else None,
+            "source_filename": job_file if job_file else None,
+        }
 
     t = threading.Thread(target=_run_hyperlink_job,
                          args=(job_id, tmp_in.name, display_name), daemon=True)
@@ -708,7 +714,9 @@ def blueprint_hyperlinks_open():
             "result_path": tmp_in.name,
             "out_name": out_name,
             "added": 0,
-            "d_page_map": d_page_map
+            "d_page_map": d_page_map,
+            "source_job": job_name if job_name else None,
+            "source_filename": job_file if job_file else None,
         }
     return jsonify({"job_id": job_id})
 
@@ -742,7 +750,10 @@ def blueprint_hyperlinks_editor(job_id):
     if not job or job.get("status") != "done":
         return "Job not found or not ready.", 404
     return render_template("blueprint_hyperlinks_editor.html",
-                           job_id=job_id, out_name=job["out_name"])
+                           job_id=job_id,
+                           out_name=job["out_name"],
+                           source_job=job.get("source_job") or "",
+                           source_filename=job.get("source_filename") or "")
 
 
 @app.route("/blueprint/hyperlinks/view/<job_id>")
@@ -838,6 +849,88 @@ def blueprint_hyperlinks_save(job_id):
 
         return send_file(buf, mimetype="application/pdf",
                          as_attachment=True, download_name=job["out_name"])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blueprint/hyperlinks/publish/<job_id>", methods=["POST"])
+@login_required
+def blueprint_hyperlinks_publish(job_id):
+    """Replace the original blueprint on the server with the linked version.
+    Archives the old file in Old Versions/ and deletes archives older than 30 days."""
+    import fitz as _fitz
+    from datetime import datetime, timedelta
+
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return jsonify({"error": "Job not found"}), 404
+
+    source_job      = job.get("source_job")
+    source_filename = job.get("source_filename")
+    if not source_job or not source_filename:
+        return jsonify({"error": "No source file to publish to — this PDF was uploaded, not selected from a job."}), 400
+
+    # Paths
+    bp_dir      = safe_join(source_job, "Blueprints")
+    target_path = os.path.join(bp_dir, source_filename)
+    old_dir     = os.path.join(bp_dir, "Old Versions")
+    os.makedirs(old_dir, exist_ok=True)
+
+    # Save current editor state to the result file first
+    data = request.get_json(silent=True) or {}
+    edited_links = data.get("links")
+    if edited_links is not None:
+        try:
+            doc = _fitz.open(job["result_path"])
+            for pi in range(len(doc)):
+                for lk in doc[pi].get_links():
+                    if lk.get("kind") == _fitz.LINK_GOTO:
+                        doc[pi].delete_link(lk)
+            for lk in edited_links:
+                pi = lk["page"]
+                if 0 <= pi < len(doc) and 0 <= lk["dest_page"] < len(doc):
+                    doc[pi].insert_link({
+                        "kind": _fitz.LINK_GOTO,
+                        "from": _fitz.Rect(lk["rect"]),
+                        "page": lk["dest_page"],
+                        "to": _fitz.Point(0, 0)
+                    })
+            doc.save(job["result_path"] + "_pub.pdf", garbage=4, deflate=True, incremental=False)
+            doc.close()
+            pub_path = job["result_path"] + "_pub.pdf"
+        except Exception as e:
+            return jsonify({"error": f"Failed to save links: {e}"}), 500
+    else:
+        pub_path = job["result_path"]
+
+    try:
+        # Archive old file with timestamp
+        if os.path.isfile(target_path):
+            ts = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+            base = os.path.splitext(source_filename)[0]
+            archive_name = f"{base}__{ts}.pdf"
+            shutil.move(target_path, os.path.join(old_dir, archive_name))
+
+        # Copy new file into place
+        shutil.copy2(pub_path, target_path)
+
+        # Clean up tmp pub file
+        if pub_path != job["result_path"]:
+            try: os.unlink(pub_path)
+            except: pass
+
+        # Delete Old Versions files older than 30 days
+        cutoff = datetime.utcnow() - timedelta(days=30)
+        for fname in os.listdir(old_dir):
+            fpath = os.path.join(old_dir, fname)
+            if os.path.isfile(fpath):
+                mtime = datetime.utcfromtimestamp(os.path.getmtime(fpath))
+                if mtime < cutoff:
+                    try: os.unlink(fpath)
+                    except: pass
+
+        return jsonify({"ok": True, "message": f"Published to {source_job} / {source_filename}"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
