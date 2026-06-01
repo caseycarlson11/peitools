@@ -582,7 +582,8 @@ def _run_hyperlink_job(job_id, pdf_path, display_name):
         out_name = re.sub(r'\.pdf$', '', display_name, flags=re.IGNORECASE) + "_linked.pdf"
         with _hl_lock:
             _hl_jobs[job_id] = {"status": "done", "result_path": out_path,
-                                 "out_name": out_name, "added": added}
+                                 "out_name": out_name, "added": added,
+                                 "d_page_map": all_d_pages}
     except Exception as e:
         with _hl_lock:
             _hl_jobs[job_id] = {"status": "error", "error": f"{type(e).__name__}: {e}"}
@@ -724,7 +725,8 @@ def blueprint_hyperlinks_links(job_id):
                         "dest_page": lk.get("page", 0)
                     })
         doc.close()
-        return jsonify({"pages": pages_info, "links": links})
+        d_page_map = {str(k): v for k, v in (job.get("d_page_map") or {}).items()}
+        return jsonify({"pages": pages_info, "links": links, "d_pages": d_page_map})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
