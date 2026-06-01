@@ -218,9 +218,9 @@
 
     <div class="tb-sep"></div>
     <div class="tb-zoom">
-      <button onclick="zoom(-0.25)">−</button>
+      <button onclick="zoom(-0.1)">−</button>
       <div class="tb-zoom-label" id="zoomLabel">100%</div>
-      <button onclick="zoom(+0.25)">+</button>
+      <button onclick="zoom(+0.1)">+</button>
     </div>
     <button class="tb-btn" onclick="zoom(0,1.0)" style="padding:0.38rem 0.5rem;font-size:0.72rem;">Reset</button>
 
@@ -426,12 +426,20 @@
     // Zoom
     // ────────────────────────────────────
     async function zoom(delta, absolute) {
-      const s = absolute !== undefined ? absolute : Math.max(0.25, Math.min(4.0, scale + delta));
+      const s = absolute !== undefined ? absolute : Math.max(0.1, Math.min(4.0, Math.round((scale + delta) * 10) / 10));
       if (Math.abs(s - scale) < 0.001) return;
+
+      // Save scroll position as a fraction of total scroll height
+      const viewer = document.getElementById('viewer');
+      const scrollFrac = viewer.scrollTop / (viewer.scrollHeight || 1);
+
       scale = s;
       document.getElementById('zoomLabel').textContent = Math.round(scale*100)+'%';
       await renderAllPages();
       renderAllLinks();
+
+      // Restore scroll position proportionally
+      viewer.scrollTop = scrollFrac * viewer.scrollHeight;
     }
 
     // ────────────────────────────────────
