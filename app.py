@@ -657,6 +657,58 @@ def blueprint_hyperlinks():
     return jsonify({"job_id": job_id})
 
 
+@app.route("/blueprint/hyperlinks/open", methods=["POST"])
+@login_required
+def blueprint_hyperlinks_open():
+    """Open a PDF directly in the editor without running OCR processing."""
+    job_name = request.form.get("job", "").strip()
+    job_file = request.form.get("filename", "").strip()
+    uploaded = request.files.get("pdf")
+
+    tmp_in = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    try:
+        if job_name and job_file:
+            server_path = safe_join(job_name, "Blueprints", job_file)
+            if not os.path.isfile(server_path):
+                return jsonify({"error": f"File not found: {job_file}"}), 404
+            tmp_in.close()
+            shutil.copy2(server_path, tmp_in.name)
+            display_name = job_file
+        elif uploaded and uploaded.filename.lower().endswith(".pdf"):
+            uploaded.save(tmp_in)
+            tmp_in.close()
+            display_name = uploaded.filename
+        else:
+            tmp_in.close()
+            os.unlink(tmp_in.name)
+            return jsonify({"error": "Please select a blueprint or upload a PDF."}), 400
+    except Exception as e:
+        try: os.unlink(tmp_in.name)
+        except: pass
+        return jsonify({"error": str(e)}), 500
+
+    # Find D-pages so the editor knows about D-labels
+    try:
+        import fitz as _fitz
+        doc = _fitz.open(tmp_in.name)
+        d_page_map = _find_d_pages(doc)
+        doc.close()
+    except Exception:
+        d_page_map = {}
+
+    out_name = re.sub(r'\.pdf$', '', display_name, flags=re.IGNORECASE) + "_edited.pdf"
+    job_id = str(_uuid.uuid4())
+    with _hl_lock:
+        _hl_jobs[job_id] = {
+            "status": "done",
+            "result_path": tmp_in.name,
+            "out_name": out_name,
+            "added": 0,
+            "d_page_map": d_page_map
+        }
+    return jsonify({"job_id": job_id})
+
+
 @app.route("/blueprint/hyperlinks/status/<job_id>")
 @login_required
 def blueprint_hyperlinks_status(job_id):

@@ -155,6 +155,19 @@
     .status.error { color: #f87171; }
     .status.success { color: #4ade80; }
 
+    /* ── Open in editor (skip processing) ── */
+    .open-btn {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      width: 100%; padding: 0.75rem;
+      border-radius: 12px; font-size: 0.88rem; font-weight: 600;
+      color: rgba(255,255,255,0.7); cursor: pointer;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.15);
+      transition: all 0.2s;
+    }
+    .open-btn:hover:not(:disabled) { background: rgba(255,255,255,0.12); color: white; }
+    .open-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+
     /* ── Editor button ── */
     .editor-btn {
       display: none;
@@ -287,6 +300,14 @@
         <span id="btnLabel">Process Blueprint</span>
       </button>
 
+      <button class="open-btn" id="openBtn" disabled onclick="openInEditor()">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        Open in Editor (skip processing)
+      </button>
+
       <div class="status" id="status"></div>
 
       <a class="editor-btn" id="editorBtn" href="#" target="_blank">
@@ -322,6 +343,7 @@
     const statusEl      = document.getElementById('status');
     const downloadBtn   = document.getElementById('downloadBtn');
     const editorBtn     = document.getElementById('editorBtn');
+    const openBtn       = document.getElementById('openBtn');
     const jobSelect     = document.getElementById('jobSelect');
     const fileSelect    = document.getElementById('fileSelect');
     const fileSelectWrap = document.getElementById('fileSelectWrap');
@@ -393,6 +415,7 @@
       selectedFile = null;
       clearUpload();
       processBtn.disabled = false;
+      openBtn.disabled = false;
       downloadBtn.style.display = 'none';
       setStatus(`Selected: ${s.filename}`);
     }
@@ -419,6 +442,7 @@
       fileNameEl.textContent = f.name;
       fileNameEl.style.display = 'block';
       processBtn.disabled = false;
+      openBtn.disabled = false;
       downloadBtn.style.display = 'none';
       setStatus('');
     }
@@ -511,6 +535,39 @@
         processBtn.disabled = false;
       }
     });
+
+    // ── Open in Editor without processing ──
+    async function openInEditor() {
+      if (!selectedFile && !selectedServer) return;
+      openBtn.disabled = true;
+      openBtn.textContent = 'Opening…';
+      setStatus('');
+
+      const form = new FormData();
+      if (selectedServer) {
+        form.append('job', selectedServer.job);
+        form.append('filename', selectedServer.filename);
+      } else {
+        form.append('pdf', selectedFile);
+      }
+
+      try {
+        const res = await fetch('/blueprint/hyperlinks/open', { method: 'POST', body: form });
+        if (!res.ok) {
+          const text = await res.text();
+          let msg = `Error ${res.status}`;
+          try { msg = JSON.parse(text).error || msg; } catch(e) {}
+          throw new Error(msg);
+        }
+        const { job_id } = await res.json();
+        window.open(`/blueprint/hyperlinks/editor/${job_id}`, '_blank');
+      } catch(e) {
+        setStatus(e.message, 'error');
+      } finally {
+        openBtn.disabled = false;
+        openBtn.innerHTML = `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg> Open in Editor (skip processing)`;
+      }
+    }
   </script>
 </body>
 </html>
