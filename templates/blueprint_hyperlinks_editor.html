@@ -191,7 +191,18 @@
       opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 300;
     }
     #toast.show { opacity: 1; }
-    #loadingMsg { color: rgba(255,255,255,0.35); padding: 4rem; font-size: 0.88rem; }
+    #loadingMsg {
+      display: flex; flex-direction: column; align-items: center; gap: 1rem;
+      color: rgba(255,255,255,0.45); padding: 4rem; font-size: 0.88rem;
+    }
+    .loading-spinner {
+      width: 36px; height: 36px;
+      border: 3px solid rgba(255,255,255,0.1);
+      border-top-color: #60b4f0;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
 <body>
@@ -241,7 +252,10 @@
 
     <!-- Viewer -->
     <div class="viewer" id="viewer">
-      <div id="loadingMsg">Loading PDF…</div>
+      <div id="loadingMsg">
+        <div class="loading-spinner"></div>
+        <span id="loadingText">Starting…</span>
+      </div>
     </div>
 
     <!-- Right panel: D-page tools -->
@@ -308,9 +322,11 @@
     // Boot
     // ────────────────────────────────────
     async function boot() {
-      const loadingMsg = document.getElementById('loadingMsg');
+      const loadingMsg  = document.getElementById('loadingMsg');
+      const loadingText = document.getElementById('loadingText');
+      const setText = t => { if (loadingText) loadingText.textContent = t; };
       try {
-        loadingMsg.textContent = 'Fetching link data…';
+        setText('Fetching link data…');
         const lr = await fetch(`/blueprint/hyperlinks/links/${JOB_ID}`);
         if (!lr.ok) throw new Error(`Links endpoint returned ${lr.status}`);
         const ld = await lr.json();
@@ -318,18 +334,28 @@
         linksData = ld.links  || [];
         dPages    = ld.d_pages || {};
 
-        loadingMsg.textContent = 'Loading PDF…';
-        pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
+        setText('Downloading PDF…');
+        const pdfRes = await fetch(`/blueprint/hyperlinks/view/${JOB_ID}`);
+        if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status} ${pdfRes.statusText}`);
+        const contentType = pdfRes.headers.get('content-type') || '';
+        if (!contentType.includes('pdf')) throw new Error(`Unexpected response type: ${contentType}`);
+        const pdfBytes = await pdfRes.arrayBuffer();
+
+        setText('Parsing PDF…');
+        pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
 
         // Remove loading message immediately — pages appear as they render
         loadingMsg.remove();
         buildToolPanel();
-        await renderAllPages();
+        await renderAllPages(n => setText(`Rendering page ${n} of ${pdfDoc.numPages}…`));
         renderAllLinks();
 
       } catch(e) {
-        loadingMsg.textContent = 'Error: ' + e.message;
-        loadingMsg.style.color = '#f87171';
+        if (loadingMsg) {
+          loadingMsg.querySelector('.loading-spinner').style.display = 'none';
+          loadingText.textContent = '⚠ ' + e.message;
+          loadingText.style.color = '#f87171';
+        }
       }
     }
 
@@ -384,7 +410,7 @@
     // ────────────────────────────────────
     // Render pages
     // ────────────────────────────────────
-    async function renderAllPages() {
+    async function renderAllPages(onPage) {
       if (rendering) return;
       rendering = true;
       clearPending();
@@ -432,6 +458,7 @@
         // Add to DOM immediately so user sees pages appear one by one
         viewer.appendChild(wrap);
         viewer.appendChild(label);
+        if (onPage) onPage(pi);
 
         await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
         wrap.style.background = '';  // clear placeholder bg once rendered
