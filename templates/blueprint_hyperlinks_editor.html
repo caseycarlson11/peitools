@@ -633,6 +633,8 @@
       linksData.push({ page: pi, rect, dest_page: stampTool.destPage });
       renderAllLinks();
       showToast(`D${stampTool.dn} placed`);
+      clearStampTool();
+      setMode('');
     }
 
     // Click on blank page area in no-mode → confirm dragging link
