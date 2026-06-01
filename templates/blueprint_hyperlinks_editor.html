@@ -334,15 +334,8 @@
         linksData = ld.links  || [];
         dPages    = ld.d_pages || {};
 
-        setText('Downloading PDF…');
-        const pdfRes = await fetch(`/blueprint/hyperlinks/view/${JOB_ID}`);
-        if (!pdfRes.ok) throw new Error(`PDF download failed: ${pdfRes.status} ${pdfRes.statusText}`);
-        const contentType = pdfRes.headers.get('content-type') || '';
-        if (!contentType.includes('pdf')) throw new Error(`Unexpected response type: ${contentType}`);
-        const pdfBytes = await pdfRes.arrayBuffer();
-
-        setText('Parsing PDF…');
-        pdfDoc = await pdfjsLib.getDocument({ data: pdfBytes }).promise;
+        setText('Loading PDF…');
+        pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
 
         // Remove loading message immediately — pages appear as they render
         loadingMsg.remove();
@@ -680,11 +673,6 @@
         openAddModal();
       }
       // Pending rect follows cursor until clicked — no mouseup handling needed
-        const y0 = topPct  * info.height;
-        const x1 = x0 + wPct * info.width;
-        const y1 = y0 + hPct * info.height;
-        pendingStamp.rect = [x0, y0, x1, y1];
-      }
     });
 
     function confirmPending() {
