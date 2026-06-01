@@ -307,9 +307,12 @@
 
     // Stamp tool state
     let stampTool    = null;
+    let pendingStamp = null;  // kept for compatibility; always null now
 
     // Drag-link state (no-mode drag)
     let draggingLink = null;  // {idx, el, overlay, page}
+
+    function clearPending() { pendingStamp = null; }
 
     // Modal state
     let activeEditIdx  = null;
@@ -580,7 +583,7 @@
     }
 
     function onOverlayMouseMove(e, overlay, ghost, pi) {
-      if (mode !== 'stamp' || pendingStamp) { ghost.style.display='none'; return; }
+      if (mode !== 'stamp') { ghost.style.display='none'; return; }
       const info = pageInfos[pi]; if (!info) return;
       const obr = overlay.getBoundingClientRect();
       const rx = (e.clientX - obr.left) / overlay.offsetWidth;
@@ -658,18 +661,6 @@
         drawRect.style.width  = Math.abs(e.clientX-drawStart.x)+'px';
         drawRect.style.height = Math.abs(e.clientY-drawStart.y)+'px';
       }
-      // Pending rect follows cursor in drag mode
-      if (pendingStamp && pendingStamp.state === 'dragging') {
-        const { el, overlay } = pendingStamp;
-        const obr = overlay.getBoundingClientRect();
-        const ow  = overlay.offsetWidth, oh = overlay.offsetHeight;
-        const hw  = parseFloat(el.style.width)  / 2;
-        const hh  = parseFloat(el.style.height) / 2;
-        const nx  = (e.clientX - obr.left) / ow * 100 - hw;
-        const ny  = (e.clientY - obr.top)  / oh * 100 - hh;
-        el.style.left = nx + '%';
-        el.style.top  = ny + '%';
-      }
     });
 
     document.addEventListener('mouseup', e => {
@@ -694,26 +685,8 @@
       // Pending rect follows cursor until clicked — no mouseup handling needed
     });
 
-    function confirmPending() {
-      if (!pendingStamp || !stampTool) return;
-      const { el, overlay, page } = pendingStamp;
-      const info = pageInfos[page];
-      // Read final position from the element's current CSS
-      const leftPct = parseFloat(el.style.left)   / 100;
-      const topPct  = parseFloat(el.style.top)    / 100;
-      const wPct    = parseFloat(el.style.width)  / 100;
-      const hPct    = parseFloat(el.style.height) / 100;
-      const x0 = leftPct * info.width;
-      const y0 = topPct  * info.height;
-      const x1 = x0 + wPct * info.width;
-      const y1 = y0 + hPct * info.height;
-      linksData.push({ page, rect:[x0,y0,x1,y1], dest_page: stampTool.destPage });
-      el.remove();
-      pendingStamp = null;
-      document.body.style.cursor = mode === 'stamp' ? 'crosshair' : '';
-      renderAllLinks();
-      showToast(`D${stampTool.dn} link set`);
-    }
+    // No-op — stamp now places immediately on first click
+    function confirmPending() {}
 
     // ────────────────────────────────────
     // Mode
