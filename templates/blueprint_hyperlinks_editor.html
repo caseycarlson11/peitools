@@ -244,7 +244,7 @@
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Save & Download
     </button>
-    <div class="tb-hint" id="tbHint">Select a D-tool on the right, then click the document</div>
+    <div class="tb-hint" id="tbHint">Click a link to move it — click again or anywhere else to set</div>
   </div>
 
   <!-- ── Main area ── -->
@@ -301,15 +301,15 @@
     let linksData = [];    // [{page, rect:[x0,y0,x1,y1], dest_page}]
     let pageInfos = [];    // [{width,height}] PDF points
     let dPages    = {};    // {"1":38,"15":52,...}  D-number → 0-based page index
-    let mode      = 'select';
+    let mode      = '';    // '' | 'select' | 'test' | 'add' | 'stamp'
     let scale     = 1.0;
     let rendering = false;
 
     // Stamp tool state
-    let stampTool    = null;   // {dn, destPage} — active D-page tool
-    let pendingStamp = null;   // {page, el, rect} — placed but not confirmed
-    let draggingPending = false;
-    let dragOffset   = {x:0, y:0};
+    let stampTool    = null;
+
+    // Drag-link state (no-mode drag)
+    let draggingLink = null;  // {idx, el, overlay, page}
 
     // Modal state
     let activeEditIdx  = null;
@@ -536,8 +536,40 @@
         e.stopPropagation();
         if (mode==='select') openEditModal(idx);
         else if (mode==='test') scrollToPage(lk.dest_page);
+        else if (mode==='') {
+          if (draggingLink && draggingLink.idx === idx) {
+            confirmDraggingLink(); // click same link again → set it
+          } else {
+            confirmDraggingLink(); // set any previous
+            startDraggingLink(idx, div, overlay, lk.page);
+          }
+        }
       });
       overlay.appendChild(div);
+    }
+
+    // ────────────────────────────────────
+    // No-mode drag: click link → follows cursor → click to set
+    // ────────────────────────────────────
+    function startDraggingLink(idx, el, overlay, page) {
+      draggingLink = { idx, el, overlay, page };
+      el.style.cursor = 'move';
+      el.style.border = '2px solid #60b4f0';
+      el.style.background = 'rgba(96,180,240,0.25)';
+      showToast('Move mouse to reposition — click to set');
+    }
+
+    function confirmDraggingLink() {
+      if (!draggingLink) return;
+      const { idx, el, overlay, page } = draggingLink;
+      const info = pageInfos[page];
+      const x0 = parseFloat(el.style.left)   / 100 * info.width;
+      const y0 = parseFloat(el.style.top)    / 100 * info.height;
+      const x1 = x0 + parseFloat(el.style.width)  / 100 * info.width;
+      const y1 = y0 + parseFloat(el.style.height) / 100 * info.height;
+      linksData[idx].rect = [x0, y0, x1, y1];
+      draggingLink = null;
+      renderAllLinks();
     }
 
     // ────────────────────────────────────
@@ -600,7 +632,24 @@
       showToast(`D${stampTool.dn} placed`);
     }
 
+    // Click on blank page area in no-mode → confirm dragging link
+    document.addEventListener('click', e => {
+      if (mode !== '') return;
+      if (!draggingLink) return;
+      if (e.target.classList.contains('link-rect')) return; // handled by link click
+      confirmDraggingLink();
+    });
+
     document.addEventListener('mousemove', e => {
+      // Move dragging link (no-mode)
+      if (draggingLink) {
+        const { el, overlay } = draggingLink;
+        const obr = overlay.getBoundingClientRect();
+        const hw  = parseFloat(el.style.width)  / 2;
+        const hh  = parseFloat(el.style.height) / 2;
+        el.style.left = ((e.clientX - obr.left) / overlay.offsetWidth  * 100 - hw) + '%';
+        el.style.top  = ((e.clientY - obr.top)  / overlay.offsetHeight * 100 - hh) + '%';
+      }
       // Rubber band
       if (drawing) {
         const x = Math.min(e.clientX, drawStart.x);
@@ -666,27 +715,26 @@
       showToast(`D${stampTool.dn} link set`);
     }
 
-    function clearPending() {
-      if (pendingStamp) { pendingStamp.el.remove(); pendingStamp = null; }
-      draggingPending = false;
-    }
-
     // ────────────────────────────────────
     // Mode
     // ────────────────────────────────────
     function setMode(m) {
-      if (m !== 'stamp') clearStampTool();
-      mode = m;
-      document.getElementById('modeSelect').classList.toggle('active', m==='select');
-      document.getElementById('modeTest').classList.toggle('active',   m==='test');
-      document.getElementById('modeAdd').classList.toggle('active',    m==='add');
+      // Toggle off if already active
+      const next = (mode === m) ? '' : m;
+      if (next !== 'stamp') clearStampTool();
+      confirmDraggingLink();
+      mode = next;
+      document.getElementById('modeSelect').classList.toggle('active', next==='select');
+      document.getElementById('modeTest').classList.toggle('active',   next==='test');
+      document.getElementById('modeAdd').classList.toggle('active',    next==='add');
       const hints = {
-        select: 'Click an orange box to edit or delete it',
-        test:   'Click an orange box to jump to its destination — use Back to return',
-        add:    'Click and drag on the page to draw a new link',
-        stamp:  'Click the document to place — drag to position — click ✓ to confirm'
+        '':      'Click a link to move it — click again or anywhere else to set',
+        select:  'Click an orange box to edit or delete it',
+        test:    'Click an orange box to jump to its destination — use Back to return',
+        add:     'Click and drag on the page to draw a new link',
+        stamp:   'Click the document to place the link'
       };
-      document.getElementById('tbHint').textContent = hints[m] || '';
+      document.getElementById('tbHint').textContent = hints[next] || '';
       document.body.style.cursor = (m==='add'||m==='stamp') ? 'crosshair' : '';
       renderAllLinks();
     }
