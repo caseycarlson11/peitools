@@ -561,12 +561,16 @@ def _run_hyperlink_job(job_id, pdf_path, display_name):
 
         # 3. Apply orange highlights + GoTo links (link to top of D-page)
         ORANGE, BORDER = (1.0, 0.65, 0.2), (0.85, 0.45, 0.0)
+        LINK_SIZE = 49  # match manual stamp size (px in PDF points)
         added = 0
         for c in all_callouts:
             dest_pi = d_page_map.get(c["dp"])
             if dest_pi is None:
                 continue
-            rect = fitz.Rect(c["r"])
+            # Centre the fixed-size rect on the detected callout centre
+            cx, cy = c["cx"], c["cy"]
+            half = LINK_SIZE / 2
+            rect = fitz.Rect(cx - half, cy - half, cx + half, cy + half)
             page = doc[c["pi"]]
             sh = page.new_shape()
             sh.draw_rect(rect)
