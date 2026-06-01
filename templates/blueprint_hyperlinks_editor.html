@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Link Editor — {{ out_name }}</title>
+  <title>Link Editor --- {{ out_name }}</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet"/>
   <style>
@@ -11,7 +11,7 @@
     body { font-family: 'Inter', sans-serif; background: #0d1520; color: white;
            display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    /* ── Toolbar ── */
+    /* --- Toolbar --- */
     .toolbar {
       display: flex; align-items: center; gap: 0.5rem;
       padding: 0.5rem 0.9rem; background: #111d30;
@@ -52,10 +52,10 @@
     }
     .tb-hint { font-size: 0.72rem; color: rgba(255,255,255,0.28); white-space: nowrap; flex-shrink: 0; }
 
-    /* ── Main area: viewer + right panel ── */
+    /* --- Main area: viewer + right panel --- */
     .main-area { display: flex; flex: 1; overflow: hidden; }
 
-    /* ── Viewer ── */
+    /* --- Viewer --- */
     .viewer {
       flex: 1; overflow-y: auto; overflow-x: auto; padding: 1.5rem;
       display: flex; flex-direction: column; align-items: center; gap: 1.25rem;
@@ -66,7 +66,7 @@
     .page-label { text-align: center; font-size: 0.7rem; color: rgba(255,255,255,0.25); margin-top: 0.35rem; }
     .link-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 
-    /* ── Right panel ── */
+    /* --- Right panel --- */
     .right-panel {
       flex-shrink: 0; background: #111d30;
       border-left: 1px solid rgba(255,255,255,0.09);
@@ -104,7 +104,7 @@
       border-top: 1px solid rgba(255,255,255,0.08); line-height: 1.5; flex-shrink: 0;
     }
 
-    /* ── Link rects ── */
+    /* --- Link rects --- */
     .link-rect {
       position: absolute; background: rgba(255,165,50,0.2);
       border: 2px solid rgba(230,130,0,0.75); border-radius: 2px; cursor: pointer;
@@ -118,14 +118,14 @@
       border-radius: 3px; white-space: nowrap; pointer-events: none; line-height: 1.4;
     }
 
-    /* ── Ghost rect (follows cursor when tool active) ── */
+    /* --- Ghost rect (follows cursor when tool active) --- */
     .ghost-rect {
       position: absolute; pointer-events: none;
       background: rgba(96,180,240,0.15); border: 2px dashed #60b4f0;
       border-radius: 2px; display: none;
     }
 
-    /* ── Pending rect (placed, being dragged to final position) ── */
+    /* --- Pending rect (placed, being dragged to final position) --- */
     .pending-rect {
       position: absolute;
       background: rgba(96,180,240,0.25); border: 2px solid #60b4f0;
@@ -144,13 +144,13 @@
     }
     .pending-rect .confirm-btn:hover { background: #15803d; }
 
-    /* ── Draw rubber band (Add Link mode) ── */
+    /* --- Draw rubber band (Add Link mode) --- */
     #drawRect {
       position: fixed; border: 2px dashed rgba(255,165,50,0.8);
       background: rgba(255,165,50,0.08); pointer-events: none; display: none; z-index: 100;
     }
 
-    /* ── Modal ── */
+    /* --- Modal --- */
     .modal-bg {
       display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.65); z-index: 200; align-items: center; justify-content: center;
@@ -184,7 +184,7 @@
     .btn-delete  { background: rgba(185,28,28,0.2); color: #fca5a5; border: 1px solid rgba(185,28,28,0.4) !important; }
     .btn-delete:hover { background: rgba(185,28,28,0.38); }
 
-    /* ── Toast ── */
+    /* --- Toast --- */
     #toast {
       position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
       background: rgba(20,40,80,0.96); color: white; border: 1px solid rgba(96,180,240,0.3);
@@ -208,7 +208,7 @@
 </head>
 <body>
 
-  <!-- ── Toolbar ── -->
+  <!-- --- Toolbar --- -->
   <div class="toolbar">
     <a href="/"><img class="tb-logo" src="/static/logo.jpg" alt="PEI"/></a>
     <div class="tb-sep"></div>
@@ -251,10 +251,10 @@
       Publish Prints
     </button>
     {% endif %}
-    <div class="tb-hint" id="tbHint">Click a link to move it — click again or anywhere else to set</div>
+    <div class="tb-hint" id="tbHint">Click a link to move it --- click again or anywhere else to set</div>
   </div>
 
-  <!-- ── Main area ── -->
+  <!-- --- Main area --- -->
   <div class="main-area">
 
     <!-- Viewer -->
@@ -269,7 +269,7 @@
     <div class="right-panel">
       <div class="panel-header">D</div>
       <div class="panel-tools" id="panelTools">
-        <div class="no-tools" style="font-size:0.6rem;padding:4px;color:rgba(255,255,255,0.3);">—</div>
+        <div class="no-tools" style="font-size:0.6rem;padding:4px;color:rgba(255,255,255,0.3);">---</div>
       </div>
     </div>
 
@@ -346,9 +346,9 @@
     // Back button state
     let savedScrollTop = null;
 
-    // ────────────────────────────────────
+    // ---
     // Boot
-    // ────────────────────────────────────
+    // ---
     async function boot() {
       const loadingMsg  = document.getElementById('loadingMsg');
       const loadingText = document.getElementById('loadingText');
@@ -365,7 +365,7 @@
         setText('Loading PDF…');
         pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
 
-        // Remove loading message immediately — pages appear as they render
+        // Remove loading message immediately --- pages appear as they render
         loadingMsg.remove();
         buildToolPanel();
         await renderAllPages(n => setText(`Rendering page ${n} of ${pdfDoc.numPages}…`));
@@ -380,9 +380,9 @@
       }
     }
 
-    // ────────────────────────────────────
-    // Right panel — D-page tools
-    // ────────────────────────────────────
+    // ---
+    // Right panel --- D-page tools
+    // ---
     function buildToolPanel() {
       const panel = document.getElementById('panelTools');
       const dns = Object.keys(dPages).sort((a,b) => +a - +b);
@@ -418,7 +418,7 @@
       document.querySelector(`.tool-btn[data-dn="${dn}"]`).classList.add('active');
       stampTool = { dn, destPage: dPages[dn] };
       setMode('stamp');
-      showToast(`D${dn} selected — click the document to place`);
+      showToast(`D${dn} selected --- click the document to place`);
     }
 
     function clearStampTool() {
@@ -428,9 +428,9 @@
       clearPending();
     }
 
-    // ────────────────────────────────────
+    // ---
     // Render pages
-    // ────────────────────────────────────
+    // ---
     async function renderAllPages(onPage) {
       if (rendering) return;
       rendering = true;
@@ -487,9 +487,9 @@
       rendering = false;
     }
 
-    // ────────────────────────────────────
+    // ---
     // Zoom
-    // ────────────────────────────────────
+    // ---
     async function zoom(delta, absolute) {
       const s = absolute !== undefined ? absolute : Math.max(0.1, Math.min(4.0, Math.round((scale + delta) * 10) / 10));
       if (Math.abs(s - scale) < 0.001) return;
@@ -507,10 +507,10 @@
       viewer.scrollTop = scrollFrac * viewer.scrollHeight;
     }
 
-    // ────────────────────────────────────
+    // ---
     // Coordinates
-    // ────────────────────────────────────
-    // fitz uses top-left origin, Y increases downward — same as CSS, no flip needed
+    // ---
+    // fitz uses top-left origin, Y increases downward --- same as CSS, no flip needed
     function pdfRectToCSS(pi, rect) {
       const info = pageInfos[pi]; if (!info) return null;
       const [x0,y0,x1,y1] = rect;
@@ -522,7 +522,7 @@
       };
     }
 
-    // Client XY → fitz space (top-left origin, Y down) — no flip
+    // Client XY → fitz space (top-left origin, Y down) --- no flip
     function clientToPdf(overlay, pi, cx, cy) {
       const obr = overlay.getBoundingClientRect();
       const info = pageInfos[pi];
@@ -531,9 +531,9 @@
       return { x: rx*info.width, y: ry*info.height };
     }
 
-    // ────────────────────────────────────
+    // ---
     // Render links
-    // ────────────────────────────────────
+    // ---
     function renderAllLinks() {
       document.querySelectorAll('.link-rect').forEach(el => el.remove());
       linksData.forEach((lk,idx) => renderLink(lk,idx));
@@ -576,15 +576,15 @@
       overlay.appendChild(div);
     }
 
-    // ────────────────────────────────────
+    // ---
     // No-mode drag: click link → follows cursor → click to set
-    // ────────────────────────────────────
+    // ---
     function startDraggingLink(idx, el, overlay, page) {
       draggingLink = { idx, el, overlay, page };
       el.style.cursor = 'move';
       el.style.border = '2px solid #60b4f0';
       el.style.background = 'rgba(96,180,240,0.25)';
-      showToast('Move mouse to reposition — click to set');
+      showToast('Move mouse to reposition --- click to set');
     }
 
     function confirmDraggingLink() {
@@ -600,9 +600,9 @@
       renderAllLinks();
     }
 
-    // ────────────────────────────────────
+    // ---
     // Stamp: ghost rect follows cursor
-    // ────────────────────────────────────
+    // ---
     function hideAllGhosts() {
       document.querySelectorAll('.ghost-rect').forEach(g => g.style.display='none');
     }
@@ -620,9 +620,9 @@
         width:${sw}%; height:${sh}%;`;
     }
 
-    // ────────────────────────────────────
-    // Overlay mousedown — stamp place OR draw
-    // ────────────────────────────────────
+    // ---
+    // Overlay mousedown --- stamp place OR draw
+    // ---
     let drawing=false, drawStart=null, drawOverlay=null, drawPi=-1;
     const drawRect = document.getElementById('drawRect');
 
@@ -645,12 +645,12 @@
       }
     }
 
-    // ────────────────────────────────────
+    // ---
     // Stamp workflow:
     //   Click 1 → place rect (state: 'placed')
     //   Click rect → drag mode (state: 'dragging', follows cursor)
     //   Click 3 → confirm
-    // ────────────────────────────────────
+    // ---
     function placePending(e, overlay, pi) {
       const pt = clientToPdf(overlay, pi, e.clientX, e.clientY);
       const hw = STAMP_W/2, hh = STAMP_H/2;
@@ -709,15 +709,15 @@
         pendingNewLink = { page: drawPi, rect:[x0,y0,x1,y1] };
         openAddModal();
       }
-      // Pending rect follows cursor until clicked — no mouseup handling needed
+      // Pending rect follows cursor until clicked --- no mouseup handling needed
     });
 
-    // No-op — stamp now places immediately on first click
+    // No-op --- stamp now places immediately on first click
     function confirmPending() {}
 
-    // ────────────────────────────────────
+    // ---
     // Mode
-    // ────────────────────────────────────
+    // ---
     function setMode(m) {
       // Toggle off if already active
       const next = (mode === m) ? '' : m;
@@ -728,9 +728,9 @@
       document.getElementById('modeTest').classList.toggle('active',   next==='test');
       document.getElementById('modeAdd').classList.toggle('active',    next==='add');
       const hints = {
-        '':      'Click a link to move it — click again or anywhere else to set',
+        '':      'Click a link to move it --- click again or anywhere else to set',
         select:  'Click an orange box to edit or delete it',
-        test:    'Click an orange box to jump to its destination — use Back to return',
+        test:    'Click an orange box to jump to its destination --- use Back to return',
         add:     'Click and drag on the page to draw a new link',
         stamp:   'Click the document to place the link'
       };
@@ -739,9 +739,9 @@
       renderAllLinks();
     }
 
-    // ────────────────────────────────────
+    // ---
     // Test mode: scroll to page
-    // ────────────────────────────────────
+    // ---
     function scrollToPage(pi) {
       const viewer = document.getElementById('viewer');
       const el = document.getElementById(`page-wrap-${pi}`);
@@ -751,7 +751,7 @@
       el.scrollIntoView({ behavior:'smooth', block:'start' });
       el.style.outline = '3px solid #60b4f0';
       setTimeout(() => el.style.outline='', 1200);
-      showToast(`Jumped to page ${pi+1} — press Back to return`);
+      showToast(`Jumped to page ${pi+1} --- press Back to return`);
     }
 
     function goBack() {
@@ -761,9 +761,9 @@
       document.getElementById('backBtn').style.display = 'none';
     }
 
-    // ────────────────────────────────────
+    // ---
     // Parse destination input
-    // ────────────────────────────────────
+    // ---
     function parseDest(raw) {
       const s = raw.trim().toUpperCase();
       const dm = s.match(/^D(\d+)$/);
@@ -774,7 +774,7 @@
       }
       const n = parseInt(s);
       if (!isNaN(n) && n>=1 && n<=pdfDoc.numPages) return { page:n-1, label:`page ${n}` };
-      return { error: `Enter a page number (1–${pdfDoc.numPages}) or D-label like D15.` };
+      return { error: `Enter a page number (1---${pdfDoc.numPages}) or D-label like D15.` };
     }
 
     function buildHint() {
@@ -784,9 +784,9 @@
       return `Available: ${sample}${dns.length>6?'…':''}`;
     }
 
-    // ────────────────────────────────────
+    // ---
     // Modal (for Select/Add modes)
-    // ────────────────────────────────────
+    // ---
     function openEditModal(idx) {
       activeEditIdx=idx; pendingNewLink=null;
       const lk = linksData[idx];
@@ -847,9 +847,9 @@
       if (e.key==='Escape') closeModal();
     });
 
-    // ────────────────────────────────────
+    // ---
     // Toast
-    // ────────────────────────────────────
+    // ---
     let toastTimer=null;
     function showToast(msg) {
       const t=document.getElementById('toast');
@@ -858,9 +858,9 @@
       toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
     }
 
-    // ────────────────────────────────────
+    // ---
     // Save & Download
-    // ────────────────────────────────────
+    // ---
     async function saveAndDownload() {
       const btn=document.getElementById('saveBtn');
       btn.disabled=true; btn.textContent='Saving…';
@@ -881,9 +881,9 @@
       }
     }
 
-    // ────────────────────────────────────
+    // ---
     // Publish Prints
-    // ────────────────────────────────────
+    // ---
     function openPublishConfirm() {
       document.getElementById('publishBg').classList.add('open');
     }
@@ -902,47 +902,7 @@
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Publish failed');
-        showToast('✓ Published — Blueprint Viewer updated');
-      } catch(e) {
-        showToast('Error: ' + e.message);
-      } finally {
-        if (btn) {
-          btn.disabled = false;
-          btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M12 19V5"/><polyline points="5 12 12 5 19 12"/></svg> Publish Prints`;
-        }
-      }
-    }
-
-    boot();
-  </script>
-</body>
-</html>
-" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
-      }
-    }
-
-    // ────────────────────────────────────
-    // Publish Prints
-    // ────────────────────────────────────
-    function openPublishConfirm() {
-      document.getElementById('publishBg').classList.add('open');
-    }
-    function closePublishConfirm() {
-      document.getElementById('publishBg').classList.remove('open');
-    }
-    async function publishPrints() {
-      closePublishConfirm();
-      const btn = document.getElementById('publishBtn');
-      if (btn) { btn.disabled = true; btn.textContent = 'Publishing…'; }
-      try {
-        const res = await fetch(`/blueprint/hyperlinks/publish/${JOB_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ links: linksData })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Publish failed');
-        showToast('✓ Published — Blueprint Viewer updated');
+        showToast('✓ Published --- Blueprint Viewer updated');
       } catch(e) {
         showToast('Error: ' + e.message);
       } finally {
