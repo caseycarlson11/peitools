@@ -70,20 +70,19 @@
       flex-shrink: 0; background: #111d30;
       border-left: 1px solid rgba(255,255,255,0.09);
       display: flex; flex-direction: column; overflow: hidden;
-      width: auto; max-width: 55vw;
+      width: 54px;
     }
     .panel-header {
-      padding: 0.5rem 0.75rem; font-size: 0.7rem; font-weight: 700;
-      text-transform: uppercase; letter-spacing: 0.07em;
-      color: rgba(255,255,255,0.35); border-bottom: 1px solid rgba(255,255,255,0.08);
-      flex-shrink: 0; white-space: nowrap;
+      padding: 0.4rem 0; font-size: 0.55rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.06em;
+      color: rgba(255,255,255,0.3); border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0; text-align: center;
     }
     .panel-tools {
-      flex: 1; padding: 0.5rem; overflow-x: auto; overflow-y: hidden;
-      display: flex; flex-direction: column; gap: 4px;
+      flex: 1; padding: 4px; overflow-y: auto; overflow-x: hidden;
+      display: flex; flex-direction: column; gap: 3px;
     }
-    .panel-row { display: flex; gap: 4px; flex-shrink: 0; }
-    .panel-tools::-webkit-scrollbar { height: 4px; }
+    .panel-tools::-webkit-scrollbar { width: 3px; }
     .panel-tools::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
     .tool-btn {
       width: 42px; height: 42px;
@@ -247,11 +246,10 @@
 
     <!-- Right panel: D-page tools -->
     <div class="right-panel">
-      <div class="panel-header">D-Page Tools</div>
+      <div class="panel-header">D</div>
       <div class="panel-tools" id="panelTools">
-        <div class="no-tools">Loading…</div>
+        <div class="no-tools" style="font-size:0.6rem;padding:4px;color:rgba(255,255,255,0.3);">—</div>
       </div>
-      <div class="panel-tip" id="panelTip">Select a D-page, then click the document to place a link.</div>
     </div>
 
   </div>
@@ -339,28 +337,14 @@
       }
 
       panel.innerHTML = '';
-
-      // Split into 1 or 2 rows, evenly distributed
-      const useTwo = N > 1;
-      const topCount = useTwo ? Math.ceil(N / 2) : N;
-      const groups = useTwo
-        ? [dns.slice(0, topCount), dns.slice(topCount)]
-        : [dns];
-
-      groups.forEach(group => {
-        if (!group.length) return;
-        const row = document.createElement('div');
-        row.className = 'panel-row';
-        group.forEach(dn => {
-          const btn = document.createElement('button');
-          btn.className = 'tool-btn';
-          btn.dataset.dn = dn;
-          btn.title = `Link to D${dn} (page ${dPages[dn]+1})`;
-          btn.innerHTML = `<span class="tool-dn">D${dn}</span>`;
-          btn.addEventListener('click', () => selectTool(dn));
-          row.appendChild(btn);
-        });
-        panel.appendChild(row);
+      dns.forEach(dn => {
+        const btn = document.createElement('button');
+        btn.className = 'tool-btn';
+        btn.dataset.dn = dn;
+        btn.title = `Link to D${dn} (page ${dPages[dn]+1})`;
+        btn.innerHTML = `<span class="tool-dn">D${dn}</span>`;
+        btn.addEventListener('click', () => selectTool(dn));
+        panel.appendChild(btn);
       });
     }
 
