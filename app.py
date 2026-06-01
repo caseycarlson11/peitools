@@ -549,16 +549,14 @@ def _run_hyperlink_job(job_id, pdf_path, display_name):
     try:
         doc = fitz.open(pdf_path)
 
-        # 1. Find D-pages first so the engine can validate D-numbers
-        all_d_pages = _find_d_pages(doc)
-        known_dpages = set(all_d_pages.keys())
-
-        # 2. Detect callouts — engine validates dp against known D-pages
+        # 1. Detect callouts on every page
         all_callouts = []
         for pi in range(len(doc)):
-            all_callouts.extend(detect_callouts_on_page(doc, pi,
-                                                         known_dpages=known_dpages))
+            all_callouts.extend(detect_callouts_on_page(doc, pi))
+
+        # 2. Find D-pages by largest font occurrence of "Dn"
         needed_dns = {c["dp"] for c in all_callouts}
+        all_d_pages = _find_d_pages(doc)
         d_page_map = {dn: pi for dn, pi in all_d_pages.items() if dn in needed_dns}
 
         # 3. Apply orange highlights + GoTo links (link to top of D-page)
