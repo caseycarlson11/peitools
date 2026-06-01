@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Link Editor — {{ out_name }}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: #0d1520; color: white; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── Toolbar ── */
+    .toolbar {
+      display: flex; align-items: center; gap: 0.75rem;
+      padding: 0.6rem 1rem;
+      background: rgba(255,255,255,0.05);
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      flex-shrink: 0; flex-wrap: wrap;
+    }
+    .toolbar-title { font-size: 0.82rem; color: rgba(255,255,255,0.45); margin-right: 0.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+    .tb-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 0.45rem 0.9rem; border-radius: 8px;
+      font-size: 0.8rem; font-weight: 600; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.15);
+      background: rgba(255,255,255,0.07); color: white;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .tb-btn:hover { background: rgba(255,255,255,0.14); }
+    .tb-btn.active { background: rgba(30,100,200,0.5); border-color: #60b4f0; }
+    .tb-btn.green { background: linear-gradient(135deg,#166534,#16a34a); border-color: #22c55e; }
+    .tb-btn.green:hover { opacity: 0.9; }
+    .tb-sep { width: 1px; height: 24px; background: rgba(255,255,255,0.12); }
+    .tb-hint { font-size: 0.74rem; color: rgba(255,255,255,0.3); margin-left: auto; }
+
+    /* ── Viewer ── */
+    .viewer { flex: 1; overflow-y: auto; overflow-x: auto; padding: 1.5rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem; }
+    .page-wrap { position: relative; box-shadow: 0 8px 32px rgba(0,0,0,0.6); }
+    .page-wrap canvas { display: block; }
+    .page-label { text-align: center; font-size: 0.72rem; color: rgba(255,255,255,0.3); margin-top: 0.4rem; }
+    .link-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+    /* ── Link rectangles ── */
+    .link-rect {
+      position: absolute;
+      background: rgba(255,165,50,0.25);
+      border: 2px solid rgba(220,120,0,0.8);
+      border-radius: 2px;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .link-rect:hover { background: rgba(255,165,50,0.45); }
+    .link-rect .dest-badge {
+      position: absolute; top: -18px; left: 0;
+      background: rgba(220,120,0,0.9);
+      color: white; font-size: 10px; font-weight: 700;
+      padding: 1px 5px; border-radius: 3px;
+      white-space: nowrap; pointer-events: none;
+    }
+
+    /* ── Draw rubber-band ── */
+    #drawRect {
+      position: fixed;
+      border: 2px dashed #60b4f0;
+      background: rgba(96,180,240,0.1);
+      pointer-events: none;
+      display: none;
+      z-index: 100;
+    }
+
+    /* ── Modal ── */
+    .modal-bg {
+      display: none; position: fixed; inset: 0;
+      background: rgba(0,0,0,0.7); z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .modal-bg.open { display: flex; }
+    .modal {
+      background: #1a2540; border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 16px; padding: 1.75rem; width: 320px;
+      display: flex; flex-direction: column; gap: 1rem;
+    }
+    .modal h3 { font-size: 1rem; font-weight: 700; }
+    .modal p { font-size: 0.8rem; color: rgba(255,255,255,0.5); }
+    .modal input[type=number] {
+      width: 100%; padding: 0.6rem 0.75rem;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 8px; color: white;
+      font-family: 'Inter', sans-serif; font-size: 0.9rem;
+    }
+    .modal input[type=number]:focus { outline: none; border-color: #60b4f0; }
+    .modal-btns { display: flex; gap: 0.5rem; }
+    .modal-btns button {
+      flex: 1; padding: 0.6rem; border-radius: 8px;
+      font-size: 0.85rem; font-weight: 600; cursor: pointer; border: none;
+    }
+    .btn-confirm { background: #1e64c8; color: white; }
+    .btn-confirm:hover { background: #2d8bef; }
+    .btn-cancel { background: rgba(255,255,255,0.1); color: white; }
+    .btn-cancel:hover { background: rgba(255,255,255,0.18); }
+    .btn-delete { background: rgba(220,38,38,0.2); color: #f87171; border: 1px solid rgba(220,38,38,0.4) !important; }
+    .btn-delete:hover { background: rgba(220,38,38,0.35); }
+
+    /* ── Loading overlay ── */
+    #loadingMsg { text-align: center; color: rgba(255,255,255,0.4); padding: 4rem; font-size: 0.9rem; }
+  </style>
+</head>
+<body>
+
+  <div class="toolbar">
+    <a href="/" style="text-decoration:none;">
+      <img src="/static/logo.jpg" style="width:26px;height:26px;object-fit:cover;border-radius:5px;vertical-align:middle;">
+    </a>
+    <div class="tb-sep"></div>
+    <div class="toolbar-title" id="docTitle">{{ out_name }}</div>
+    <div class="tb-sep"></div>
+    <button class="tb-btn" id="modeSelect" onclick="setMode('select')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 3l14 9-7 1-4 7z"/></svg>
+      Select
+    </button>
+    <button class="tb-btn" id="modeAdd" onclick="setMode('add')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Add Link
+    </button>
+    <div class="tb-sep"></div>
+    <button class="tb-btn green" onclick="saveAndDownload()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Save & Download
+    </button>
+    <div class="tb-hint" id="tbHint">Click a link to edit it</div>
+  </div>
+
+  <div class="viewer" id="viewer">
+    <div id="loadingMsg">Loading PDF…</div>
+  </div>
+
+  <!-- Draw rubber band -->
+  <div id="drawRect"></div>
+
+  <!-- Modal -->
+  <div class="modal-bg" id="modalBg">
+    <div class="modal">
+      <h3 id="modalTitle">Edit Link</h3>
+      <p id="modalDesc">Enter the destination page number (1-based).</p>
+      <input type="number" id="modalInput" min="1" placeholder="Page number"/>
+      <div class="modal-btns">
+        <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+        <button class="btn-delete" id="btnDelete" onclick="deleteLink()" style="display:none">Delete</button>
+        <button class="btn-confirm" onclick="confirmModal()">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    const JOB_ID = {{ job_id | tojson }};
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    const SCALE = 1.5;
+    let pdfDoc = null;
+    let linksData = [];      // [{page, rect:[x0,y0,x1,y1], dest_page}, ...]
+    let pageInfos = [];      // [{width, height}, ...]  PDF-space dimensions
+    let pageCanvases = [];   // canvas elements per page
+    let mode = 'select';     // 'select' | 'add'
+
+    // Modal state
+    let modalCallback = null;
+    let activeEditIdx = null;  // index into linksData for edit mode
+    let pendingNewLink = null; // {page, rect} for add mode
+
+    // ── Boot ──
+    async function boot() {
+      try {
+        // Load links from server
+        const lr = await fetch(`/blueprint/hyperlinks/links/${JOB_ID}`);
+        const ld = await lr.json();
+        pageInfos = ld.pages;
+        linksData = ld.links;
+
+        // Load PDF
+        pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
+
+        document.getElementById('loadingMsg').remove();
+        await renderAllPages();
+        renderAllLinks();
+      } catch(e) {
+        document.getElementById('loadingMsg').textContent = 'Error loading PDF: ' + e.message;
+      }
+    }
+
+    async function renderAllPages() {
+      const viewer = document.getElementById('viewer');
+      pageCanvases = [];
+      for (let pi = 1; pi <= pdfDoc.numPages; pi++) {
+        const page = await pdfDoc.getPage(pi);
+        const vp = page.getViewport({ scale: SCALE });
+
+        const wrap = document.createElement('div');
+        wrap.className = 'page-wrap';
+        wrap.dataset.pi = pi - 1;  // 0-based
+
+        const canvas = document.createElement('canvas');
+        canvas.width = vp.width;
+        canvas.height = vp.height;
+        canvas.style.width = vp.width + 'px';
+        canvas.style.height = vp.height + 'px';
+
+        const overlay = document.createElement('div');
+        overlay.className = 'link-overlay';
+        overlay.dataset.pi = pi - 1;
+
+        // Draw events on overlay
+        overlay.addEventListener('mousedown', onOverlayMouseDown);
+
+        wrap.appendChild(canvas);
+        wrap.appendChild(overlay);
+
+        const label = document.createElement('div');
+        label.className = 'page-label';
+        label.textContent = `Page ${pi}`;
+
+        viewer.appendChild(wrap);
+        viewer.appendChild(label);
+        pageCanvases.push({ canvas, overlay, vp, page });
+
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+      }
+    }
+
+    // ── Coordinate helpers ──
+    // Convert PDF-space rect [x0,y0,x1,y1] to CSS % on overlay
+    function pdfRectToCSS(pi, rect) {
+      const info = pageInfos[pi];
+      if (!info) return null;
+      const [x0, y0, x1, y1] = rect;
+      const pw = info.width, ph = info.height;
+      return {
+        left:   (x0 / pw * 100) + '%',
+        top:    ((ph - y1) / ph * 100) + '%',
+        width:  ((x1 - x0) / pw * 100) + '%',
+        height: ((y1 - y0) / ph * 100) + '%',
+      };
+    }
+
+    // Convert overlay-relative click {x,y} (pixels) back to PDF space
+    function overlayPosToPDF(pi, overlayEl, x, y) {
+      const info = pageInfos[pi];
+      const ow = overlayEl.offsetWidth, oh = overlayEl.offsetHeight;
+      return {
+        x: x / ow * info.width,
+        y: info.height - (y / oh * info.height)
+      };
+    }
+
+    // ── Render links ──
+    function renderAllLinks() {
+      // Clear existing
+      document.querySelectorAll('.link-rect').forEach(el => el.remove());
+      linksData.forEach((lk, idx) => renderLink(lk, idx));
+    }
+
+    function renderLink(lk, idx) {
+      const overlay = document.querySelector(`.link-overlay[data-pi="${lk.page}"]`);
+      if (!overlay) return;
+      const css = pdfRectToCSS(lk.page, lk.rect);
+      if (!css) return;
+
+      const div = document.createElement('div');
+      div.className = 'link-rect';
+      div.dataset.idx = idx;
+      Object.assign(div.style, css);
+
+      const badge = document.createElement('div');
+      badge.className = 'dest-badge';
+      badge.textContent = `→ p${lk.dest_page + 1}`;
+      div.appendChild(badge);
+
+      div.addEventListener('click', e => {
+        if (mode !== 'select') return;
+        e.stopPropagation();
+        openEditModal(idx);
+      });
+
+      overlay.appendChild(div);
+    }
+
+    // ── Mode ──
+    function setMode(m) {
+      mode = m;
+      document.getElementById('modeSelect').classList.toggle('active', m === 'select');
+      document.getElementById('modeAdd').classList.toggle('active', m === 'add');
+      document.getElementById('tbHint').textContent =
+        m === 'select' ? 'Click an orange box to edit or delete it' :
+                         'Click and drag on the page to draw a new link';
+      document.body.style.cursor = m === 'add' ? 'crosshair' : '';
+    }
+    setMode('select');
+
+    // ── Draw new link ──
+    let drawing = false, drawStart = null, drawOverlay = null, drawPi = -1;
+    const drawRect = document.getElementById('drawRect');
+
+    function onOverlayMouseDown(e) {
+      if (mode !== 'add') return;
+      e.preventDefault();
+      const overlay = e.currentTarget;
+      drawPi = parseInt(overlay.dataset.pi);
+      drawOverlay = overlay;
+      drawing = true;
+      drawStart = { x: e.clientX, y: e.clientY };
+      drawRect.style.display = 'block';
+      drawRect.style.left = e.clientX + 'px';
+      drawRect.style.top = e.clientY + 'px';
+      drawRect.style.width = '0';
+      drawRect.style.height = '0';
+    }
+
+    document.addEventListener('mousemove', e => {
+      if (!drawing) return;
+      const x = Math.min(e.clientX, drawStart.x);
+      const y = Math.min(e.clientY, drawStart.y);
+      const w = Math.abs(e.clientX - drawStart.x);
+      const h = Math.abs(e.clientY - drawStart.y);
+      drawRect.style.left = x + 'px';
+      drawRect.style.top = y + 'px';
+      drawRect.style.width = w + 'px';
+      drawRect.style.height = h + 'px';
+    });
+
+    document.addEventListener('mouseup', e => {
+      if (!drawing) return;
+      drawing = false;
+      drawRect.style.display = 'none';
+
+      const w = Math.abs(e.clientX - drawStart.x);
+      const h = Math.abs(e.clientY - drawStart.y);
+      if (w < 8 || h < 8) return; // too small, ignore
+
+      // Convert screen coords to overlay-relative coords
+      const obr = drawOverlay.getBoundingClientRect();
+      const x0s = Math.min(e.clientX, drawStart.x) - obr.left;
+      const y0s = Math.min(e.clientY, drawStart.y) - obr.top;
+      const x1s = Math.max(e.clientX, drawStart.x) - obr.left;
+      const y1s = Math.max(e.clientY, drawStart.y) - obr.top;
+
+      // Convert to PDF space
+      const info = pageInfos[drawPi];
+      const ow = drawOverlay.offsetWidth, oh = drawOverlay.offsetHeight;
+      const x0 = x0s / ow * info.width;
+      const y1 = info.height - (y0s / oh * info.height);  // PDF y (top of rect)
+      const x1 = x1s / ow * info.width;
+      const y0 = info.height - (y1s / oh * info.height);  // PDF y (bottom of rect)
+
+      pendingNewLink = { page: drawPi, rect: [x0, y0, x1, y1] };
+      openAddModal();
+    });
+
+    // ── Modal ──
+    function openEditModal(idx) {
+      activeEditIdx = idx;
+      pendingNewLink = null;
+      const lk = linksData[idx];
+      document.getElementById('modalTitle').textContent = 'Edit Link';
+      document.getElementById('modalDesc').textContent = `Currently links to page ${lk.dest_page + 1}. Enter new destination:`;
+      document.getElementById('modalInput').value = lk.dest_page + 1;
+      document.getElementById('btnDelete').style.display = 'block';
+      document.getElementById('modalBg').classList.add('open');
+      document.getElementById('modalInput').focus();
+      document.getElementById('modalInput').select();
+    }
+
+    function openAddModal() {
+      activeEditIdx = null;
+      document.getElementById('modalTitle').textContent = 'New Link';
+      document.getElementById('modalDesc').textContent = 'Enter the destination page number:';
+      document.getElementById('modalInput').value = '';
+      document.getElementById('btnDelete').style.display = 'none';
+      document.getElementById('modalBg').classList.add('open');
+      document.getElementById('modalInput').focus();
+    }
+
+    function closeModal() {
+      document.getElementById('modalBg').classList.remove('open');
+      activeEditIdx = null;
+      pendingNewLink = null;
+    }
+
+    function confirmModal() {
+      const val = parseInt(document.getElementById('modalInput').value);
+      if (isNaN(val) || val < 1 || val > pdfDoc.numPages) {
+        document.getElementById('modalInput').style.borderColor = '#f87171';
+        setTimeout(() => document.getElementById('modalInput').style.borderColor = '', 800);
+        return;
+      }
+      const destPage = val - 1; // 0-based
+
+      if (activeEditIdx !== null) {
+        // Edit existing
+        linksData[activeEditIdx].dest_page = destPage;
+        renderAllLinks();
+      } else if (pendingNewLink) {
+        // Add new
+        linksData.push({ ...pendingNewLink, dest_page: destPage });
+        renderAllLinks();
+      }
+      closeModal();
+    }
+
+    function deleteLink() {
+      if (activeEditIdx === null) return;
+      linksData.splice(activeEditIdx, 1);
+      renderAllLinks();
+      closeModal();
+    }
+
+    // Enter key in modal
+    document.getElementById('modalInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') confirmModal();
+      if (e.key === 'Escape') closeModal();
+    });
+
+    // ── Save & Download ──
+    async function saveAndDownload() {
+      const btn = document.querySelector('.tb-btn.green');
+      btn.textContent = 'Saving…';
+      btn.disabled = true;
+      try {
+        const res = await fetch(`/blueprint/hyperlinks/save/${JOB_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ links: linksData })
+        });
+        if (!res.ok) throw new Error('Save failed');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = document.title.replace('Link Editor — ', '');
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch(e) {
+        alert('Save failed: ' + e.message);
+      } finally {
+        btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
+        btn.disabled = false;
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>

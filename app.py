@@ -673,13 +673,115 @@ def blueprint_hyperlinks_download(job_id):
         job = _hl_jobs.get(job_id)
     if not job or job.get("status") != "done":
         return "Not ready", 404
-    result_path = job["result_path"]
-    out_name = job["out_name"]
-    # Clean up job record after download
+    return send_file(job["result_path"], mimetype="application/pdf",
+                     as_attachment=True, download_name=job["out_name"])
+
+
+@app.route("/blueprint/hyperlinks/editor/<job_id>")
+@login_required
+def blueprint_hyperlinks_editor(job_id):
     with _hl_lock:
-        _hl_jobs.pop(job_id, None)
-    return send_file(result_path, mimetype="application/pdf",
-                     as_attachment=True, download_name=out_name)
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return "Job not found or not ready.", 404
+    return render_template("blueprint_hyperlinks_editor.html",
+                           job_id=job_id, out_name=job["out_name"])
+
+
+@app.route("/blueprint/hyperlinks/view/<job_id>")
+@login_required
+def blueprint_hyperlinks_view(job_id):
+    """Serve the processed PDF for the editor viewer."""
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return "Not ready", 404
+    return send_file(job["result_path"], mimetype="application/pdf")
+
+
+@app.route("/blueprint/hyperlinks/links/<job_id>")
+@login_required
+def blueprint_hyperlinks_links(job_id):
+    """Return all GoTo links from the processed PDF as JSON."""
+    import fitz as _fitz
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return jsonify({"error": "Not ready"}), 404
+    try:
+        doc = _fitz.open(job["result_path"])
+        pages_info = []
+        links = []
+        for pi in range(len(doc)):
+            page = doc[pi]
+            pages_info.append({"width": page.rect.width, "height": page.rect.height})
+            for lk in page.get_links():
+                if lk.get("kind") == _fitz.LINK_GOTO:
+                    r = lk["from"]
+                    links.append({
+                        "page": pi,
+                        "rect": [r.x0, r.y0, r.x1, r.y1],
+                        "dest_page": lk.get("page", 0)
+                    })
+        doc.close()
+        return jsonify({"pages": pages_info, "links": links})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/blueprint/hyperlinks/save/<job_id>", methods=["POST"])
+@login_required
+def blueprint_hyperlinks_save(job_id):
+    """Accept edited links JSON, rebuild PDF, return as download."""
+    import fitz as _fitz
+    with _hl_lock:
+        job = _hl_jobs.get(job_id)
+    if not job or job.get("status") != "done":
+        return jsonify({"error": "Job not found"}), 404
+
+    data = request.get_json()
+    edited_links = data.get("links", [])
+
+    try:
+        doc = _fitz.open(job["result_path"])
+
+        # Remove all existing GoTo links
+        for pi in range(len(doc)):
+            page = doc[pi]
+            for lk in page.get_links():
+                if lk.get("kind") == _fitz.LINK_GOTO:
+                    page.delete_link(lk)
+
+        # Re-insert links from edited data (orange highlight already in PDF)
+        for lk in edited_links:
+            pi = lk["page"]
+            if pi < 0 or pi >= len(doc):
+                continue
+            dest = lk["dest_page"]
+            if dest < 0 or dest >= len(doc):
+                continue
+            rect = _fitz.Rect(lk["rect"])
+            doc[pi].insert_link({
+                "kind": _fitz.LINK_GOTO,
+                "from": rect,
+                "page": dest,
+                "to": _fitz.Point(0, 0)
+            })
+
+        buf = io.BytesIO()
+        doc.save(buf, garbage=4, deflate=True, incremental=False)
+        doc.close()
+        buf.seek(0)
+
+        # Update stored file with saved version
+        with open(job["result_path"], "wb") as f:
+            f.write(buf.getvalue())
+        buf.seek(0)
+
+        return send_file(buf, mimetype="application/pdf",
+                         as_attachment=True, download_name=job["out_name"])
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":
