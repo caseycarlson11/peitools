@@ -308,18 +308,29 @@
     // Boot
     // ────────────────────────────────────
     async function boot() {
-      const lr = await fetch(`/blueprint/hyperlinks/links/${JOB_ID}`);
-      const ld = await lr.json();
-      pageInfos = ld.pages;
-      linksData = ld.links;
-      dPages    = ld.d_pages || {};
+      const loadingMsg = document.getElementById('loadingMsg');
+      try {
+        loadingMsg.textContent = 'Fetching link data…';
+        const lr = await fetch(`/blueprint/hyperlinks/links/${JOB_ID}`);
+        if (!lr.ok) throw new Error(`Links endpoint returned ${lr.status}`);
+        const ld = await lr.json();
+        pageInfos = ld.pages  || [];
+        linksData = ld.links  || [];
+        dPages    = ld.d_pages || {};
 
-      pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
-      document.getElementById('loadingMsg').remove();
+        loadingMsg.textContent = 'Loading PDF…';
+        pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
 
-      buildToolPanel();
-      await renderAllPages();
-      renderAllLinks();
+        // Remove loading message immediately — pages appear as they render
+        loadingMsg.remove();
+        buildToolPanel();
+        await renderAllPages();
+        renderAllLinks();
+
+      } catch(e) {
+        loadingMsg.textContent = 'Error: ' + e.message;
+        loadingMsg.style.color = '#f87171';
+      }
     }
 
     // ────────────────────────────────────
@@ -389,6 +400,11 @@
         wrap.id = `page-wrap-${pi-1}`;
         wrap.dataset.pi = pi-1;
 
+        // Placeholder so the page appears immediately at full size
+        wrap.style.width  = Math.round(vp.width)  + 'px';
+        wrap.style.height = Math.round(vp.height) + 'px';
+        wrap.style.background = '#1a2540';
+
         const canvas = document.createElement('canvas');
         canvas.width  = Math.round(vp.width);
         canvas.height = Math.round(vp.height);
@@ -397,7 +413,6 @@
         overlay.className = 'link-overlay';
         overlay.dataset.pi = pi-1;
 
-        // Ghost rect for stamp mode
         const ghost = document.createElement('div');
         ghost.className = 'ghost-rect';
         ghost.dataset.ghost = pi-1;
@@ -412,12 +427,14 @@
 
         const label = document.createElement('div');
         label.className = 'page-label';
-        label.textContent = `Page ${pi}`;
+        label.textContent = `Page ${pi} of ${pdfDoc.numPages}`;
 
+        // Add to DOM immediately so user sees pages appear one by one
         viewer.appendChild(wrap);
         viewer.appendChild(label);
 
         await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        wrap.style.background = '';  // clear placeholder bg once rendered
       }
       rendering = false;
     }
@@ -831,10 +848,7 @@
       }
     }
 
-    boot().catch(e=>{
-      const el=document.getElementById('loadingMsg');
-      if(el) el.textContent='Error loading PDF: '+e.message;
-    });
+    boot();
   </script>
 </body>
 </html>
