@@ -445,24 +445,25 @@
     // ────────────────────────────────────
     // Coordinates
     // ────────────────────────────────────
+    // fitz uses top-left origin, Y increases downward — same as CSS, no flip needed
     function pdfRectToCSS(pi, rect) {
       const info = pageInfos[pi]; if (!info) return null;
       const [x0,y0,x1,y1] = rect;
       return {
         left:   (x0/info.width*100)+'%',
-        top:    ((info.height-y1)/info.height*100)+'%',
+        top:    (y0/info.height*100)+'%',
         width:  ((x1-x0)/info.width*100)+'%',
         height: ((y1-y0)/info.height*100)+'%',
       };
     }
 
-    // Client XY relative to overlay → PDF space point
+    // Client XY → fitz space (top-left origin, Y down) — no flip
     function clientToPdf(overlay, pi, cx, cy) {
       const obr = overlay.getBoundingClientRect();
       const info = pageInfos[pi];
       const rx = (cx - obr.left) / overlay.offsetWidth;
       const ry = (cy - obr.top)  / overlay.offsetHeight;
-      return { x: rx*info.width, y: info.height*(1-ry) };
+      return { x: rx*info.width, y: ry*info.height };
     }
 
     // ────────────────────────────────────
@@ -627,8 +628,9 @@
         const y0s = Math.min(e.clientY,drawStart.y)-obr.top;
         const x1s = Math.max(e.clientX,drawStart.x)-obr.left;
         const y1s = Math.max(e.clientY,drawStart.y)-obr.top;
-        const x0=x0s/ow*info.width, y1=info.height-(y0s/oh*info.height);
-        const x1=x1s/ow*info.width, y0=info.height-(y1s/oh*info.height);
+        // fitz: top-left origin, Y down — no flip
+        const x0=x0s/ow*info.width, y0=y0s/oh*info.height;
+        const x1=x1s/ow*info.width, y1=y1s/oh*info.height;
         pendingNewLink = { page: drawPi, rect:[x0,y0,x1,y1] };
         openAddModal();
       }
@@ -639,14 +641,15 @@
         const { el, overlay, page } = pendingStamp;
         const info = pageInfos[page];
         const ow = overlay.offsetWidth, oh = overlay.offsetHeight;
-        const leftPct  = parseFloat(el.style.left)  / 100;
-        const topPct   = parseFloat(el.style.top)   / 100;
-        const wPct     = parseFloat(el.style.width)  / 100;
-        const hPct     = parseFloat(el.style.height) / 100;
+        const leftPct = parseFloat(el.style.left)   / 100;
+        const topPct  = parseFloat(el.style.top)    / 100;
+        const wPct    = parseFloat(el.style.width)  / 100;
+        const hPct    = parseFloat(el.style.height) / 100;
+        // fitz: top-left origin, Y down — no flip
         const x0 = leftPct * info.width;
-        const y1 = (1 - topPct) * info.height;
+        const y0 = topPct  * info.height;
         const x1 = x0 + wPct * info.width;
-        const y0 = y1 - hPct * info.height;
+        const y1 = y0 + hPct * info.height;
         pendingStamp.rect = [x0, y0, x1, y1];
       }
     });
