@@ -571,15 +571,8 @@
       if (e.target.classList.contains('pending-rect')) return;
 
       if (mode === 'stamp' && stampTool) {
-        if (pendingStamp && pendingStamp.state === 'dragging') {
-          // Third click → confirm position
-          e.preventDefault();
-          confirmPending();
-        } else if (!pendingStamp) {
-          // First click → place rect immediately
-          e.preventDefault();
-          placePending(e, overlay, pi);
-        }
+        e.preventDefault();
+        placePending(e, overlay, pi);
         return;
       }
 
@@ -602,32 +595,9 @@
       const pt = clientToPdf(overlay, pi, e.clientX, e.clientY);
       const hw = STAMP_W/2, hh = STAMP_H/2;
       const rect = [pt.x-hw, pt.y-hh, pt.x+hw, pt.y+hh];
-
-      const el = document.createElement('div');
-      el.className = 'pending-rect';
-      Object.assign(el.style, pdfRectToCSS(pi, rect));
-
-      const badge = document.createElement('div');
-      badge.className = 'pending-badge';
-      badge.textContent = `D${stampTool.dn} — click to drag`;
-      el.appendChild(badge);
-
-      // Click on rect → enter drag mode
-      el.addEventListener('click', e => {
-        e.stopPropagation();
-        if (!pendingStamp) return;
-        if (pendingStamp.state === 'placed') {
-          pendingStamp.state = 'dragging';
-          el.style.cursor = 'none';
-          badge.textContent = `D${stampTool.dn} — click to set`;
-          showToast('Move mouse to reposition — click to set in place');
-        }
-      });
-
-      overlay.appendChild(el);
-      pendingStamp = { page: pi, rect, el, overlay, state: 'placed' };
-      hideAllGhosts();
-      showToast(`D${stampTool.dn} placed — click it to drag, then click again to set`);
+      linksData.push({ page: pi, rect, dest_page: stampTool.destPage });
+      renderAllLinks();
+      showToast(`D${stampTool.dn} placed`);
     }
 
     document.addEventListener('mousemove', e => {
