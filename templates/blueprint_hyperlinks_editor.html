@@ -11,96 +11,145 @@
     body { font-family: 'Inter', sans-serif; background: #0d1520; color: white;
            display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
 
-    /* ── Toolbar — never scrolls ── */
+    /* ── Toolbar ── */
     .toolbar {
       display: flex; align-items: center; gap: 0.5rem;
-      padding: 0.5rem 0.9rem;
-      background: #111d30;
+      padding: 0.5rem 0.9rem; background: #111d30;
       border-bottom: 1px solid rgba(255,255,255,0.1);
-      flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto;
-      scrollbar-width: none;
+      flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
     }
     .toolbar::-webkit-scrollbar { display: none; }
     .tb-logo { width: 24px; height: 24px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
-    .tb-title { font-size: 0.75rem; color: rgba(255,255,255,0.35); white-space: nowrap;
+    .tb-title { font-size: 0.74rem; color: rgba(255,255,255,0.32); white-space: nowrap;
                 max-width: 200px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
     .tb-sep { width: 1px; height: 22px; background: rgba(255,255,255,0.1); flex-shrink: 0; }
     .tb-btn {
-      display: flex; align-items: center; gap: 5px;
-      padding: 0.38rem 0.75rem; border-radius: 7px;
-      font-size: 0.76rem; font-weight: 600; cursor: pointer; white-space: nowrap;
-      border: 1px solid rgba(255,255,255,0.13); background: rgba(255,255,255,0.06);
-      color: white; transition: all 0.12s; flex-shrink: 0;
+      display: flex; align-items: center; gap: 5px; padding: 0.38rem 0.75rem;
+      border-radius: 7px; font-size: 0.76rem; font-weight: 600; cursor: pointer;
+      white-space: nowrap; border: 1px solid rgba(255,255,255,0.13);
+      background: rgba(255,255,255,0.06); color: white; transition: all 0.12s; flex-shrink: 0;
     }
     .tb-btn:hover:not(:disabled) { background: rgba(255,255,255,0.13); }
     .tb-btn:disabled { opacity: 0.35; cursor: not-allowed; }
     .tb-btn.active { background: rgba(30,100,200,0.45); border-color: #60b4f0; color: #a8d8ff; }
-    .tb-btn.green { background: linear-gradient(135deg,#14532d,#16a34a); border-color: #22c55e; }
-    .tb-zoom {
-      display: flex; align-items: center; gap: 0; flex-shrink: 0;
-    }
+    .tb-btn.green  { background: linear-gradient(135deg,#14532d,#16a34a); border-color: #22c55e; }
+    .tb-btn.back   { background: rgba(255,255,255,0.07); border-color: rgba(255,255,255,0.18); display: none; }
+    .tb-zoom { display: flex; align-items: center; flex-shrink: 0; }
     .tb-zoom button {
       width: 28px; height: 28px; border: 1px solid rgba(255,255,255,0.13);
       background: rgba(255,255,255,0.06); color: white; cursor: pointer;
       font-size: 1rem; font-weight: 700; display: flex; align-items: center; justify-content: center;
-      transition: background 0.12s;
     }
     .tb-zoom button:first-child { border-radius: 7px 0 0 7px; }
     .tb-zoom button:last-child  { border-radius: 0 7px 7px 0; }
     .tb-zoom button:hover { background: rgba(255,255,255,0.14); }
     .tb-zoom-label {
-      padding: 0 0.5rem; font-size: 0.76rem; font-weight: 600;
-      border-top: 1px solid rgba(255,255,255,0.13);
-      border-bottom: 1px solid rgba(255,255,255,0.13);
-      height: 28px; display: flex; align-items: center;
-      background: rgba(255,255,255,0.04); min-width: 46px; justify-content: center;
+      padding: 0 0.5rem; font-size: 0.76rem; font-weight: 600; height: 28px;
+      border-top: 1px solid rgba(255,255,255,0.13); border-bottom: 1px solid rgba(255,255,255,0.13);
+      background: rgba(255,255,255,0.04); min-width: 46px;
+      display: flex; align-items: center; justify-content: center;
     }
-    .tb-hint { font-size: 0.72rem; color: rgba(255,255,255,0.28); white-space: nowrap; margin-left: 0.25rem; flex-shrink: 0; }
-    .tb-btn.back { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); display: none; }
+    .tb-hint { font-size: 0.72rem; color: rgba(255,255,255,0.28); white-space: nowrap; flex-shrink: 0; }
 
-    /* ── Viewer scrolls independently ── */
+    /* ── Main area: viewer + right panel ── */
+    .main-area { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── Viewer ── */
     .viewer {
-      flex: 1; overflow-y: auto; overflow-x: auto;
-      padding: 1.5rem; display: flex; flex-direction: column;
-      align-items: center; gap: 1.25rem;
+      flex: 1; overflow-y: auto; overflow-x: auto; padding: 1.5rem;
+      display: flex; flex-direction: column; align-items: center; gap: 1.25rem;
       background: #0a1018;
     }
-
     .page-wrap { position: relative; flex-shrink: 0; box-shadow: 0 6px 28px rgba(0,0,0,0.6); }
     .page-wrap canvas { display: block; }
     .page-label { text-align: center; font-size: 0.7rem; color: rgba(255,255,255,0.25); margin-top: 0.35rem; }
     .link-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
 
+    /* ── Right panel ── */
+    .right-panel {
+      width: 180px; flex-shrink: 0; background: #111d30;
+      border-left: 1px solid rgba(255,255,255,0.09);
+      display: flex; flex-direction: column; overflow: hidden;
+    }
+    .panel-header {
+      padding: 0.65rem 0.75rem; font-size: 0.7rem; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.07em;
+      color: rgba(255,255,255,0.35); border-bottom: 1px solid rgba(255,255,255,0.08);
+      flex-shrink: 0;
+    }
+    .panel-tools { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
+    .panel-tools::-webkit-scrollbar { width: 4px; }
+    .panel-tools::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    .tool-btn {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer;
+      border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
+      color: white; text-align: left; transition: all 0.12s; width: 100%;
+    }
+    .tool-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.2); }
+    .tool-btn.active {
+      background: rgba(30,100,200,0.4); border-color: #60b4f0;
+      box-shadow: 0 0 0 1px rgba(96,180,240,0.3);
+    }
+    .tool-dn { font-size: 0.88rem; font-weight: 800; color: #60b4f0; }
+    .tool-pg { font-size: 0.64rem; color: rgba(255,255,255,0.35); }
+    .tool-btn.active .tool-pg { color: rgba(96,180,240,0.7); }
+    .no-tools { font-size: 0.75rem; color: rgba(255,255,255,0.3); padding: 0.75rem 0.5rem; line-height: 1.5; }
+    .panel-tip {
+      padding: 0.6rem 0.75rem; font-size: 0.68rem; color: rgba(255,255,255,0.25);
+      border-top: 1px solid rgba(255,255,255,0.08); line-height: 1.5; flex-shrink: 0;
+    }
+
     /* ── Link rects ── */
     .link-rect {
-      position: absolute;
-      background: rgba(255,165,50,0.2);
-      border: 2px solid rgba(230,130,0,0.75);
-      border-radius: 2px; cursor: pointer;
+      position: absolute; background: rgba(255,165,50,0.2);
+      border: 2px solid rgba(230,130,0,0.75); border-radius: 2px; cursor: pointer;
       transition: background 0.12s;
     }
     .link-rect:hover { background: rgba(255,165,50,0.42); }
-    .link-rect.test-mode { cursor: pointer; }
-    .link-rect.test-mode:hover { background: rgba(96,180,240,0.35); border-color: #60b4f0; }
+    .link-rect.test-mode:hover { background: rgba(96,180,240,0.3); border-color: #60b4f0; cursor: pointer; }
     .dest-badge {
-      position: absolute; top: -17px; left: 0;
-      background: rgba(200,110,0,0.92); color: white;
-      font-size: 9px; font-weight: 700; padding: 1px 4px; border-radius: 3px;
-      white-space: nowrap; pointer-events: none; line-height: 1.4;
+      position: absolute; top: -17px; left: 0; background: rgba(200,110,0,0.92);
+      color: white; font-size: 9px; font-weight: 700; padding: 1px 4px;
+      border-radius: 3px; white-space: nowrap; pointer-events: none; line-height: 1.4;
     }
 
-    /* ── Rubber band ── */
+    /* ── Ghost rect (follows cursor when tool active) ── */
+    .ghost-rect {
+      position: absolute; pointer-events: none;
+      background: rgba(96,180,240,0.15); border: 2px dashed #60b4f0;
+      border-radius: 2px; display: none;
+    }
+
+    /* ── Pending rect (placed, being dragged to final position) ── */
+    .pending-rect {
+      position: absolute;
+      background: rgba(96,180,240,0.25); border: 2px solid #60b4f0;
+      border-radius: 3px; cursor: move; z-index: 10;
+    }
+    .pending-rect .pending-badge {
+      position: absolute; top: -18px; left: 0;
+      background: #1e64c8; color: white; font-size: 9px; font-weight: 700;
+      padding: 1px 5px; border-radius: 3px; white-space: nowrap;
+    }
+    .pending-rect .confirm-btn {
+      position: absolute; bottom: -24px; left: 50%; transform: translateX(-50%);
+      background: #16a34a; color: white; font-size: 10px; font-weight: 700;
+      padding: 2px 8px; border-radius: 4px; white-space: nowrap; cursor: pointer;
+      border: none; pointer-events: all;
+    }
+    .pending-rect .confirm-btn:hover { background: #15803d; }
+
+    /* ── Draw rubber band (Add Link mode) ── */
     #drawRect {
-      position: fixed; border: 2px dashed #60b4f0;
-      background: rgba(96,180,240,0.08);
-      pointer-events: none; display: none; z-index: 100;
+      position: fixed; border: 2px dashed rgba(255,165,50,0.8);
+      background: rgba(255,165,50,0.08); pointer-events: none; display: none; z-index: 100;
     }
 
     /* ── Modal ── */
     .modal-bg {
       display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.65); z-index: 200;
-      align-items: center; justify-content: center;
+      background: rgba(0,0,0,0.65); z-index: 200; align-items: center; justify-content: center;
     }
     .modal-bg.open { display: flex; }
     .modal {
@@ -113,8 +162,8 @@
     .modal input {
       width: 100%; padding: 0.55rem 0.75rem;
       background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.18);
-      border-radius: 8px; color: white;
-      font-family: 'Inter', sans-serif; font-size: 0.95rem; letter-spacing: 0.02em;
+      border-radius: 8px; color: white; font-family: 'Inter', sans-serif;
+      font-size: 0.95rem; letter-spacing: 0.02em;
     }
     .modal input:focus { outline: none; border-color: #60b4f0; }
     .modal input.error { border-color: #f87171; }
@@ -128,31 +177,29 @@
     .btn-confirm:hover { background: #2d8bef; }
     .btn-cancel  { background: rgba(255,255,255,0.09); color: white; }
     .btn-cancel:hover { background: rgba(255,255,255,0.17); }
-    .btn-delete  { background: rgba(185,28,28,0.2); color: #fca5a5;
-                   border: 1px solid rgba(185,28,28,0.4) !important; }
+    .btn-delete  { background: rgba(185,28,28,0.2); color: #fca5a5; border: 1px solid rgba(185,28,28,0.4) !important; }
     .btn-delete:hover { background: rgba(185,28,28,0.38); }
 
     /* ── Toast ── */
     #toast {
       position: fixed; bottom: 1.5rem; left: 50%; transform: translateX(-50%);
-      background: rgba(30,100,200,0.95); color: white;
-      padding: 0.55rem 1.2rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
+      background: rgba(20,40,80,0.96); color: white; border: 1px solid rgba(96,180,240,0.3);
+      padding: 0.5rem 1.2rem; border-radius: 8px; font-size: 0.8rem; font-weight: 600;
       opacity: 0; transition: opacity 0.25s; pointer-events: none; z-index: 300;
     }
     #toast.show { opacity: 1; }
-
     #loadingMsg { color: rgba(255,255,255,0.35); padding: 4rem; font-size: 0.88rem; }
   </style>
 </head>
 <body>
 
+  <!-- ── Toolbar ── -->
   <div class="toolbar">
     <a href="/"><img class="tb-logo" src="/static/logo.jpg" alt="PEI"/></a>
     <div class="tb-sep"></div>
-    <div class="tb-title" id="docTitle">{{ out_name }}</div>
+    <div class="tb-title">{{ out_name }}</div>
     <div class="tb-sep"></div>
 
-    <!-- Mode buttons -->
     <button class="tb-btn" id="modeSelect" onclick="setMode('select')">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 3l14 9-7 1-4 7z"/></svg>
       Select
@@ -167,31 +214,45 @@
     </button>
 
     <div class="tb-sep"></div>
-
-    <!-- Zoom -->
     <div class="tb-zoom">
-      <button onclick="zoom(-0.25)" title="Zoom out">−</button>
+      <button onclick="zoom(-0.25)">−</button>
       <div class="tb-zoom-label" id="zoomLabel">100%</div>
-      <button onclick="zoom(+0.25)" title="Zoom in">+</button>
+      <button onclick="zoom(+0.25)">+</button>
     </div>
-    <button class="tb-btn" onclick="zoom(0, 1.0)" style="padding:0.38rem 0.5rem; font-size:0.72rem;">Reset</button>
+    <button class="tb-btn" onclick="zoom(0,1.0)" style="padding:0.38rem 0.5rem;font-size:0.72rem;">Reset</button>
 
     <div class="tb-sep"></div>
-    <button class="tb-btn green" onclick="saveAndDownload()">
-      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-      Save & Download
-    </button>
     <button class="tb-btn back" id="backBtn" onclick="goBack()">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
       Back
     </button>
-    <div class="tb-hint" id="tbHint">Click a link to edit</div>
+    <button class="tb-btn green" id="saveBtn" onclick="saveAndDownload()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Save & Download
+    </button>
+    <div class="tb-hint" id="tbHint">Select a D-tool on the right, then click the document</div>
   </div>
 
-  <div class="viewer" id="viewer">
-    <div id="loadingMsg">Loading PDF…</div>
+  <!-- ── Main area ── -->
+  <div class="main-area">
+
+    <!-- Viewer -->
+    <div class="viewer" id="viewer">
+      <div id="loadingMsg">Loading PDF…</div>
+    </div>
+
+    <!-- Right panel: D-page tools -->
+    <div class="right-panel">
+      <div class="panel-header">D-Page Tools</div>
+      <div class="panel-tools" id="panelTools">
+        <div class="no-tools">Loading…</div>
+      </div>
+      <div class="panel-tip" id="panelTip">Select a D-page, then click the document to place a link.</div>
+    </div>
+
   </div>
 
+  <!-- Rubber band (Add Link mode) -->
   <div id="drawRect"></div>
 
   <!-- Modal -->
@@ -217,21 +278,33 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-    let pdfDoc   = null;
-    let linksData = [];   // [{page, rect:[x0,y0,x1,y1], dest_page}]
-    let pageInfos = [];   // [{width,height}] in PDF points
-    let dPages    = {};   // {"1":38, "15":52, ...}  D-number → 0-based page index
+    // Default stamp size in PDF points
+    const STAMP_W = 65, STAMP_H = 28;
+
+    let pdfDoc    = null;
+    let linksData = [];    // [{page, rect:[x0,y0,x1,y1], dest_page}]
+    let pageInfos = [];    // [{width,height}] PDF points
+    let dPages    = {};    // {"1":38,"15":52,...}  D-number → 0-based page index
     let mode      = 'select';
     let scale     = 1.0;
     let rendering = false;
+
+    // Stamp tool state
+    let stampTool    = null;   // {dn, destPage} — active D-page tool
+    let pendingStamp = null;   // {page, el, rect} — placed but not confirmed
+    let draggingPending = false;
+    let dragOffset   = {x:0, y:0};
 
     // Modal state
     let activeEditIdx  = null;
     let pendingNewLink = null;
 
-    // ────────────────────────────────────────────
+    // Back button state
+    let savedScrollTop = null;
+
+    // ────────────────────────────────────
     // Boot
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     async function boot() {
       const lr = await fetch(`/blueprint/hyperlinks/links/${JOB_ID}`);
       const ld = await lr.json();
@@ -241,16 +314,64 @@
 
       pdfDoc = await pdfjsLib.getDocument(`/blueprint/hyperlinks/view/${JOB_ID}`).promise;
       document.getElementById('loadingMsg').remove();
+
+      buildToolPanel();
       await renderAllPages();
       renderAllLinks();
     }
 
-    // ────────────────────────────────────────────
-    // Render pages at current scale
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
+    // Right panel — D-page tools
+    // ────────────────────────────────────
+    function buildToolPanel() {
+      const panel = document.getElementById('panelTools');
+      const dns = Object.keys(dPages).sort((a,b) => +a - +b);
+      if (!dns.length) {
+        panel.innerHTML = '<div class="no-tools">No D-pages detected.<br/>Use Add Link mode to place links manually.</div>';
+        document.getElementById('panelTip').textContent = 'Use Add Link mode in the toolbar to draw links.';
+        return;
+      }
+      panel.innerHTML = '';
+      dns.forEach(dn => {
+        const pi = dPages[dn];
+        const btn = document.createElement('button');
+        btn.className = 'tool-btn';
+        btn.dataset.dn = dn;
+        btn.innerHTML = `<span class="tool-dn">D${dn}</span><span class="tool-pg">p.${pi+1}</span>`;
+        btn.addEventListener('click', () => selectTool(dn));
+        panel.appendChild(btn);
+      });
+    }
+
+    function selectTool(dn) {
+      // Toggle off if same tool clicked again
+      if (stampTool && stampTool.dn === dn) {
+        clearStampTool();
+        setMode('select');
+        return;
+      }
+      clearPending();
+      document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+      document.querySelector(`.tool-btn[data-dn="${dn}"]`).classList.add('active');
+      stampTool = { dn, destPage: dPages[dn] };
+      setMode('stamp');
+      showToast(`D${dn} selected — click the document to place`);
+    }
+
+    function clearStampTool() {
+      stampTool = null;
+      document.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
+      hideAllGhosts();
+      clearPending();
+    }
+
+    // ────────────────────────────────────
+    // Render pages
+    // ────────────────────────────────────
     async function renderAllPages() {
       if (rendering) return;
       rendering = true;
+      clearPending();
       const viewer = document.getElementById('viewer');
       viewer.innerHTML = '';
 
@@ -260,8 +381,8 @@
 
         const wrap = document.createElement('div');
         wrap.className = 'page-wrap';
-        wrap.id = `page-wrap-${pi - 1}`;
-        wrap.dataset.pi = pi - 1;
+        wrap.id = `page-wrap-${pi-1}`;
+        wrap.dataset.pi = pi-1;
 
         const canvas = document.createElement('canvas');
         canvas.width  = Math.round(vp.width);
@@ -269,11 +390,20 @@
 
         const overlay = document.createElement('div');
         overlay.className = 'link-overlay';
-        overlay.dataset.pi = pi - 1;
-        overlay.addEventListener('mousedown', onOverlayMouseDown);
+        overlay.dataset.pi = pi-1;
+
+        // Ghost rect for stamp mode
+        const ghost = document.createElement('div');
+        ghost.className = 'ghost-rect';
+        ghost.dataset.ghost = pi-1;
+
+        overlay.addEventListener('mousemove',  e => onOverlayMouseMove(e, overlay, ghost, pi-1));
+        overlay.addEventListener('mouseleave', () => { ghost.style.display = 'none'; });
+        overlay.addEventListener('mousedown',  e => onOverlayMouseDown(e, overlay, pi-1));
 
         wrap.appendChild(canvas);
         wrap.appendChild(overlay);
+        wrap.appendChild(ghost);
 
         const label = document.createElement('div');
         label.className = 'page-label';
@@ -287,59 +417,62 @@
       rendering = false;
     }
 
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     // Zoom
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     async function zoom(delta, absolute) {
-      const newScale = absolute !== undefined
-        ? absolute
-        : Math.max(0.25, Math.min(4.0, scale + delta));
-      if (Math.abs(newScale - scale) < 0.001) return;
-      scale = newScale;
-      document.getElementById('zoomLabel').textContent = Math.round(scale * 100) + '%';
+      const s = absolute !== undefined ? absolute : Math.max(0.25, Math.min(4.0, scale + delta));
+      if (Math.abs(s - scale) < 0.001) return;
+      scale = s;
+      document.getElementById('zoomLabel').textContent = Math.round(scale*100)+'%';
       await renderAllPages();
       renderAllLinks();
     }
 
-    // ────────────────────────────────────────────
-    // Coordinate helpers
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
+    // Coordinates
+    // ────────────────────────────────────
     function pdfRectToCSS(pi, rect) {
-      const info = pageInfos[pi];
-      if (!info) return null;
-      const [x0, y0, x1, y1] = rect;
+      const info = pageInfos[pi]; if (!info) return null;
+      const [x0,y0,x1,y1] = rect;
       return {
-        left:   (x0 / info.width  * 100) + '%',
-        top:    ((info.height - y1) / info.height * 100) + '%',
-        width:  ((x1 - x0) / info.width  * 100) + '%',
-        height: ((y1 - y0) / info.height * 100) + '%',
+        left:   (x0/info.width*100)+'%',
+        top:    ((info.height-y1)/info.height*100)+'%',
+        width:  ((x1-x0)/info.width*100)+'%',
+        height: ((y1-y0)/info.height*100)+'%',
       };
     }
 
-    // ────────────────────────────────────────────
-    // Render link overlays
-    // ────────────────────────────────────────────
+    // Client XY relative to overlay → PDF space point
+    function clientToPdf(overlay, pi, cx, cy) {
+      const obr = overlay.getBoundingClientRect();
+      const info = pageInfos[pi];
+      const rx = (cx - obr.left) / overlay.offsetWidth;
+      const ry = (cy - obr.top)  / overlay.offsetHeight;
+      return { x: rx*info.width, y: info.height*(1-ry) };
+    }
+
+    // ────────────────────────────────────
+    // Render links
+    // ────────────────────────────────────
     function renderAllLinks() {
       document.querySelectorAll('.link-rect').forEach(el => el.remove());
-      linksData.forEach((lk, idx) => renderLink(lk, idx));
+      linksData.forEach((lk,idx) => renderLink(lk,idx));
     }
 
     function destLabel(destPage) {
-      // Try to find a D-label for this page
-      for (const [dn, pi] of Object.entries(dPages)) {
+      for (const [dn,pi] of Object.entries(dPages))
         if (pi === destPage) return `→ D${dn}`;
-      }
-      return `→ p${destPage + 1}`;
+      return `→ p${destPage+1}`;
     }
 
     function renderLink(lk, idx) {
       const overlay = document.querySelector(`.link-overlay[data-pi="${lk.page}"]`);
       if (!overlay) return;
-      const css = pdfRectToCSS(lk.page, lk.rect);
-      if (!css) return;
+      const css = pdfRectToCSS(lk.page, lk.rect); if (!css) return;
 
       const div = document.createElement('div');
-      div.className = 'link-rect' + (mode === 'test' ? ' test-mode' : '');
+      div.className = 'link-rect' + (mode==='test' ? ' test-mode' : '');
       div.dataset.idx = idx;
       Object.assign(div.style, css);
 
@@ -350,157 +483,259 @@
 
       div.addEventListener('click', e => {
         e.stopPropagation();
-        if (mode === 'select') openEditModal(idx);
-        else if (mode === 'test') scrollToPage(lk.dest_page);
+        if (mode==='select') openEditModal(idx);
+        else if (mode==='test') scrollToPage(lk.dest_page);
       });
-
       overlay.appendChild(div);
     }
 
-    // ────────────────────────────────────────────
-    // Test mode: scroll to destination page
-    // ────────────────────────────────────────────
-    let savedScrollTop = null;
+    // ────────────────────────────────────
+    // Stamp: ghost rect follows cursor
+    // ────────────────────────────────────
+    function hideAllGhosts() {
+      document.querySelectorAll('.ghost-rect').forEach(g => g.style.display='none');
+    }
 
+    function onOverlayMouseMove(e, overlay, ghost, pi) {
+      if (mode !== 'stamp' || pendingStamp) { ghost.style.display='none'; return; }
+      const info = pageInfos[pi]; if (!info) return;
+      const obr = overlay.getBoundingClientRect();
+      const rx = (e.clientX - obr.left) / overlay.offsetWidth;
+      const ry = (e.clientY - obr.top)  / overlay.offsetHeight;
+      const sw = STAMP_W/info.width*100, sh = STAMP_H/info.height*100;
+      ghost.style.cssText = `display:block;
+        left:${(rx*100 - sw/2)}%;
+        top:${(ry*100 - sh/2)}%;
+        width:${sw}%; height:${sh}%;`;
+    }
+
+    // ────────────────────────────────────
+    // Overlay mousedown — stamp place OR draw
+    // ────────────────────────────────────
+    let drawing=false, drawStart=null, drawOverlay=null, drawPi=-1;
+    const drawRect = document.getElementById('drawRect');
+
+    function onOverlayMouseDown(e, overlay, pi) {
+      if (e.target.classList.contains('link-rect')) return;
+      if (e.target.classList.contains('confirm-btn')) return;
+
+      if (mode === 'stamp' && stampTool) {
+        if (pendingStamp) {
+          // Second click → confirm
+          confirmPending();
+        } else {
+          // First click → place pending rect
+          e.preventDefault();
+          placePending(e, overlay, pi);
+        }
+        return;
+      }
+
+      if (mode === 'add') {
+        e.preventDefault();
+        drawOverlay = overlay; drawPi = pi; drawing = true;
+        drawStart = { x: e.clientX, y: e.clientY };
+        drawRect.style.cssText = `display:block;left:${e.clientX}px;top:${e.clientY}px;width:0;height:0;`;
+        return;
+      }
+    }
+
+    // ────────────────────────────────────
+    // Stamp: place pending rect
+    // ────────────────────────────────────
+    function placePending(e, overlay, pi) {
+      const info = pageInfos[pi];
+      const pt = clientToPdf(overlay, pi, e.clientX, e.clientY);
+      const hw = STAMP_W/2, hh = STAMP_H/2;
+      const rect = [pt.x-hw, pt.y-hh, pt.x+hw, pt.y+hh];
+
+      const css = pdfRectToCSS(pi, rect);
+      const el = document.createElement('div');
+      el.className = 'pending-rect';
+      Object.assign(el.style, css);
+
+      const badge = document.createElement('div');
+      badge.className = 'pending-badge';
+      badge.textContent = `D${stampTool.dn}`;
+      el.appendChild(badge);
+
+      const confirmBtn = document.createElement('button');
+      confirmBtn.className = 'confirm-btn';
+      confirmBtn.textContent = '✓ Set in place';
+      confirmBtn.addEventListener('click', e => { e.stopPropagation(); confirmPending(); });
+      el.appendChild(confirmBtn);
+
+      // Drag to reposition
+      el.addEventListener('mousedown', e => {
+        if (e.target === confirmBtn) return;
+        e.stopPropagation();
+        draggingPending = true;
+        const rect = el.getBoundingClientRect();
+        dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+      });
+
+      overlay.appendChild(el);
+      pendingStamp = { page: pi, rect, el, overlay };
+      hideAllGhosts();
+      showToast('Drag to position, then click "Set in place"');
+    }
+
+    document.addEventListener('mousemove', e => {
+      // Drag rubber band
+      if (drawing) {
+        const x = Math.min(e.clientX, drawStart.x);
+        const y = Math.min(e.clientY, drawStart.y);
+        drawRect.style.left   = x+'px'; drawRect.style.top    = y+'px';
+        drawRect.style.width  = Math.abs(e.clientX-drawStart.x)+'px';
+        drawRect.style.height = Math.abs(e.clientY-drawStart.y)+'px';
+      }
+      // Drag pending rect
+      if (draggingPending && pendingStamp) {
+        const { el, overlay, page } = pendingStamp;
+        const obr = overlay.getBoundingClientRect();
+        const nx = e.clientX - dragOffset.x - obr.left;
+        const ny = e.clientY - dragOffset.y - obr.top;
+        el.style.left = (nx / overlay.offsetWidth  * 100) + '%';
+        el.style.top  = (ny / overlay.offsetHeight * 100) + '%';
+      }
+    });
+
+    document.addEventListener('mouseup', e => {
+      // Finish rubber band
+      if (drawing) {
+        drawing = false;
+        drawRect.style.display = 'none';
+        const w = Math.abs(e.clientX-drawStart.x), h = Math.abs(e.clientY-drawStart.y);
+        if (w < 8 || h < 8) return;
+        const info = pageInfos[drawPi];
+        const obr = drawOverlay.getBoundingClientRect();
+        const ow = drawOverlay.offsetWidth, oh = drawOverlay.offsetHeight;
+        const x0s = Math.min(e.clientX,drawStart.x)-obr.left;
+        const y0s = Math.min(e.clientY,drawStart.y)-obr.top;
+        const x1s = Math.max(e.clientX,drawStart.x)-obr.left;
+        const y1s = Math.max(e.clientY,drawStart.y)-obr.top;
+        const x0=x0s/ow*info.width, y1=info.height-(y0s/oh*info.height);
+        const x1=x1s/ow*info.width, y0=info.height-(y1s/oh*info.height);
+        pendingNewLink = { page: drawPi, rect:[x0,y0,x1,y1] };
+        openAddModal();
+      }
+      // Finish pending drag
+      if (draggingPending && pendingStamp) {
+        draggingPending = false;
+        // Update pendingStamp.rect from current el position
+        const { el, overlay, page } = pendingStamp;
+        const info = pageInfos[page];
+        const ow = overlay.offsetWidth, oh = overlay.offsetHeight;
+        const leftPct  = parseFloat(el.style.left)  / 100;
+        const topPct   = parseFloat(el.style.top)   / 100;
+        const wPct     = parseFloat(el.style.width)  / 100;
+        const hPct     = parseFloat(el.style.height) / 100;
+        const x0 = leftPct * info.width;
+        const y1 = (1 - topPct) * info.height;
+        const x1 = x0 + wPct * info.width;
+        const y0 = y1 - hPct * info.height;
+        pendingStamp.rect = [x0, y0, x1, y1];
+      }
+    });
+
+    function confirmPending() {
+      if (!pendingStamp || !stampTool) return;
+      linksData.push({ page: pendingStamp.page, rect: pendingStamp.rect, dest_page: stampTool.destPage });
+      pendingStamp.el.remove();
+      pendingStamp = null;
+      renderAllLinks();
+      showToast(`D${stampTool.dn} link placed`);
+      // Keep tool selected for more placements
+    }
+
+    function clearPending() {
+      if (pendingStamp) { pendingStamp.el.remove(); pendingStamp = null; }
+      draggingPending = false;
+    }
+
+    // ────────────────────────────────────
+    // Mode
+    // ────────────────────────────────────
+    function setMode(m) {
+      if (m !== 'stamp') clearStampTool();
+      mode = m;
+      document.getElementById('modeSelect').classList.toggle('active', m==='select');
+      document.getElementById('modeTest').classList.toggle('active',   m==='test');
+      document.getElementById('modeAdd').classList.toggle('active',    m==='add');
+      const hints = {
+        select: 'Click an orange box to edit or delete it',
+        test:   'Click an orange box to jump to its destination — use Back to return',
+        add:    'Click and drag on the page to draw a new link',
+        stamp:  'Click the document to place — drag to position — click ✓ to confirm'
+      };
+      document.getElementById('tbHint').textContent = hints[m] || '';
+      document.body.style.cursor = (m==='add'||m==='stamp') ? 'crosshair' : '';
+      renderAllLinks();
+    }
+
+    // ────────────────────────────────────
+    // Test mode: scroll to page
+    // ────────────────────────────────────
     function scrollToPage(pi) {
       const viewer = document.getElementById('viewer');
       const el = document.getElementById(`page-wrap-${pi}`);
       if (!el) return;
-
-      // Save current position so Back can restore it
       savedScrollTop = viewer.scrollTop;
       document.getElementById('backBtn').style.display = 'flex';
-
-      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.scrollIntoView({ behavior:'smooth', block:'start' });
       el.style.outline = '3px solid #60b4f0';
-      setTimeout(() => el.style.outline = '', 1200);
-      showToast(`Jumped to page ${pi + 1} — press Back to return`);
+      setTimeout(() => el.style.outline='', 1200);
+      showToast(`Jumped to page ${pi+1} — press Back to return`);
     }
 
     function goBack() {
       if (savedScrollTop === null) return;
-      const viewer = document.getElementById('viewer');
-      viewer.scrollTo({ top: savedScrollTop, behavior: 'smooth' });
+      document.getElementById('viewer').scrollTo({ top: savedScrollTop, behavior:'smooth' });
       savedScrollTop = null;
       document.getElementById('backBtn').style.display = 'none';
     }
 
-    // ────────────────────────────────────────────
-    // Mode
-    // ────────────────────────────────────────────
-    function setMode(m) {
-      mode = m;
-      document.getElementById('modeSelect').classList.toggle('active', m === 'select');
-      document.getElementById('modeTest').classList.toggle('active', m === 'test');
-      document.getElementById('modeAdd').classList.toggle('active', m === 'add');
-      const hints = {
-        select: 'Click an orange box to edit or delete it',
-        test:   'Click an orange box to jump to its destination',
-        add:    'Click and drag on the page to draw a new link'
-      };
-      document.getElementById('tbHint').textContent = hints[m];
-      document.body.style.cursor = m === 'add' ? 'crosshair' : '';
-      renderAllLinks();
-    }
-
-    // ────────────────────────────────────────────
-    // Draw new link
-    // ────────────────────────────────────────────
-    let drawing = false, drawStart = null, drawOverlay = null, drawPi = -1;
-    const drawRect = document.getElementById('drawRect');
-
-    function onOverlayMouseDown(e) {
-      if (mode !== 'add') return;
-      e.preventDefault();
-      drawOverlay = e.currentTarget;
-      drawPi = parseInt(drawOverlay.dataset.pi);
-      drawing = true;
-      drawStart = { x: e.clientX, y: e.clientY };
-      drawRect.style.cssText = `display:block;left:${e.clientX}px;top:${e.clientY}px;width:0;height:0;`;
-    }
-
-    document.addEventListener('mousemove', e => {
-      if (!drawing) return;
-      const x = Math.min(e.clientX, drawStart.x);
-      const y = Math.min(e.clientY, drawStart.y);
-      drawRect.style.left   = x + 'px';
-      drawRect.style.top    = y + 'px';
-      drawRect.style.width  = Math.abs(e.clientX - drawStart.x) + 'px';
-      drawRect.style.height = Math.abs(e.clientY - drawStart.y) + 'px';
-    });
-
-    document.addEventListener('mouseup', e => {
-      if (!drawing) return;
-      drawing = false;
-      drawRect.style.display = 'none';
-
-      const w = Math.abs(e.clientX - drawStart.x);
-      const h = Math.abs(e.clientY - drawStart.y);
-      if (w < 8 || h < 8) return;
-
-      const obr = drawOverlay.getBoundingClientRect();
-      const info = pageInfos[drawPi];
-      const ow = drawOverlay.offsetWidth, oh = drawOverlay.offsetHeight;
-
-      const x0s = Math.min(e.clientX, drawStart.x) - obr.left;
-      const y0s = Math.min(e.clientY, drawStart.y) - obr.top;
-      const x1s = Math.max(e.clientX, drawStart.x) - obr.left;
-      const y1s = Math.max(e.clientY, drawStart.y) - obr.top;
-
-      // PDF space (y from bottom)
-      const x0 = x0s / ow * info.width;
-      const y1 = info.height - (y0s / oh * info.height);
-      const x1 = x1s / ow * info.width;
-      const y0 = info.height - (y1s / oh * info.height);
-
-      pendingNewLink = { page: drawPi, rect: [x0, y0, x1, y1] };
-      openAddModal();
-    });
-
-    // ────────────────────────────────────────────
-    // Parse destination input: "D15", "d5", "42"
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
+    // Parse destination input
+    // ────────────────────────────────────
     function parseDest(raw) {
       const s = raw.trim().toUpperCase();
       const dm = s.match(/^D(\d+)$/);
       if (dm) {
-        const dn = dm[1];
-        const pi = dPages[dn];
-        if (pi !== undefined) return { page: pi, label: `D${dn}` };
-        return { error: `D${dn} was not found in this document.` };
+        const pi = dPages[dm[1]];
+        if (pi !== undefined) return { page: pi, label:`D${dm[1]}` };
+        return { error: `D${dm[1]} not found in this document.` };
       }
       const n = parseInt(s);
-      if (!isNaN(n) && n >= 1 && n <= pdfDoc.numPages)
-        return { page: n - 1, label: `page ${n}` };
-      return { error: `Enter a page number (1–${pdfDoc.numPages}) or a D-label like D15.` };
+      if (!isNaN(n) && n>=1 && n<=pdfDoc.numPages) return { page:n-1, label:`page ${n}` };
+      return { error: `Enter a page number (1–${pdfDoc.numPages}) or D-label like D15.` };
     }
 
     function buildHint() {
-      const dns = Object.keys(dPages).sort((a,b) => +a - +b);
+      const dns = Object.keys(dPages).sort((a,b)=>+a-+b);
       if (!dns.length) return 'Enter a page number.';
-      const sample = dns.slice(0, 6).map(d => `D${d}`).join(', ');
-      return `D-labels found: ${sample}${dns.length > 6 ? '…' : ''}`;
+      const sample = dns.slice(0,6).map(d=>`D${d}`).join(', ');
+      return `Available: ${sample}${dns.length>6?'…':''}`;
     }
 
-    // ────────────────────────────────────────────
-    // Modal
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
+    // Modal (for Select/Add modes)
+    // ────────────────────────────────────
     function openEditModal(idx) {
-      activeEditIdx = idx; pendingNewLink = null;
+      activeEditIdx=idx; pendingNewLink=null;
       const lk = linksData[idx];
       document.getElementById('modalTitle').textContent = 'Edit Link';
-      document.getElementById('modalDesc').textContent =
-        `Currently links to ${destLabel(lk.dest_page).replace('→ ', '')}. Change destination:`;
-      document.getElementById('modalInput').value = destLabel(lk.dest_page).replace('→ ', '');
+      document.getElementById('modalDesc').textContent = `Currently links to ${destLabel(lk.dest_page).replace('→ ','')}. Change destination:`;
+      document.getElementById('modalInput').value = destLabel(lk.dest_page).replace('→ ','');
       document.getElementById('modalHint').textContent = buildHint();
       document.getElementById('btnDelete').style.display = 'block';
       document.getElementById('modalInput').classList.remove('error');
       document.getElementById('modalBg').classList.add('open');
-      setTimeout(() => { document.getElementById('modalInput').focus(); document.getElementById('modalInput').select(); }, 50);
+      setTimeout(()=>{document.getElementById('modalInput').focus();document.getElementById('modalInput').select();},50);
     }
 
     function openAddModal() {
-      activeEditIdx = null;
+      activeEditIdx=null;
       document.getElementById('modalTitle').textContent = 'New Link';
       document.getElementById('modalDesc').textContent = 'Enter the destination page or D-label:';
       document.getElementById('modalInput').value = '';
@@ -508,90 +743,81 @@
       document.getElementById('btnDelete').style.display = 'none';
       document.getElementById('modalInput').classList.remove('error');
       document.getElementById('modalBg').classList.add('open');
-      setTimeout(() => document.getElementById('modalInput').focus(), 50);
+      setTimeout(()=>document.getElementById('modalInput').focus(),50);
     }
 
     function closeModal() {
       document.getElementById('modalBg').classList.remove('open');
-      activeEditIdx = null; pendingNewLink = null;
+      activeEditIdx=null; pendingNewLink=null;
     }
 
     function confirmModal() {
-      const raw = document.getElementById('modalInput').value;
-      const result = parseDest(raw);
+      const result = parseDest(document.getElementById('modalInput').value);
       if (result.error) {
         const inp = document.getElementById('modalInput');
         inp.classList.add('error');
-        document.getElementById('modalHint').textContent = '⚠ ' + result.error;
-        setTimeout(() => inp.classList.remove('error'), 900);
+        document.getElementById('modalHint').textContent = '⚠ '+result.error;
+        setTimeout(()=>inp.classList.remove('error'),900);
         return;
       }
       if (activeEditIdx !== null) {
         linksData[activeEditIdx].dest_page = result.page;
         showToast(`Link updated → ${result.label}`);
       } else if (pendingNewLink) {
-        linksData.push({ ...pendingNewLink, dest_page: result.page });
+        linksData.push({...pendingNewLink, dest_page:result.page});
         showToast(`New link added → ${result.label}`);
       }
-      closeModal();
-      renderAllLinks();
+      closeModal(); renderAllLinks();
     }
 
     function deleteLink() {
-      if (activeEditIdx === null) return;
-      linksData.splice(activeEditIdx, 1);
-      closeModal();
-      renderAllLinks();
-      showToast('Link deleted');
+      if (activeEditIdx===null) return;
+      linksData.splice(activeEditIdx,1);
+      closeModal(); renderAllLinks(); showToast('Link deleted');
     }
 
-    document.getElementById('modalInput').addEventListener('keydown', e => {
-      if (e.key === 'Enter') confirmModal();
-      if (e.key === 'Escape') closeModal();
+    document.getElementById('modalInput').addEventListener('keydown', e=>{
+      if (e.key==='Enter') confirmModal();
+      if (e.key==='Escape') closeModal();
     });
 
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     // Toast
-    // ────────────────────────────────────────────
-    let toastTimer = null;
+    // ────────────────────────────────────
+    let toastTimer=null;
     function showToast(msg) {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.classList.add('show');
+      const t=document.getElementById('toast');
+      t.textContent=msg; t.classList.add('show');
       clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+      toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
     }
 
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     // Save & Download
-    // ────────────────────────────────────────────
+    // ────────────────────────────────────
     async function saveAndDownload() {
-      const btn = document.querySelector('.tb-btn.green');
-      btn.disabled = true; btn.textContent = 'Saving…';
+      const btn=document.getElementById('saveBtn');
+      btn.disabled=true; btn.textContent='Saving…';
       try {
-        const res = await fetch(`/blueprint/hyperlinks/save/${JOB_ID}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ links: linksData })
+        const res = await fetch(`/blueprint/hyperlinks/save/${JOB_ID}`,{
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({links:linksData})
         });
-        if (!res.ok) { const j = await res.json().catch(()=>({})); throw new Error(j.error || 'Save failed'); }
-        const blob = await res.blob();
-        const url  = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url; a.download = '{{ out_name }}'; a.click();
-        URL.revokeObjectURL(url);
-        showToast('Downloaded!');
-      } catch(e) {
-        showToast('Error: ' + e.message);
-      } finally {
-        btn.disabled = false;
-        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
+        if (!res.ok){const j=await res.json().catch(()=>({}));throw new Error(j.error||'Save failed');}
+        const blob=await res.blob();
+        const url=URL.createObjectURL(blob);
+        const a=document.createElement('a'); a.href=url; a.download='{{ out_name }}'; a.click();
+        URL.revokeObjectURL(url); showToast('Downloaded!');
+      } catch(e){ showToast('Error: '+e.message); }
+      finally {
+        btn.disabled=false;
+        btn.innerHTML=`<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Save & Download`;
       }
     }
 
-    boot().catch(e => {
-      document.getElementById('loadingMsg') &&
-        (document.getElementById('loadingMsg').textContent = 'Error: ' + e.message);
+    boot().catch(e=>{
+      const el=document.getElementById('loadingMsg');
+      if(el) el.textContent='Error loading PDF: '+e.message;
     });
   </script>
 </body>
