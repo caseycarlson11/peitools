@@ -531,14 +531,15 @@
 
     function onOverlayMouseDown(e, overlay, pi) {
       if (e.target.classList.contains('link-rect')) return;
-      if (e.target.classList.contains('confirm-btn')) return;
+      if (e.target.classList.contains('pending-rect')) return;
 
       if (mode === 'stamp' && stampTool) {
-        if (pendingStamp) {
-          // Second click → confirm
+        if (pendingStamp && pendingStamp.state === 'dragging') {
+          // Third click → confirm position
+          e.preventDefault();
           confirmPending();
-        } else {
-          // First click → place pending rect
+        } else if (!pendingStamp) {
+          // First click → place rect immediately
           e.preventDefault();
           placePending(e, overlay, pi);
         }
@@ -555,47 +556,45 @@
     }
 
     // ────────────────────────────────────
-    // Stamp: place pending rect
+    // Stamp workflow:
+    //   Click 1 → place rect (state: 'placed')
+    //   Click rect → drag mode (state: 'dragging', follows cursor)
+    //   Click 3 → confirm
     // ────────────────────────────────────
     function placePending(e, overlay, pi) {
-      const info = pageInfos[pi];
       const pt = clientToPdf(overlay, pi, e.clientX, e.clientY);
       const hw = STAMP_W/2, hh = STAMP_H/2;
       const rect = [pt.x-hw, pt.y-hh, pt.x+hw, pt.y+hh];
 
-      const css = pdfRectToCSS(pi, rect);
       const el = document.createElement('div');
       el.className = 'pending-rect';
-      Object.assign(el.style, css);
+      Object.assign(el.style, pdfRectToCSS(pi, rect));
 
       const badge = document.createElement('div');
       badge.className = 'pending-badge';
-      badge.textContent = `D${stampTool.dn}`;
+      badge.textContent = `D${stampTool.dn} — click to drag`;
       el.appendChild(badge);
 
-      const confirmBtn = document.createElement('button');
-      confirmBtn.className = 'confirm-btn';
-      confirmBtn.textContent = '✓ Set in place';
-      confirmBtn.addEventListener('click', e => { e.stopPropagation(); confirmPending(); });
-      el.appendChild(confirmBtn);
-
-      // Drag to reposition
-      el.addEventListener('mousedown', e => {
-        if (e.target === confirmBtn) return;
+      // Click on rect → enter drag mode
+      el.addEventListener('click', e => {
         e.stopPropagation();
-        draggingPending = true;
-        const rect = el.getBoundingClientRect();
-        dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+        if (!pendingStamp) return;
+        if (pendingStamp.state === 'placed') {
+          pendingStamp.state = 'dragging';
+          el.style.cursor = 'none';
+          badge.textContent = `D${stampTool.dn} — click to set`;
+          showToast('Move mouse to reposition — click to set in place');
+        }
       });
 
       overlay.appendChild(el);
-      pendingStamp = { page: pi, rect, el, overlay };
+      pendingStamp = { page: pi, rect, el, overlay, state: 'placed' };
       hideAllGhosts();
-      showToast('Drag to position, then click "Set in place"');
+      showToast(`D${stampTool.dn} placed — click it to drag, then click again to set`);
     }
 
     document.addEventListener('mousemove', e => {
-      // Drag rubber band
+      // Rubber band
       if (drawing) {
         const x = Math.min(e.clientX, drawStart.x);
         const y = Math.min(e.clientY, drawStart.y);
@@ -603,14 +602,17 @@
         drawRect.style.width  = Math.abs(e.clientX-drawStart.x)+'px';
         drawRect.style.height = Math.abs(e.clientY-drawStart.y)+'px';
       }
-      // Drag pending rect
-      if (draggingPending && pendingStamp) {
-        const { el, overlay, page } = pendingStamp;
+      // Pending rect follows cursor in drag mode
+      if (pendingStamp && pendingStamp.state === 'dragging') {
+        const { el, overlay } = pendingStamp;
         const obr = overlay.getBoundingClientRect();
-        const nx = e.clientX - dragOffset.x - obr.left;
-        const ny = e.clientY - dragOffset.y - obr.top;
-        el.style.left = (nx / overlay.offsetWidth  * 100) + '%';
-        el.style.top  = (ny / overlay.offsetHeight * 100) + '%';
+        const ow  = overlay.offsetWidth, oh = overlay.offsetHeight;
+        const hw  = parseFloat(el.style.width)  / 2;
+        const hh  = parseFloat(el.style.height) / 2;
+        const nx  = (e.clientX - obr.left) / ow * 100 - hw;
+        const ny  = (e.clientY - obr.top)  / oh * 100 - hh;
+        el.style.left = nx + '%';
+        el.style.top  = ny + '%';
       }
     });
 
@@ -628,25 +630,12 @@
         const y0s = Math.min(e.clientY,drawStart.y)-obr.top;
         const x1s = Math.max(e.clientX,drawStart.x)-obr.left;
         const y1s = Math.max(e.clientY,drawStart.y)-obr.top;
-        // fitz: top-left origin, Y down — no flip
         const x0=x0s/ow*info.width, y0=y0s/oh*info.height;
         const x1=x1s/ow*info.width, y1=y1s/oh*info.height;
         pendingNewLink = { page: drawPi, rect:[x0,y0,x1,y1] };
         openAddModal();
       }
-      // Finish pending drag
-      if (draggingPending && pendingStamp) {
-        draggingPending = false;
-        // Update pendingStamp.rect from current el position
-        const { el, overlay, page } = pendingStamp;
-        const info = pageInfos[page];
-        const ow = overlay.offsetWidth, oh = overlay.offsetHeight;
-        const leftPct = parseFloat(el.style.left)   / 100;
-        const topPct  = parseFloat(el.style.top)    / 100;
-        const wPct    = parseFloat(el.style.width)  / 100;
-        const hPct    = parseFloat(el.style.height) / 100;
-        // fitz: top-left origin, Y down — no flip
-        const x0 = leftPct * info.width;
+      // Pending rect follows cursor until clicked — no mouseup handling needed
         const y0 = topPct  * info.height;
         const x1 = x0 + wPct * info.width;
         const y1 = y0 + hPct * info.height;
@@ -656,12 +645,23 @@
 
     function confirmPending() {
       if (!pendingStamp || !stampTool) return;
-      linksData.push({ page: pendingStamp.page, rect: pendingStamp.rect, dest_page: stampTool.destPage });
-      pendingStamp.el.remove();
+      const { el, overlay, page } = pendingStamp;
+      const info = pageInfos[page];
+      // Read final position from the element's current CSS
+      const leftPct = parseFloat(el.style.left)   / 100;
+      const topPct  = parseFloat(el.style.top)    / 100;
+      const wPct    = parseFloat(el.style.width)  / 100;
+      const hPct    = parseFloat(el.style.height) / 100;
+      const x0 = leftPct * info.width;
+      const y0 = topPct  * info.height;
+      const x1 = x0 + wPct * info.width;
+      const y1 = y0 + hPct * info.height;
+      linksData.push({ page, rect:[x0,y0,x1,y1], dest_page: stampTool.destPage });
+      el.remove();
       pendingStamp = null;
+      document.body.style.cursor = mode === 'stamp' ? 'crosshair' : '';
       renderAllLinks();
-      showToast(`D${stampTool.dn} link placed`);
-      // Keep tool selected for more placements
+      showToast(`D${stampTool.dn} link set`);
     }
 
     function clearPending() {
