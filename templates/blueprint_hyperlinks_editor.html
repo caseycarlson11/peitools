@@ -56,6 +56,7 @@
       background: rgba(255,255,255,0.04); min-width: 46px; justify-content: center;
     }
     .tb-hint { font-size: 0.72rem; color: rgba(255,255,255,0.28); white-space: nowrap; margin-left: 0.25rem; flex-shrink: 0; }
+    .tb-btn.back { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.2); display: none; }
 
     /* ── Viewer scrolls independently ── */
     .viewer {
@@ -179,6 +180,10 @@
     <button class="tb-btn green" onclick="saveAndDownload()">
       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Save & Download
+    </button>
+    <button class="tb-btn back" id="backBtn" onclick="goBack()">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+      Back
     </button>
     <div class="tb-hint" id="tbHint">Click a link to edit</div>
   </div>
@@ -355,15 +360,29 @@
     // ────────────────────────────────────────────
     // Test mode: scroll to destination page
     // ────────────────────────────────────────────
+    let savedScrollTop = null;
+
     function scrollToPage(pi) {
+      const viewer = document.getElementById('viewer');
       const el = document.getElementById(`page-wrap-${pi}`);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        // Flash highlight
-        el.style.outline = '3px solid #60b4f0';
-        setTimeout(() => el.style.outline = '', 1200);
-        showToast(`Jumped to page ${pi + 1}`);
-      }
+      if (!el) return;
+
+      // Save current position so Back can restore it
+      savedScrollTop = viewer.scrollTop;
+      document.getElementById('backBtn').style.display = 'flex';
+
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      el.style.outline = '3px solid #60b4f0';
+      setTimeout(() => el.style.outline = '', 1200);
+      showToast(`Jumped to page ${pi + 1} — press Back to return`);
+    }
+
+    function goBack() {
+      if (savedScrollTop === null) return;
+      const viewer = document.getElementById('viewer');
+      viewer.scrollTo({ top: savedScrollTop, behavior: 'smooth' });
+      savedScrollTop = null;
+      document.getElementById('backBtn').style.display = 'none';
     }
 
     // ────────────────────────────────────────────
