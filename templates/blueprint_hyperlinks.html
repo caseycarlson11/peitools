@@ -458,15 +458,41 @@
       statusEl.className = 'status' + (type ? ' ' + type : '');
     }
 
+    // ── Timer utility ──
+    let timerInterval = null;
+    let timerStart    = null;
+
+    function startTimer() {
+      timerStart = Date.now();
+      timerInterval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+        const m = Math.floor(elapsed / 60);
+        const s = elapsed % 60;
+        const label = m > 0 ? `${m}m ${s}s` : `${s}s`;
+        btnLabel.textContent = `Processing... ${label}`;
+      }, 1000);
+    }
+
+    function stopTimer() {
+      clearInterval(timerInterval);
+      timerInterval = null;
+      const elapsed = Math.floor((Date.now() - timerStart) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      return m > 0 ? `${m}m ${s}s` : `${s}s`;
+    }
+
     // ── Process ──
     processBtn.addEventListener('click', async () => {
       if (!selectedFile && !selectedServer) return;
 
       processBtn.disabled = true;
       spinner.style.display = 'block';
-      btnLabel.textContent = 'Processing…';
+      btnLabel.textContent = 'Processing... 0s';
       downloadBtn.style.display = 'none';
-      setStatus('Uploading and starting job…');
+      editorBtn.style.display = 'none';
+      setStatus('Uploading and starting job...');
+      startTimer();
 
       const form = new FormData();
       if (selectedServer) {
@@ -477,7 +503,6 @@
       }
 
       try {
-        // Start the background job
         const res = await fetch('/blueprint/hyperlinks', { method: 'POST', body: form });
         if (!res.ok) {
           const text = await res.text();
@@ -486,21 +511,16 @@
           throw new Error(msg);
         }
         const { job_id } = await res.json();
+        setStatus('Scanning pages for callout circles...');
 
-        // Poll for completion
-        setStatus('Scanning pages for callout circles — this takes a few minutes for large blueprints…');
-        let dots = 0;
         const poll = setInterval(async () => {
-          dots = (dots + 1) % 4;
-          const dotStr = '.'.repeat(dots + 1);
-          setStatus(`Processing${dotStr}`);
-
           try {
             const s = await fetch(`/blueprint/hyperlinks/status/${job_id}`);
             const data = await s.json();
 
             if (data.status === 'done') {
               clearInterval(poll);
+              const elapsed = stopTimer();
               const count = data.added;
               const baseName = selectedServer ? selectedServer.filename : selectedFile.name;
               editorBtn.href = `/blueprint/hyperlinks/editor/${job_id}`;
@@ -508,7 +528,7 @@
               downloadBtn.href = `/blueprint/hyperlinks/download/${job_id}`;
               downloadBtn.download = baseName.replace(/\.pdf$/i, '_linked.pdf');
               downloadBtn.style.display = 'flex';
-              setStatus(`Done — ${count} hyperlink${count === 1 ? '' : 's'} added.`, 'success');
+              setStatus(`Done in ${elapsed} — ${count} hyperlink${count === 1 ? '' : 's'} added.`, 'success');
               spinner.style.display = 'none';
               btnLabel.textContent = 'Process Blueprint';
               processBtn.disabled = false;
@@ -518,8 +538,9 @@
               throw new Error(data.error || 'Processing failed.');
             }
           } catch(pollErr) {
-            if (pollErr.message !== 'Processing failed.' && !pollErr.message.startsWith('Processing')) {
+            if (!pollErr.message.startsWith('Processing')) {
               clearInterval(poll);
+              stopTimer();
               setStatus(pollErr.message, 'error');
               spinner.style.display = 'none';
               btnLabel.textContent = 'Process Blueprint';
@@ -529,6 +550,7 @@
         }, 3000);
 
       } catch (e) {
+        stopTimer();
         setStatus(e.message, 'error');
         spinner.style.display = 'none';
         btnLabel.textContent = 'Process Blueprint';
@@ -540,7 +562,12 @@
     async function openInEditor() {
       if (!selectedFile && !selectedServer) return;
       openBtn.disabled = true;
-      openBtn.textContent = 'Opening…';
+      const openStart = Date.now();
+      let openTimer = setInterval(() => {
+        const s = Math.floor((Date.now() - openStart) / 1000);
+        openBtn.textContent = `Opening... ${s}s`;
+      }, 1000);
+      openBtn.textContent = 'Opening... 0s';
       setStatus('');
 
       const form = new FormData();
@@ -560,8 +587,12 @@
           throw new Error(msg);
         }
         const { job_id } = await res.json();
+        clearInterval(openTimer);
+        const elapsed = Math.floor((Date.now() - openStart) / 1000);
+        setStatus(`Editor opened in ${elapsed}s.`, 'success');
         window.open(`/blueprint/hyperlinks/editor/${job_id}`, '_blank');
       } catch(e) {
+        clearInterval(openTimer);
         setStatus(e.message, 'error');
       } finally {
         openBtn.disabled = false;
