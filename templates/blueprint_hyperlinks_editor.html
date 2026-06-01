@@ -77,23 +77,22 @@
       color: rgba(255,255,255,0.35); border-bottom: 1px solid rgba(255,255,255,0.08);
       flex-shrink: 0;
     }
-    .panel-tools { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-direction: column; gap: 0.3rem; }
+    .panel-tools { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-content: flex-start; }
     .panel-tools::-webkit-scrollbar { width: 4px; }
     .panel-tools::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
     .tool-btn {
-      display: flex; align-items: center; justify-content: space-between;
-      padding: 0.55rem 0.65rem; border-radius: 8px; cursor: pointer;
+      width: 42px; height: 42px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; cursor: pointer;
       border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.05);
-      color: white; text-align: left; transition: all 0.12s; width: 100%;
+      color: white; transition: all 0.12s; padding: 0;
     }
-    .tool-btn:hover { background: rgba(255,255,255,0.11); border-color: rgba(255,255,255,0.2); }
+    .tool-btn:hover { background: rgba(255,255,255,0.13); border-color: rgba(255,255,255,0.22); }
     .tool-btn.active {
-      background: rgba(30,100,200,0.4); border-color: #60b4f0;
+      background: rgba(30,100,200,0.45); border-color: #60b4f0;
       box-shadow: 0 0 0 1px rgba(96,180,240,0.3);
     }
-    .tool-dn { font-size: 0.88rem; font-weight: 800; color: #60b4f0; }
-    .tool-pg { font-size: 0.64rem; color: rgba(255,255,255,0.35); }
-    .tool-btn.active .tool-pg { color: rgba(96,180,240,0.7); }
+    .tool-dn { font-size: 0.72rem; font-weight: 800; color: #60b4f0; line-height: 1; }
     .no-tools { font-size: 0.75rem; color: rgba(255,255,255,0.3); padding: 0.75rem 0.5rem; line-height: 1.5; }
     .panel-tip {
       padding: 0.6rem 0.75rem; font-size: 0.68rem; color: rgba(255,255,255,0.25);
@@ -279,7 +278,7 @@
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
     // Default stamp size in PDF points
-    const STAMP_W = 65, STAMP_H = 28;
+    const STAMP_W = 65, STAMP_H = 65;
 
     let pdfDoc    = null;
     let linksData = [];    // [{page, rect:[x0,y0,x1,y1], dest_page}]
@@ -337,7 +336,7 @@
         const btn = document.createElement('button');
         btn.className = 'tool-btn';
         btn.dataset.dn = dn;
-        btn.innerHTML = `<span class="tool-dn">D${dn}</span><span class="tool-pg">p.${pi+1}</span>`;
+        btn.innerHTML = `<span class="tool-dn">D${dn}</span>`;
         btn.addEventListener('click', () => selectTool(dn));
         panel.appendChild(btn);
       });
