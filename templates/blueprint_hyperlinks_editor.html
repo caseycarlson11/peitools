@@ -67,18 +67,23 @@
 
     /* ── Right panel ── */
     .right-panel {
-      width: 180px; flex-shrink: 0; background: #111d30;
+      flex-shrink: 0; background: #111d30;
       border-left: 1px solid rgba(255,255,255,0.09);
       display: flex; flex-direction: column; overflow: hidden;
+      width: auto; max-width: 55vw;
     }
     .panel-header {
-      padding: 0.65rem 0.75rem; font-size: 0.7rem; font-weight: 700;
+      padding: 0.5rem 0.75rem; font-size: 0.7rem; font-weight: 700;
       text-transform: uppercase; letter-spacing: 0.07em;
       color: rgba(255,255,255,0.35); border-bottom: 1px solid rgba(255,255,255,0.08);
-      flex-shrink: 0;
+      flex-shrink: 0; white-space: nowrap;
     }
-    .panel-tools { flex: 1; overflow-y: auto; padding: 0.5rem; display: flex; flex-wrap: wrap; gap: 0.3rem; align-content: flex-start; }
-    .panel-tools::-webkit-scrollbar { width: 4px; }
+    .panel-tools {
+      flex: 1; padding: 0.5rem; overflow-x: auto; overflow-y: hidden;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .panel-row { display: flex; gap: 4px; flex-shrink: 0; }
+    .panel-tools::-webkit-scrollbar { height: 4px; }
     .panel-tools::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
     .tool-btn {
       width: 42px; height: 42px;
@@ -325,20 +330,37 @@
     function buildToolPanel() {
       const panel = document.getElementById('panelTools');
       const dns = Object.keys(dPages).sort((a,b) => +a - +b);
-      if (!dns.length) {
-        panel.innerHTML = '<div class="no-tools">No D-pages detected.<br/>Use Add Link mode to place links manually.</div>';
+      const N = dns.length;
+
+      if (!N) {
+        panel.innerHTML = '<div class="no-tools">No D-pages detected. Use Add Link mode.</div>';
         document.getElementById('panelTip').textContent = 'Use Add Link mode in the toolbar to draw links.';
         return;
       }
+
       panel.innerHTML = '';
-      dns.forEach(dn => {
-        const pi = dPages[dn];
-        const btn = document.createElement('button');
-        btn.className = 'tool-btn';
-        btn.dataset.dn = dn;
-        btn.innerHTML = `<span class="tool-dn">D${dn}</span>`;
-        btn.addEventListener('click', () => selectTool(dn));
-        panel.appendChild(btn);
+
+      // Split into 1 or 2 rows, evenly distributed
+      const useTwo = N > 1;
+      const topCount = useTwo ? Math.ceil(N / 2) : N;
+      const groups = useTwo
+        ? [dns.slice(0, topCount), dns.slice(topCount)]
+        : [dns];
+
+      groups.forEach(group => {
+        if (!group.length) return;
+        const row = document.createElement('div');
+        row.className = 'panel-row';
+        group.forEach(dn => {
+          const btn = document.createElement('button');
+          btn.className = 'tool-btn';
+          btn.dataset.dn = dn;
+          btn.title = `Link to D${dn} (page ${dPages[dn]+1})`;
+          btn.innerHTML = `<span class="tool-dn">D${dn}</span>`;
+          btn.addEventListener('click', () => selectTool(dn));
+          row.appendChild(btn);
+        });
+        panel.appendChild(row);
       });
     }
 
