@@ -1,4 +1,5 @@
-from flask import Flask, send_from_directory, send_file, render_template, request, jsonify, session, abort, redirect, url_for
+from flask import Flask, send_from_directory, send_file, render_template, request, jsonify, session, abort, redirect, url_for, g
+from flask import template_rendered
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os, re, sys, io, tempfile
@@ -8,6 +9,30 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'BlueprintLinker'))
 
 app = Flask(__name__)
 app.secret_key = "pei-tools-secret-2024"
+
+# ── Track which template was rendered (for edit mode injection) ──
+@template_rendered.connect_via(app)
+def _track_template(sender, template, context, **extra):
+    g._rendered_template = template.name
+
+# ── Auto-inject editmode.js into every HTML page on localhost ──
+@app.after_request
+def inject_editmode(response):
+    if not app.debug:
+        return response
+    if not response.content_type.startswith('text/html'):
+        return response
+    content = response.get_data(as_text=True)
+    if 'editmode.js' in content:
+        return response  # already included manually
+    template_name = getattr(g, '_rendered_template', '')
+    # Inject data-template directly into the <body> tag (available immediately)
+    if template_name and 'data-template' not in content:
+        content = re.sub(r'<body([^>]*?)>', f'<body data-template="{template_name}"\\1>', content, count=1)
+    # Inject the script before </body>
+    content = content.replace('</body>', '  <script src="/static/editmode.js"></script>\n</body>', 1)
+    response.set_data(content)
+    return response
 
 # ── Jobs folder (persisted via Docker volume) ────────────────
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "jobs")
@@ -54,8 +79,9 @@ def login_required(f):
     def decorated(*args, **kwargs):
         if not session.get("user"):
             # API routes get a JSON 401; page routes get a redirect to login
-            if request.path.startswith("/api/") or request.path.startswith("/files/"):
-                return jsonify({"error": "Unauthorized"}), 401
+            is_json = (request.content_type or '').startswith('application/json')
+            if request.path.startswith("/api/") or request.path.startswith("/files/") or is_json:
+                return jsonify({"error": "Unauthorized — please log in again"}), 401
             return redirect(url_for("login", next=request.path))
         return f(*args, **kwargs)
     return decorated
@@ -933,43 +959,63 @@ def blueprint_hyperlinks_publish(job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/admin/deploy", methods=["POST"])
+@login_required
+def admin_deploy():
+    """Run deploy_quick: copy files to server and reload gunicorn."""
+    import subprocess
+    deploy_script = os.path.join(os.path.dirname(__file__), "deploy_quick.bat")
+    if not os.path.isfile(deploy_script):
+        return jsonify({"error": "deploy_quick.bat not found"}), 404
+    try:
+        result = subprocess.run(
+            ["cmd.exe", "/c", deploy_script],
+            capture_output=True, text=True, timeout=60,
+            cwd=os.path.dirname(__file__)
+        )
+        if result.returncode != 0:
+            return jsonify({"error": result.stderr or result.stdout}), 500
+        return jsonify({"message": "Deployed to peitools.com"})
+    except subprocess.TimeoutExpired:
+        return jsonify({"error": "Deploy timed out after 60s"}), 500
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/admin/save-page-edits", methods=["POST"])
 @login_required
 def save_page_edits():
-    """Visual editor: replace text in a template file."""
-    data     = request.get_json() or {}
-    template = data.get("template", "").strip()
-    edits    = data.get("edits", [])
+    """Visual editor: save full page HTML back to the template file."""
+    data      = request.get_json() or {}
+    template  = data.get("template", "").strip()
+    full_html = data.get("full_html", "").strip()
 
     if not template:
         return jsonify({"error": "No template specified"}), 400
 
     # Safety: only allow templates directory, no path traversal
-    template_path = os.path.realpath(
-        os.path.join(os.path.dirname(__file__), "templates", template))
-    templates_dir = os.path.realpath(
-        os.path.join(os.path.dirname(__file__), "templates"))
+    templates_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), "templates"))
+    template_path = os.path.realpath(os.path.join(templates_dir, template))
     if not template_path.startswith(templates_dir):
         return jsonify({"error": "Invalid template path"}), 403
     if not os.path.isfile(template_path):
         return jsonify({"error": f"Template not found: {template}"}), 404
 
-    with open(template_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    if not full_html:
+        return jsonify({"error": "No HTML received"}), 400
 
-    updated = 0
-    for edit in edits:
-        old = edit.get("old_text", "").strip()
-        new = edit.get("new_text", "").strip()
-        if old and new and old != new and old in content:
-            content = content.replace(old, new, 1)
-            updated += 1
-
-    if updated:
+    try:
+        # Back up original before overwriting
+        with open(template_path, "r", encoding="utf-8") as f:
+            original = f.read()
+        with open(template_path + ".bak", "w", encoding="utf-8") as f:
+            f.write(original)
+        # Write new HTML
         with open(template_path, "w", encoding="utf-8") as f:
-            f.write(content)
-
-    return jsonify({"ok": True, "updated": updated})
+            f.write(full_html)
+        return jsonify({"ok": True, "updated": 1})
+    except Exception as e:
+        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
 
 
 if __name__ == "__main__":
