@@ -6,6 +6,9 @@
 (function () {
   'use strict';
 
+  // Only run on localhost
+  if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') return;
+
   let editActive = false;
   let changes    = [];   // [{selector, oldText, newText}]
   let activeEl   = null;
