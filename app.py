@@ -933,5 +933,45 @@ def blueprint_hyperlinks_publish(job_id):
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/admin/save-page-edits", methods=["POST"])
+@login_required
+def save_page_edits():
+    """Visual editor: replace text in a template file."""
+    data     = request.get_json() or {}
+    template = data.get("template", "").strip()
+    edits    = data.get("edits", [])
+
+    if not template:
+        return jsonify({"error": "No template specified"}), 400
+
+    # Safety: only allow templates directory, no path traversal
+    template_path = os.path.realpath(
+        os.path.join(os.path.dirname(__file__), "templates", template))
+    templates_dir = os.path.realpath(
+        os.path.join(os.path.dirname(__file__), "templates"))
+    if not template_path.startswith(templates_dir):
+        return jsonify({"error": "Invalid template path"}), 403
+    if not os.path.isfile(template_path):
+        return jsonify({"error": f"Template not found: {template}"}), 404
+
+    with open(template_path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    updated = 0
+    for edit in edits:
+        old = edit.get("old_text", "").strip()
+        new = edit.get("new_text", "").strip()
+        if old and new and old != new and old in content:
+            content = content.replace(old, new, 1)
+            updated += 1
+
+    if updated:
+        with open(template_path, "w", encoding="utf-8") as f:
+            f.write(content)
+
+    return jsonify({"ok": True, "updated": updated})
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    # Local dev: auto-reloads when you save any .py or template file
+    app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=True)
