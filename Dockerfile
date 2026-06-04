@@ -8,6 +8,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 COPY app.py .
+COPY packing_list_engine.py .
 COPY static/ ./static/
 COPY templates/ ./templates/
 COPY BlueprintLinker/ ./BlueprintLinker/

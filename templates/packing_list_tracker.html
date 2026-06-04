@@ -1,0 +1,517 @@
+{% extends "base.html" %}
+{% block title %}Packing List Tracker{% endblock %}
+
+{% block extra_style %}
+    /* ── File list ── */
+    .pl-list { display:flex; flex-direction:column; gap:6px; margin:4px 0 12px; }
+    .pl-item {
+      display:flex; align-items:center; gap:10px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; padding:10px 14px; cursor:pointer;
+      transition:border-color .15s, background .15s;
+    }
+    .pl-item:hover   { border-color:var(--blue); background:rgba(96,180,240,.06); }
+    .pl-item.selected{ border-color:var(--green); background:rgba(63,185,80,.08); }
+    .pl-item input[type=checkbox] { accent-color:var(--green); width:16px; height:16px; flex-shrink:0; cursor:pointer; }
+    .pl-item .pl-name { font-size:.88rem; font-weight:600; flex:1; }
+    .pl-empty { color:var(--text2); font-size:.85rem; padding:8px 0; }
+
+    .pl-select-all {
+      display:flex; align-items:center; gap:8px;
+      color:var(--text2); font-size:.8rem; cursor:pointer; margin-bottom:6px;
+    }
+    .pl-select-all input { accent-color:var(--green); width:14px; height:14px; cursor:pointer; }
+
+    /* ── Upload toggle ── */
+    .upload-toggle {
+      display:inline-flex; align-items:center; gap:6px;
+      color:var(--blue); font-size:.82rem; cursor:pointer;
+      background:none; border:none; font-family:inherit; margin-top:4px;
+    }
+    .upload-toggle:hover { text-decoration:underline; }
+    .upload-section { display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+    .upload-section.open { display:block; }
+
+    /* ── Drop area ── */
+    .drop-area {
+      border:2px dashed var(--border); border-radius:10px; padding:24px 20px;
+      text-align:center; cursor:pointer; transition:all .2s; margin:10px 0;
+    }
+    .drop-area:hover, .drop-area.drag-over { border-color:var(--green); background:rgba(63,185,80,.06); }
+    .drop-area .icon { font-size:1.8rem; margin-bottom:6px; }
+    .drop-area p { color:var(--text2); font-size:.84rem; line-height:1.5; }
+    .drop-area strong { color:var(--text); }
+
+    .label-row { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
+    .label-row label { color:var(--text2); font-size:.84rem; white-space:nowrap; }
+
+    .file-chip {
+      display:none; align-items:center; gap:8px;
+      background:rgba(63,185,80,.08); border:1px solid rgba(63,185,80,.25);
+      border-radius:7px; padding:7px 12px; font-size:.84rem; margin:8px 0;
+    }
+    .file-chip.show { display:flex; }
+    .file-chip span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+    .file-chip button { background:none; border:none; color:var(--text2); cursor:pointer; }
+    .file-chip button:hover { color:var(--text); }
+
+    /* ── Overall totals ── */
+    .totals-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .total-box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 16px; text-align:center; min-width:90px; }
+    .total-box .num { font-size:1.5rem; font-weight:800; color:var(--text); }
+    .total-box .lbl { font-size:.70rem; color:var(--text2); margin-top:2px; }
+
+    /* ── Per-shipment cards ── */
+    .shipment-card {
+      border-radius:10px; padding:14px 16px; margin-bottom:10px;
+      border-left:5px solid; background:rgba(28,34,48,.7);
+    }
+    .shipment-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .shipment-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+    .shipment-name { font-size:.9rem; font-weight:700; }
+    .shipment-stats { display:flex; gap:16px; flex-wrap:wrap; }
+    .shipment-stat { text-align:center; }
+    .shipment-stat .n { font-size:1.3rem; font-weight:800; }
+    .shipment-stat .l { font-size:.68rem; color:var(--text2); }
+    .shipment-skids { font-size:.76rem; color:var(--text2); margin-top:6px; }
+
+    /* ── Action buttons ── */
+    .btn-download { background:var(--blue);   color:#0d1117; }
+    .btn-download:hover { opacity:.88; }
+    .btn-publish  { background:#9e6a03; color:#fff; border:1px solid #d29922; }
+    .btn-publish:hover { background:#b07a04; }
+    .btn-view     { background:var(--surface); color:var(--blue); border:1px solid var(--blue); }
+    .btn-view:hover { background:rgba(96,180,240,.1); }
+    .publish-note { color:#d29922; font-size:.82rem; margin-top:8px; display:none; }
+    .publish-note.show { display:block; }
+    .alert-warn { background:rgba(210,153,34,.12); border:1px solid rgba(210,153,34,.4); color:#d29922; }
+    .warn-item { font-size:.83rem; padding:4px 0; border-bottom:1px solid rgba(210,153,34,.2); }
+    .warn-item:last-child { border-bottom:none; }
+    .warn-skip { color:#f85149; }
+{% endblock %}
+
+{% block content %}
+<h1 class="page-heading">📦 Packing List Tracker</h1>
+<p class="page-subtitle">Select packing lists from the job folder — delivered panels are highlighted on the blueprint by shipment color.</p>
+
+<!-- Step 1 -->
+<div class="card">
+  <div class="card-title">1 · Select Job</div>
+  <select id="jobSelect" onchange="onJobChange()">
+    <option value="">Loading jobs…</option>
+  </select>
+</div>
+
+<!-- Step 2 -->
+<div class="card" id="plCard" style="display:none">
+  <div class="card-title">2 · Select Packing Lists</div>
+
+  <label class="pl-select-all" id="selectAllRow" style="display:none">
+    <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll()"> Select all
+  </label>
+  <div class="pl-list" id="plList"><div class="pl-empty">Loading…</div></div>
+
+  <button class="upload-toggle" onclick="toggleUpload()">＋ Upload a new packing list PDF</button>
+  <div class="upload-section" id="uploadSection">
+    <div class="label-row">
+      <label>Shipment label:</label>
+      <input type="text" id="shipmentLabel" placeholder="e.g. Shipment #5 Site 4.15.24" style="flex:1">
+    </div>
+    <div class="drop-area" id="dropArea">
+      <div class="icon">📄</div>
+      <p><strong>Click or drag a packing list PDF here</strong><br>KPS format — 4 skids per page</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="onFileSelected(event)">
+    <div class="file-chip" id="fileChip">
+      <span id="fileChipName"></span>
+      <button onclick="clearFile()">✕</button>
+    </div>
+  </div>
+
+  <div class="alert alert-error" id="uploadError"></div>
+
+  <div class="btn-row">
+    <button class="btn btn-green" id="processBtn" onclick="doProcess()" disabled>
+      ⚡ Process Selected (<span id="selectedCount">0</span>)
+    </button>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <div class="progress-msg" id="progressMsg">Starting…</div>
+  </div>
+  <div class="alert alert-success" id="uploadSuccess"></div>
+  <div id="warningsWrap"></div>
+</div>
+
+<!-- Step 3 -->
+<div class="card" id="statusCard" style="display:none">
+  <div class="card-title">3 · Delivery Status</div>
+
+  <!-- Overall totals -->
+  <div class="totals-row" id="totalsRow"></div>
+
+  <!-- Per-shipment colored cards -->
+  <div id="shipmentsWrap"></div>
+
+  <div class="btn-row">
+    <a class="btn btn-view"     id="viewBtn"     href="#" target="_blank" style="display:none">👁 View</a>
+    <a class="btn btn-download" id="downloadBtn" href="#" target="_blank" style="display:none">⬇ Download</a>
+    <button class="btn btn-publish" id="publishBtn" onclick="publishBlueprint()" style="display:none">📌 Publish to Blueprints</button>
+    <button class="btn btn-danger"  onclick="resetJob()">🗑 Reset</button>
+  </div>
+  <div class="publish-note" id="publishNote"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+// Matches _SHIPMENT_COLORS in packing_list_engine.py (CSS equivalents)
+const SHIP_COLORS = [
+  '#18f23c',  // 0 green
+  '#ffd900',  // 1 yellow
+  '#00c6ff',  // 2 cyan
+  '#ff8800',  // 3 orange
+  '#e000e0',  // 4 magenta
+  '#00e8d8',  // 5 teal
+  '#b800ff',  // 6 purple
+  '#ff4444',  // 7 red
+];
+function shipColor(idx) { return SHIP_COLORS[idx % SHIP_COLORS.length]; }
+
+let selectedJob       = '';
+let selectedFile      = null;
+let selectedServerPLs = [];
+let pollTimer         = null;
+let processQueue      = [];
+let fileColorMap      = {};  // filename -> color_index (from server)
+
+// ── Load jobs ──────────────────────────────────────────────────────────────
+fetch('/api/jobs').then(r=>r.json()).then(data=>{
+  const sel = document.getElementById('jobSelect');
+  sel.innerHTML = '<option value="">— Select a job —</option>';
+  (Array.isArray(data) ? data : (data.jobs||[])).forEach(j=>{
+    const o = document.createElement('option');
+    o.value = o.textContent = j;
+    sel.appendChild(o);
+  });
+});
+
+function onJobChange() {
+  selectedJob = document.getElementById('jobSelect').value;
+  selectedFile = null; selectedServerPLs = [];
+  document.getElementById('plCard').style.display    = selectedJob ? '' : 'none';
+  document.getElementById('statusCard').style.display = 'none';
+  document.getElementById('processBtn').disabled = true;
+  document.getElementById('selectedCount').textContent = '0';
+  document.getElementById('uploadSuccess').classList.remove('show');
+  document.getElementById('uploadError').classList.remove('show');
+  clearFile();
+  if (selectedJob) { loadPackingLists(); loadStatus(); }
+}
+
+// ── Load server packing lists ─────────────────────────────────────────────
+function loadPackingLists() {
+  const listEl = document.getElementById('plList');
+  const allRow = document.getElementById('selectAllRow');
+  listEl.innerHTML = '<div class="pl-empty">Loading…</div>';
+  allRow.style.display = 'none';
+  selectedServerPLs = []; updateCount();
+
+  fetch('/api/jobs/' + encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(data=>{
+      const files = data['Packing Lists'] || [];
+      if (!files.length) {
+        listEl.innerHTML = '<div class="pl-empty">No packing lists in this job folder. Upload one below.</div>';
+        document.getElementById('uploadSection').classList.add('open');
+        return;
+      }
+      allRow.style.display = 'flex';
+      listEl.innerHTML = '';
+      files.forEach(f=>{
+        const div = document.createElement('div');
+        div.className = 'pl-item';
+        div.dataset.filename = f;   // filename stored on element — NOT passed via HTML attribute
+
+        // Highlight already-processed files with their shipment color
+        const label = f.replace(/\.pdf$/i,'');
+        const colorIdx = fileColorMap[label] ?? fileColorMap[f] ?? null;
+        if (colorIdx !== null) {
+          div.style.borderLeft = `4px solid ${shipColor(colorIdx)}`;
+        }
+        const badge = colorIdx !== null
+          ? `<span style="width:10px;height:10px;border-radius:50%;background:${shipColor(colorIdx)};display:inline-block;flex-shrink:0;margin-right:2px"></span>`
+          : '';
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.addEventListener('change', () => togglePL(chk));
+
+        div.innerHTML = `${badge}<span class="pl-name">📄 ${f}</span>`;
+        div.insertBefore(chk, div.firstChild);
+        div.addEventListener('click', e => { if (e.target !== chk) chk.click(); });
+        listEl.appendChild(div);
+      });
+    });
+}
+
+function togglePL(chk) {
+  const div   = chk.closest('.pl-item');
+  const filename = div.dataset.filename;   // read filename from data attribute — no escaping issues
+  if (chk.checked) {
+    if (!selectedServerPLs.includes(filename)) selectedServerPLs.push(filename);
+    div.classList.add('selected');
+  } else {
+    selectedServerPLs = selectedServerPLs.filter(f => f !== filename);
+    div.classList.remove('selected');
+  }
+  updateCount();
+  const allChk = document.getElementById('selectAllChk');
+  if (allChk) allChk.checked = selectedServerPLs.length === document.querySelectorAll('.pl-item').length;
+}
+
+function toggleSelectAll() {
+  const checked = document.getElementById('selectAllChk').checked;
+  selectedServerPLs = [];
+  document.querySelectorAll('.pl-item').forEach(div=>{
+    const chk = div.querySelector('input');
+    const f   = div.dataset.filename;
+    chk.checked = checked;
+    div.classList.toggle('selected', checked);
+    if (checked) selectedServerPLs.push(f);
+  });
+  updateCount();
+}
+
+function updateCount() {
+  const total = selectedServerPLs.length + (selectedFile ? 1 : 0);
+  document.getElementById('selectedCount').textContent = total;
+  document.getElementById('processBtn').disabled = total === 0;
+}
+
+// ── Upload toggle / file pick ─────────────────────────────────────────────
+function toggleUpload() { document.getElementById('uploadSection').classList.toggle('open'); }
+
+function onFileSelected(evt) {
+  const f = evt.target.files[0]; if(!f) return;
+  selectedFile = f;
+  document.getElementById('fileChipName').textContent = f.name;
+  document.getElementById('fileChip').classList.add('show');
+  if (!document.getElementById('shipmentLabel').value)
+    document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+  updateCount();
+}
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('fileChip').classList.remove('show');
+  updateCount();
+}
+
+const da = document.getElementById('dropArea');
+da.addEventListener('click', ()=>document.getElementById('fileInput').click());
+da.addEventListener('dragover', e=>{e.preventDefault(); da.classList.add('drag-over');});
+da.addEventListener('dragleave', ()=>da.classList.remove('drag-over'));
+da.addEventListener('drop', e=>{
+  e.preventDefault(); da.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.toLowerCase().endsWith('.pdf')) {
+    selectedFile = f;
+    document.getElementById('fileChipName').textContent = f.name;
+    document.getElementById('fileChip').classList.add('show');
+    if (!document.getElementById('shipmentLabel').value)
+      document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+    updateCount();
+  }
+});
+
+// ── Process ───────────────────────────────────────────────────────────────
+function doProcess() {
+  processQueue = [...selectedServerPLs];
+  startProgress();
+  document.getElementById('uploadSuccess').classList.remove('show');
+
+  if (selectedFile) {
+    const label = document.getElementById('shipmentLabel').value || selectedFile.name;
+    const fd = new FormData();
+    fd.append('file', selectedFile); fd.append('label', label);
+    fetch('/api/packing-list/upload/' + encodeURIComponent(selectedJob), {method:'POST', body:fd})
+      .then(r=>r.json()).then(d=>{ if(d.error){showErr(d.error);enableBtn();return;} pollUntilDone(processNextInQueue); })
+      .catch(e=>{showErr(String(e));enableBtn();});
+  } else {
+    processNextInQueue();
+  }
+}
+
+function processNextInQueue() {
+  if (!processQueue.length) {
+    fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+      .then(r=>r.json()).then(data=>{
+        enableBtn();
+        const ok = document.getElementById('uploadSuccess');
+        const added = data.panels_added ?? 0;
+        const warnSuffix = added === 0 ? ' ⚠ No new panels found — check the packing list format.' : '';
+        ok.textContent = `✅ Done — ${added} new panels added, ${data.located||0} located on blueprint.${warnSuffix}`;
+        ok.classList.add('show');
+        renderWarnings(data.warnings || []);
+        renderStatus(data);
+      }).catch(()=>enableBtn());
+    return;
+  }
+  const filename = processQueue.shift();
+  document.getElementById('progressMsg').textContent = `Processing: ${filename}…`;
+  document.getElementById('progressFill').style.width = '5%';
+
+  fetch('/api/packing-list/process-file/' + encodeURIComponent(selectedJob), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({filename: filename, label: filename.replace(/\.pdf$/i, '')})
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(d => { throw new Error(d.error || `Server error ${r.status}`); });
+    return r.json();
+  })
+  .then(d => {
+    if (d.error) { showErr(d.error); enableBtn(); return; }
+    pollUntilDone(processNextInQueue);
+  })
+  .catch(e => { showErr(String(e)); enableBtn(); });
+}
+
+function pollUntilDone(onDone) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(()=>{
+    fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+      .then(r=>{ if(!r.ok) throw new Error('Server error '+r.status); return r.json(); })
+      .then(data=>{
+        document.getElementById('progressFill').style.width = (data.progress||0)+'%';
+        document.getElementById('progressMsg').textContent  = data.message||'Processing…';
+        if (data.status==='done')  { clearInterval(pollTimer); onDone(); }
+        if (data.status==='error') { clearInterval(pollTimer); showErr(data.message||'Error'); enableBtn(); }
+      })
+      .catch(e=>{ clearInterval(pollTimer); showErr('Processing failed: '+e.message); enableBtn(); });
+  }, 2500);
+}
+
+// ── Status ────────────────────────────────────────────────────────────────
+function loadStatus() {
+  fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(data=>{
+      // Store file→color map for the file list
+      if (data.file_colors) fileColorMap = data.file_colors;
+      renderStatus(data);
+    });
+}
+
+function renderStatus(data) {
+  const card = document.getElementById('statusCard');
+  if (!data.total_panels && !data.has_output) { card.style.display='none'; return; }
+  card.style.display = '';
+
+  // Store color map and refresh file colors
+  if (data.file_colors) {
+    fileColorMap = data.file_colors;
+    loadPackingLists();
+  }
+
+  // ── Overall totals ──
+  const shipments = data.shipments || [];
+  document.getElementById('totalsRow').innerHTML = `
+    <div class="total-box">
+      <div class="num">${data.total_panels||0}</div>
+      <div class="lbl">Total Panels</div>
+    </div>
+    <div class="total-box">
+      <div class="num">${(data.total_skids||[]).length}</div>
+      <div class="lbl">Total Skids</div>
+    </div>
+    <div class="total-box">
+      <div class="num">${shipments.length}</div>
+      <div class="lbl">Shipments</div>
+    </div>
+  `;
+
+  // ── Per-shipment colored cards ──
+  document.getElementById('shipmentsWrap').innerHTML = shipments.map(s=>{
+    const color = shipColor(s.color_index);
+    return `
+      <div class="shipment-card" style="border-left-color:${color}; border-top:1px solid ${color}33; border-right:1px solid ${color}22; border-bottom:1px solid ${color}22;">
+        <div class="shipment-header">
+          <div class="shipment-dot" style="background:${color}"></div>
+          <span class="shipment-name" style="color:${color}">${s.label}</span>
+        </div>
+        <div class="shipment-stats">
+          <div class="shipment-stat">
+            <div class="n" style="color:${color}">${s.count}</div>
+            <div class="l">Panels</div>
+          </div>
+          <div class="shipment-stat">
+            <div class="n" style="color:${color}">${s.skids.length}</div>
+            <div class="l">Skids</div>
+          </div>
+        </div>
+        <div class="shipment-skids">Skids: ${s.skids.join(', ')}</div>
+      </div>`;
+  }).join('');
+
+  // ── Action buttons ──
+  const url = '/api/packing-list/download/' + encodeURIComponent(selectedJob);
+  ['viewBtn','downloadBtn'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.href = url;
+    el.style.display = data.has_output ? '' : 'none';
+  });
+  document.getElementById('publishBtn').style.display = data.has_output ? '' : 'none';
+  document.getElementById('publishNote').classList.remove('show');
+}
+
+function publishBlueprint() {
+  const btn = document.getElementById('publishBtn');
+  btn.disabled = true; btn.textContent = '📌 Publishing…';
+  fetch('/api/packing-list/publish/' + encodeURIComponent(selectedJob), {method:'POST'})
+    .then(r=>r.json()).then(data=>{
+      btn.disabled=false; btn.textContent='📌 Publish to Blueprints';
+      if (data.error) { showErr(data.error); return; }
+      const n = document.getElementById('publishNote');
+      n.textContent = `✅ Published as "${data.filename}"`;
+      n.classList.add('show');
+    }).catch(e=>{btn.disabled=false; btn.textContent='📌 Publish to Blueprints'; showErr(String(e));});
+}
+
+function startProgress() {
+  document.getElementById('processBtn').disabled = true;
+  document.getElementById('uploadError').classList.remove('show');
+  document.getElementById('progressWrap').classList.add('visible');
+  document.getElementById('progressFill').style.width = '5%';
+  document.getElementById('progressMsg').textContent = 'Starting…';
+}
+function enableBtn() {
+  document.getElementById('processBtn').disabled = (selectedServerPLs.length + (selectedFile?1:0)) === 0;
+  document.getElementById('progressWrap').classList.remove('visible');
+}
+function showErr(msg) {
+  const e = document.getElementById('uploadError');
+  e.textContent = '⚠ ' + msg; e.classList.add('show');
+  document.getElementById('progressWrap').classList.remove('visible');
+}
+function renderWarnings(warnings) {
+  const wrap = document.getElementById('warningsWrap');
+  wrap.innerHTML = '';
+  if (!warnings || !warnings.length) return;
+  const div = document.createElement('div');
+  div.className = 'alert alert-warn show';
+  div.innerHTML = '<strong>⚠ Review Required:</strong>' +
+    warnings.map(w => {
+      const isSkip = w.startsWith('SKIP:');
+      const cls = isSkip ? 'warn-item warn-skip' : 'warn-item';
+      const txt = isSkip ? w.replace(/^SKIP:/, '') : w;
+      return `<div class="${cls}">${isSkip ? '🚫' : '⚠'} ${txt}</div>`;
+    }).join('');
+  wrap.appendChild(div);
+}
+
+function resetJob() {
+  if (!confirm(`Clear all delivery data for "${selectedJob}"?`)) return;
+  fetch('/api/packing-list/reset/' + encodeURIComponent(selectedJob), {method:'POST'})
+    .then(()=>loadStatus());
+}
+{% endblock %}

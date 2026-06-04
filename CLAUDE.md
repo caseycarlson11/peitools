@@ -1,22 +1,74 @@
-This folder contains metal panel construction blueprints. I am an ironworker and I work for Pacific Erectors inc. They install metal deck and metal panel siding in the Sacramento and Bay area. The work flow goes like this. The architect works with my projcet manager and a detailer to produce blueprints on a CAD file which is in .dwg or .dxf file. The CAD files are converted into a PDF and additional information is added to give context to the Forman that work in the field about details of the blueprints. Panels are Ordered using Fabrication Sheets. Sometimes these sheets are altered in the field. Sometimes this sheets are altered and sent by the project manager only. The sheets are sent to KPS which is our panel fabricator in Canada. They make the panels and send them to us at our jobsite. When KPS sends the panels, they pack them in skids and provide a packing list to us so that we know what panel is in what skid. The goal of this project is to create a landing page that serves as a link to various tools to make this job easier for all parties involved in this process.
+This project is PEItools.com — an internal web toolset for Pacific Erectors Inc., a metal panel siding installation company operating in the Sacramento and Bay Area.
+
+## Company & Workflow
+
+Pacific Erectors installs metal deck and metal panel siding. The workflow:
+1. Architect collaborates with the project manager and a detailer to produce blueprints in CAD (.dwg or .dxf)
+2. CAD files are converted to PDF blueprints with added context for field foremen
+3. Panels are ordered using Fabrication Sheets sent to KPS (panel fabricator in Canada)
+4. Fab sheets can be altered in the field or by the project manager before sending
+5. KPS manufactures panels, ships them to the jobsite packed in skids with packing lists
+6. Packing lists tell the installer which panel is in which skid
+
+**Key roles:** Project managers (office, computers), Field foremen (iPads), KPS (panel fabricator, Canada)
 
 ## File Types
 
-- **CAD Files** (.dwg, .dxf): Designed by a detailer/engineer to lay out how panels fit the building. These are the source files before conversion.
-- **Blueprints** (PDF): Printed/exported versions of CAD files with added context for office and field use. Used by project managers and foremen.
-- **Fab Sheets**: Individual panel dimension files sent to KPS (panel fabricator in Canada) so they can manufacture each panel. Can be altered in the field or by the project manager before sending.
-- **Packing Lists** (PDF): Created by KPS when panels ship. Lists which panel is in which crate/skid so the installer and office can organize delivery.
+- **CAD Files** (.dwg, .dxf): Source files from detailer/engineer showing panel layout
+- **Blueprints** (PDF): Exported CAD with added field context. Used by PMs and foremen. KPS blueprints have callout circles (N/Dx format) referencing detail pages
+- **Fab Sheets** (PDF): Individual panel dimension files sent to KPS for manufacturing. Can be altered before sending
+- **Packing Lists** (PDF): Created by KPS at shipment. Lists panel → crate/skid mapping
+
+## Live Site
+
+- **URL:** https://peitools.com
+- **Stack:** Flask + Gunicorn in Docker, Nginx reverse proxy, Hostinger VPS (Ubuntu 24.04)
+- **Server IP:** 93.188.160.121
+- **GitHub:** https://github.com/caseycarlson11/peitools.git
+
+## Local Development
+
+- **Project folder:** `C:\Users\ROG\Documents\Pacific Erectors\PEItools.com`
+- **Start local server:** double-click `run_local.bat` → http://localhost:5000
+- **Editor:** VS Code — open project folder, Ctrl+S to save, browser auto-reloads
+- **Deploy to live:** run `deploy_quick.bat` in CMD (one password prompt, ~15 seconds)
+- **Full rebuild deploy:** `deploy.bat` (only needed when requirements.txt or Dockerfile changes)
+- **Test OCR engine locally:** `python test_engine.py "path/to/blueprint.pdf" --pages 1-5`
+
+## Tools Built
+
+1. **Fab Sheet Editor** (`/sheet_editor`) — PDF markup tool for annotating fab sheets before sending to KPS
+2. **Panel Sheet Extractor** (`/sheet_extractor`) — Reads DXF files, extracts panel/sheet mappings, exports CSV
+3. **Field Compass** (`/field-compass`) — iPad/mobile tool that overlays compass on blueprint PDFs so foremen can orient blueprints to the building
+4. **Blueprint Viewer** (`/blueprints`) — Browse all jobs and their files (blueprints, packing lists, fab sheets), create shareable links
+5. **Blueprint Hyperlinks** (`/blueprint/hyperlinks`) — Processes KPS blueprint PDFs to add clickable orange hyperlinks on callout circles (N/Dx symbols), linking to the correct detail page. Includes a full in-browser PDF editor.
+6. **Admin** (`/admin`) — Upload and manage files per job
 
 ## Jobs Folder Structure
 
-Each job has subfolders: `Cad File/`, `Blueprints/`, `Packing List/`, and (when available) `Fab Sheets/`.
+Server: `/var/www/pei-jobs/<Job Name>/`
+```
+Blueprints/           <- PDF blueprints (may include linked versions)
+Blueprints/Old Versions/  <- Archived originals replaced by Publish Prints
+Packing Lists/        <- KPS packing list PDFs
+Fab Sheets/           <- Fab sheet PDFs
+DXF CAD FILE/         <- DXF and DWG CAD files
+```
 
-Current jobs and their status:
-- **Equinix**: CAD files only — no blueprints or packing lists yet
-- **Modesto Courthouse**: CAD files, 1 blueprint PDF, 8 packing list PDFs (Shipments 2–9)
-- **SFPUC Bldg 600**: 1 blueprint PDF, 2 packing list PDFs (Shipments 9–10)
-- **SFPUC Bldg 615**: 1 blueprint PDF, 2 packing list PDFs (Shipments 8, 11)
-- **UCSF Parnassus**: 3 blueprint PDFs (MCM, Formed Metal, Fiber Cement panel types), 1 CAD file
-- **Workday**: 1 blueprint PDF, 6 packing list PDFs (Shipments 1–6)
+## Current Jobs on Server
+- Equinix
+- Modesto Courthouse
+- SFPUC Bldg 600
+- SFPUC Bldg 615
+- UCSF Parnassus
+- Vantage Data Center NV11
+- Workday
 
-Files are still being uploaded — some jobs are incomplete.
+## Key Technical Notes
+
+- KPS blueprint callout circles: bisected circles with format N/Dx (e.g., 1/D5) — top half = detail number (1–9), bottom half = D-page reference (D1–D23)
+- Blueprint Hyperlinks OCR engine: detects circles geometrically, OCRs bottom half only (speed-first approach), links to D-pages detected by largest-font text scan
+- Field Compass pins: placed using inverse transform math (rotation + scale + pan) so pins stay fixed to document coordinates at any zoom/rotate/pan
+- TEMPLATES_AUTO_RELOAD=True: template changes show on browser refresh without Flask restart
+- deploy_quick.bat uses `docker cp` to copy files directly into running container (no Docker rebuild)
+- All job files live on Docker volume `/var/www/pei-jobs` — persist across deploys, NOT in git

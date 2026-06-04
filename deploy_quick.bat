@@ -1,27 +1,14 @@
 @echo off
 echo ============================================
-echo  PEI Tools - Quick Deploy (code only)
-echo  Use this for: app.py, templates, static,
-echo  BlueprintLinker changes (no new packages)
-echo.
-echo  Use deploy.bat instead if you changed:
-echo  requirements.txt or Dockerfile
+echo  PEI Tools - Quick Deploy
+echo  Enter password once when prompted
 echo ============================================
 echo.
 
-set SERVER=root@93.188.160.121
-set REMOTE=/var/www/panelmapper
+cd /d "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com"
 
-echo === Copying files to server ===
-scp "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com\app.py" %SERVER%:%REMOTE%/
-scp -r "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com\templates" %SERVER%:%REMOTE%/
-scp -r "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com\static" %SERVER%:%REMOTE%/
-scp -r "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com\BlueprintLinker" %SERVER%:%REMOTE%/
+echo === Sending files and deploying (enter password once) ===
+tar -czf - app.py packing_list_engine.py templates static BlueprintLinker | ssh root@93.188.160.121 "tar -xzf - -C /var/www/panelmapper && docker cp /var/www/panelmapper/app.py panelmapper:/app/app.py && docker cp /var/www/panelmapper/packing_list_engine.py panelmapper:/app/packing_list_engine.py && docker cp /var/www/panelmapper/templates panelmapper:/app/ && docker cp /var/www/panelmapper/static panelmapper:/app/ && docker cp /var/www/panelmapper/BlueprintLinker panelmapper:/app/ && (docker exec panelmapper sh -c 'kill -HUP 1' 2>/dev/null || docker restart panelmapper) && echo Done"
 
 echo.
-echo === Reloading server (no Docker rebuild) ===
-ssh %SERVER% "docker exec panelmapper kill -HUP 1"
-
-echo.
-echo === Done! Check peitools.com ===
-echo (Reload usually takes 3-5 seconds)
+echo === Check peitools.com ===

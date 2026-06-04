@@ -3,3 +3,4 @@ gunicorn
 pymupdf
 pytesseract
 Pillow
+ezdxf

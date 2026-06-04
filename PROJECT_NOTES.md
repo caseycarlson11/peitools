@@ -20,69 +20,74 @@ URL: **https://peitools.com**
 | Code location | `/var/www/panelmapper/` |
 | GitHub repo | https://github.com/caseycarlson11/peitools.git |
 
+### Nginx config
+- Proxy timeouts set to 300s (required for Blueprint Hyperlinks OCR processing)
+- Config at `/etc/nginx/sites-enabled/panelmapper`
+
 ### Key server commands
 ```bash
-# View logs
 docker logs panelmapper --tail 30
-
-# Restart container (preserves volume)
 docker stop panelmapper; docker rm panelmapper
 docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs panelmapper
-
-# Force rebuild (no cache)
-cd /var/www/panelmapper && git pull
-docker build --no-cache -t panelmapper .
-docker stop panelmapper; docker rm panelmapper
-docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs panelmapper
-
-# Check uploaded files
-find /var/www/pei-jobs -name "*.pdf" | head -20
-ls /var/www/pei-jobs/
 ```
 
 ---
 
-## Local Setup
+## Local Development Setup
 
 | Item | Value |
 |------|-------|
 | Project folder | `C:\Users\ROG\Documents\Pacific Erectors\PEItools.com` |
 | Git working copy | `C:\temp\peitools` (no spaces — required for git) |
-| Deploy script | `C:\temp\peitools\deploy.bat` |
+| Local server | `run_local.bat` → http://localhost:5000 |
+| Editor | VS Code |
+| Tesseract | v5.5.0 (required for Blueprint Hyperlinks OCR and Packing List Tracker) |
 
-### Deploy command (run from CMD)
-```
-C:\temp\peitools\deploy.bat
-```
-This does: robocopy → git push → server git pull → docker rebuild.
+### Deploy scripts
 
-**Important:** The `Jobs/` folder is excluded from robocopy/git. Uploaded files live only on the server volume.
+**`deploy_quick.bat`** — use this 99% of the time
+- Copies: `app.py`, `packing_list_engine.py`, `templates/`, `static/`, `BlueprintLinker/`
+- Falls back to `docker restart` if container was stopped
+- Takes ~15 seconds, one password prompt
+
+**`deploy.bat`** — only when requirements.txt or Dockerfile changes (full rebuild ~5 min)
 
 ---
 
 ## File Structure
 ```
 PEItools.com/
-├── app.py                    # Flask routes (main backend)
-├── requirements.txt          # flask, gunicorn
-├── Dockerfile
-├── deploy.bat                # Deploy script (CMD)
-├── deploy.ps1                # Deploy script (PowerShell)
+├── app.py                         # Flask routes (main backend)
+├── packing_list_engine.py         # Packing List Tracker engine (OCR + PDF annotation)
+├── requirements.txt               # flask, gunicorn, pymupdf, pytesseract, pillow
+├── Dockerfile                     # Includes tesseract-ocr install
+├── run_local.bat
+├── deploy_quick.bat               # Fast deploy — now includes packing_list_engine.py
+├── deploy.bat
 ├── static/
-│   ├── bg.jpg                # Background image
-│   ├── logo.jpg              # PEI logo
-│   ├── favicon.png
-│   └── favicon.ico
-└── templates/
-    ├── index.html            # Landing page
-    ├── login.html            # Login page
-    ├── blueprints.html       # Blueprint viewer
-    ├── field_compass.html    # Field Compass app (iOS + Android)
-    ├── compass_share.html    # Public shared Field Compass view
-    ├── admin.html            # Admin upload page
-    ├── share_view.html       # Public shared job folder view
-    ├── sheet_editor.html     # Fab Sheet Editor
-    └── panel_sheet_mapper.html  # Panel Sheet Extractor
+│   ├── bg.jpg                     # Background image (used on all pages via base.html)
+│   ├── logo.jpg                   # PEI logo (home link on all tool pages)
+│   ├── favicon.png / favicon.ico
+│   └── editmode.js
+├── templates/
+│   ├── base.html                  # BASE TEMPLATE — all new pages extend this
+│   ├── index.html                 # Landing page
+│   ├── login.html
+│   ├── blueprints.html
+│   ├── field_compass.html
+│   ├── compass_share.html
+│   ├── admin.html
+│   ├── share_view.html
+│   ├── sheet_editor.html
+│   ├── panel_sheet_mapper.html
+│   ├── packing_list_tracker.html  # Packing List Tracker (extends base.html)
+│   ├── blueprint_hyperlinks.html
+│   └── blueprint_hyperlinks_editor.html
+└── BlueprintLinker/
+    ├── callout_engine.py
+    ├── callout_engine_v1_backup.py
+    ├── build_final.py
+    └── run_detection.py
 ```
 
 ---
@@ -99,14 +104,18 @@ PEItools.com/
 | `/blueprints` | Blueprint viewer (jobs + files) | Login required |
 | `/field-compass` | Field Compass with PDF viewer | Login required |
 | `/admin` | Upload/manage files (password: PEI2024) | Login required |
-| `/share/<token>` | Shared job folder — all file types | Public |
-| `/compass/<token>` | Shared Field Compass — blueprints only | Public |
+| `/blueprint/hyperlinks` | Blueprint Hyperlinks tool | Login required |
+| `/packing-list-tracker` | Packing List Tracker | Login required |
+| `/api/packing-list/upload/<job>` | Upload & process a packing list PDF | Login required |
+| `/api/packing-list/process-file/<job>` | Process a server-side packing list by filename | Login required |
+| `/api/packing-list/status/<job>` | Poll processing status + per-shipment delivery stats | Login required |
+| `/api/packing-list/download/<job>` | Download tracked blueprint PDF | Login required |
+| `/api/packing-list/publish/<job>` | Copy tracked PDF to Blueprints folder (numbered prefix) | Login required |
+| `/api/packing-list/reset/<job>` | Clear delivery state for a job | Login required |
+| `/share/<token>` | Shared job folder | Public |
+| `/compass/<token>` | Shared Field Compass | Public |
 | `/api/jobs` | List all jobs | Public |
 | `/api/jobs/<job>` | List files for a job (by category) | Public |
-| `/api/jobs/<job>/all-files` | List all files for a job | Public |
-| `/api/jobs/<job>/dxf-files` | List DXF files for a job | Public |
-| `/api/share` | Create/manage job folder share links | Login required |
-| `/api/compass-share` | Create/manage compass share links | Login required |
 | `/files/<path>` | Serve a job file | Login required |
 | `/cad-files/<path>` | Serve a DXF/CAD file | Login required |
 
@@ -114,7 +123,7 @@ PEItools.com/
 
 ## Authentication
 
-- **Site login:** Email + password (see user list below)
+- **Site login:** Email + password
 - **Admin panel password:** `PEI2024`
 - **Session:** Flask cookie-based, secret key = `"pei-tools-secret-2024"`
 
@@ -156,16 +165,20 @@ PEItools.com/
 
 ## Jobs & File Storage
 
-Jobs are stored on the server at `/var/www/pei-jobs/` (Docker volume). Each new job gets these folders automatically:
 ```
 /var/www/pei-jobs/
   <Job Name>/
-    Blueprints/       ← PDF blueprints
-    Packing Lists/    ← KPS packing list PDFs
-    Fab Sheets/       ← Fab sheet PDFs
-    DXF CAD FILE/     ← DXF and DWG CAD files
-  .shares.json              ← Active job folder share links
-  .compass_shares.json      ← Active Field Compass share links
+    Blueprints/
+    Packing Lists/
+    Fab Sheets/
+    DXF CAD FILE/
+    Blueprints/Old Versions/
+    Delivery Tracking/        <- Auto-created by Packing List Tracker
+      delivery_state.json         Cumulative panel→skid/shipment map
+      panel_locations.json        Cached blueprint OCR panel positions (delete to force rescan)
+      tracked_blueprint.pdf       Current annotated output PDF
+  .shares.json
+  .compass_shares.json
 ```
 
 ### Current jobs on server
@@ -177,151 +190,123 @@ Jobs are stored on the server at `/var/www/pei-jobs/` (Docker volume). Each new 
 - Vantage Data Center NV11
 - Workday
 
-**Files persist across code deploys** because `/var/www/pei-jobs` is a Docker volume. They are NOT in git. To back up: `scp -r root@93.188.160.121:/var/www/pei-jobs/ ./backup-jobs/`
+---
+
+## Base Template (base.html)
+
+All new tool pages must extend `base.html`:
+
+```html
+{% extends "base.html" %}
+{% block title %}My Tool{% endblock %}
+{% block extra_style %}/* page CSS */{% endblock %}
+{% block content %}<!-- page HTML -->{% endblock %}
+{% block scripts %}// page JS{% endblock %}
+```
+
+**Provided automatically:**
+- bg.jpg background + dark overlay (matches home page)
+- Semi-transparent sticky header — logo links home, right slot for nav buttons
+- CSS variables: `--bg`, `--surface`, `--card`, `--border`, `--text`, `--text2`, `--blue`, `--green`, `--green2`, `--red`, `--accent`
+- Cards, inputs, buttons (`.btn-primary`, `.btn-green`, `.btn-subtle`, `.btn-danger`), alerts, progress bar
 
 ---
 
-## Share Links
+## Packing List Tracker
 
-Two separate share systems, each with one active link per job:
-
-**Job Folder Share** — stored in `.shares.json`
-Generated from Blueprint Viewer → select job → 🔗 Share Job
-Format: `https://peitools.com/share/<token>`
-Shows all Blueprints, Packing Lists, and Fab Sheets. No login required.
-
-**Field Compass Share** — stored in `.compass_shares.json`
-Generated from Field Compass → select job → 🔗 Share Field Compass
-Format: `https://peitools.com/compass/<token>`
-Opens the full Field Compass app with that job's blueprints. No login required.
-
----
-
-## Tool Notes
-
-### Field Compass
-- Works on iOS (Safari) and Android (Chrome)
-- iOS requires motion permission prompt — granted on first double-tap
-- Uses `deviceorientation` event for rotation tracking (relative delta from lock point)
-- Orientation events throttled via `requestAnimationFrame` to prevent Android Chrome crash
-- Canvas freed on exit to prevent memory leak
-- Re-renders at higher resolution after pinch zoom settles (600ms debounce)
-- Android: max canvas 3MP / 2048px. iOS: max canvas 6MP / 4096px
-
-### Fab Sheet Editor
-- Default label size: 22px, max 40px
-- Supports save/load session (.kpssession files)
-- Can load Fab Sheets directly from server job folders
-- Export: marked pages only or all pages
-
-### Panel Sheet Mapper (Sheet Extractor)
-- Reads DXF files, looks for layer named exactly `PANELS`
-- Can load DXF files directly from `DXF CAD FILE/` folder on server
-- Export to CSV (Excel-compatible) or copy to clipboard for Google Sheets
-
-### Blueprint Viewer
-- Sidebar shows "Active Jobs"
-- Per-job share links (folder view, no login required)
-- Full-screen PDF viewer with zoom
-
-### Admin Page
-- Password: `PEI2024` (separate from user login)
-- Upload categories: Blueprints, Packing Lists, Fab Sheets, DXF CAD FILE
-- Accepts: PDF, images (.png/.jpg etc.), .dxf, .dwg
-
----
-
-## Blueprint Callout Linker (PDF Tool)
-
-A standalone Python tool that reads a KPS blueprint PDF, detects all section detail callout circles (the `N/Dx` symbols — circle bisected by a horizontal line), and produces a new PDF with clickable orange-highlighted links that jump to the correct detail drawing.
+Processes KPS packing list PDFs and annotates the job blueprint with colored highlights per shipment.
 
 ### How it works
-1. Uses PyMuPDF `get_drawings()` to detect callout circles by shape (circular arc + bisecting line)
-2. Renders each circle at high resolution and OCRs the top half (detail number 1–9) and bottom half (D-page D1–D23)
-3. Handles `-90°` rotated callouts (vertical bisecting line) by rotating the crop before OCR
-4. Optionally applies a manual correction list for any circles OCR can't read reliably
-5. Saves a new PDF with semi-transparent orange rectangles + embedded GoTo links
+1. Select job → packing lists from `Packing Lists/` folder appear as checkboxes
+2. Select one or more (or upload a new one) → click Process
+3. Each list is parsed and added cumulatively — previous shipment data is preserved
+4. Download or Publish the annotated blueprint
 
-### Key files (stored in Cowork session outputs folder)
-| File | Purpose |
-|------|---------|
-| `callout_engine.py` | Reusable detection/OCR engine (works on any KPS blueprint) |
-| `run_detection.py` | Batch processing script — runs engine page-by-page, saves to JSON |
-| `build_final.py` | Builds the output PDF from JSON + applies manual corrections |
-| `callouts_v2.json` | Cached OCR results for Modesto Courthouse (v2) |
-| `Modesto_Linked3.pdf` | Final output — 267 clickable callout links, orange highlights |
+### Color coding
+- Each shipment gets a distinct color: green, yellow, cyan, orange, magenta, teal, purple, red
+- Colors used in: blueprint highlights, table row swatches, UI shipment stat cards, file list badges
+- Palette defined in `packing_list_engine.py → _SHIPMENT_COLORS` and `packing_list_tracker.html → SHIP_COLORS[]`
 
-### Workflow for a new blueprint
-1. Copy `callout_engine.py`, `run_detection.py`, `build_final.py` to the session outputs folder
-2. Update `PDF` path in both scripts to point to the new blueprint PDF
-3. Run `run_detection.py` in batches (e.g. pages 0–5, 5–10, etc.) — saves to `callouts_v2.json`
-4. Review results — note any missed callouts per page
-5. Update `CORRECTIONS` dict in `build_final.py` with missed callouts
-6. Run `build_final.py` to produce the final linked PDF
+### Blueprint annotation (packing_list_engine.py)
+- Packing lists: rendered at 300dpi, cropped into 4 quadrants (2×2 = 4 skids/page), OCR'd with tesseract `--psm 6`
+- Blueprint: rendered at 300dpi with tesseract hOCR for word-level bounding boxes
+- Panel label filter: height 4–9pt, y > 8% from top, x < 82% (excludes title block)
+- Isolated small numbers (1–9) filtered if no panel neighbors within 200pt
+- Panel locations cached to `panel_locations.json` — delete to force rescan after blueprint update
+- Output table titled "DELIVERED", top-right corner, auto-sized columns, 2-column layout for large counts, legend strip at bottom
 
-### Known OCR challenges
-- Thin-stroke CAD fonts — OCR requires morphological dilation + 15× effective scale
-- `D1` can appear as `D11` (top digit bleeds through midline) — fixed by blanking 10px at midline
-- `D10–D23` parsed correctly by trying 2-digit match first, then 1-digit
-- Digit `2` sometimes misread as `4` or `9` — two OCR config passes help
-- Callouts rotated −90° detected via vertical bisecting line instead of horizontal
-- Circle size range: 28–70pt. Pages with very large/small symbols may need range adjustment
-- PDF must be rendered at SCALE=3 (base) × 5 (upscale) = 15× for reliable OCR
+### Publish
+- Copies tracked PDF to Blueprints folder as `N - <Job> Delivery Tracked.pdf`
+- N = lowest unused integer prefix starting at 1
 
-### Manual correction list (Modesto Courthouse v2 — 267 total links)
-Corrections applied to pages: 2.3, 2.4, 2.5, 2.6, 2.7, 2.8, 2.9, 2.10, 2.11, 3.5, 3.6, 3.7, 3.9, 3.10, 3.12, 3.13, 3.14, 3.15, 3.16, 3.17, 4.1, 4.2 (44 corrections added on top of 223 automated)
+### API status response shape
+```json
+{
+  "total_panels": 78,
+  "total_skids": ["7","8","9","10"],
+  "shipments": [
+    {"label": "Shipment #2", "count": 78, "skids": ["7","8","9","10"], "color_index": 0}
+  ],
+  "file_colors": {"Modesto Shipment #2 6.19.23 Shop": 0},
+  "has_output": true
+}
+```
+
+---
+
+## Blueprint Hyperlinks Tool
+
+Adds clickable hyperlinks to callout circles on KPS blueprint PDFs.
+
+### Callout Engine (`BlueprintLinker/callout_engine.py`)
+- v5 — detects bisected circles geometrically, OCRs bottom half only
+- Circle size 28–70pt, requires 2+ curve items + bisecting line
+- In-memory job store (`_hl_jobs`) — lost on server restart
+- Polling: `/blueprint/hyperlinks/status/<job_id>` every 3s
 
 ---
 
 ## Known Issues / Notes
 
-1. **File listing APIs** (`/api/jobs`, `/api/jobs/<job>`, `/api/jobs/<job>/all-files`, `/api/jobs/<job>/dxf-files`) do NOT require login — intentional to avoid session issues. File content endpoints (`/files/`, `/cad-files/`) ARE login-protected.
-
-2. **Deploy wipes container** but the volume persists. Never use `docker volume rm` on the server.
-
-3. **The `Jobs/` folder** in the local project is excluded from git and deploy (via robocopy `/XD Jobs`). Always use the admin page to upload files.
-
-4. **Session secret key** is hardcoded as `"pei-tools-secret-2024"` — changing this logs everyone out.
-
-5. **Admin password** (`PEI2024`) is separate from user login passwords.
-
-6. **Existing jobs** created before the `DXF CAD FILE` folder was added will not have that subfolder. Create it manually via admin or SSH if needed.
+1. **deploy_quick.bat** falls back to `docker restart` if container is stopped — prevents silent deploy failures.
+2. **Packing List Tracker panel scan** is cached — delete `panel_locations.json` in Delivery Tracking to rescan after blueprint changes.
+3. **File listing APIs** (`/api/jobs`, `/api/jobs/<job>`) do NOT require login — intentional.
+4. **Blueprint Hyperlinks job store** is in-memory — jobs lost on server restart.
+5. **Session secret key** hardcoded as `"pei-tools-secret-2024"` — changing it logs everyone out.
+6. **TEMPLATES_AUTO_RELOAD = True** — template changes show on refresh without Flask restart.
+7. **Jobs folder** excluded from git — always upload files via /admin.
 
 ---
 
 ## Nginx Config
 
-Two configs in `/etc/nginx/sites-enabled/`:
-- `panelmapper` — handles `peitools.com` on HTTPS (443), proxies to `127.0.0.1:5000`
-- `myapp` — handles direct IP access on port 80, proxies to `127.0.0.1:5000`
-
-SSL certificates managed by Certbot for `peitools.com`.
+```nginx
+server {
+    server_name peitools.com www.peitools.com;
+    client_max_body_size 100M;
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_read_timeout 300;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 300;
+    }
+    listen 443 ssl; # managed by Certbot
+}
+```
 
 ---
 
 ## Restoring from Scratch
 
-If the server is wiped:
 ```bash
-# 1. SSH into new server
 ssh root@<new-ip>
-
-# 2. Install Docker and Nginx
-apt update && apt install -y docker.io nginx certbot python3-certbot-nginx
-
-# 3. Clone repo
+apt update && apt install -y docker.io nginx certbot python3-certbot-nginx tesseract-ocr
 git clone https://github.com/caseycarlson11/peitools.git /var/www/panelmapper
-
-# 4. Create jobs folder
 mkdir -p /var/www/pei-jobs
-
-# 5. Build and run
 cd /var/www/panelmapper
 docker build -t panelmapper .
 docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs panelmapper
-
-# 6. Configure nginx and SSL
-# (copy panelmapper nginx config, run certbot)
-
-# 7. Re-upload all job files via /admin
+# Configure nginx, run certbot, re-upload job files via /admin
 ```

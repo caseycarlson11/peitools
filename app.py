@@ -1,5 +1,4 @@
-from flask import Flask, send_from_directory, send_file, render_template, request, jsonify, session, abort, redirect, url_for, g
-from flask import template_rendered
+from flask import Flask, send_from_directory, send_file, render_template, request, jsonify, session, abort, redirect, url_for
 from werkzeug.security import generate_password_hash, check_password_hash
 from functools import wraps
 import os, re, sys, io, tempfile
@@ -9,30 +8,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'BlueprintLinker'))
 
 app = Flask(__name__)
 app.secret_key = "pei-tools-secret-2024"
+app.config['TEMPLATES_AUTO_RELOAD'] = True
 
-# ── Track which template was rendered (for edit mode injection) ──
-@template_rendered.connect_via(app)
-def _track_template(sender, template, context, **extra):
-    g._rendered_template = template.name
-
-# ── Auto-inject editmode.js into every HTML page on localhost ──
-@app.after_request
-def inject_editmode(response):
-    if not app.debug:
-        return response
-    if not response.content_type.startswith('text/html'):
-        return response
-    content = response.get_data(as_text=True)
-    if 'editmode.js' in content:
-        return response  # already included manually
-    template_name = getattr(g, '_rendered_template', '')
-    # Inject data-template directly into the <body> tag (available immediately)
-    if template_name and 'data-template' not in content:
-        content = re.sub(r'<body([^>]*?)>', f'<body data-template="{template_name}"\\1>', content, count=1)
-    # Inject the script before </body>
-    content = content.replace('</body>', '  <script src="/static/editmode.js"></script>\n</body>', 1)
-    response.set_data(content)
-    return response
 
 # ── Jobs folder (persisted via Docker volume) ────────────────
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "jobs")
@@ -959,65 +936,212 @@ def blueprint_hyperlinks_publish(job_id):
         return jsonify({"error": str(e)}), 500
 
 
-@app.route("/admin/deploy", methods=["POST"])
-@login_required
-def admin_deploy():
-    """Run deploy_quick: copy files to server and reload gunicorn."""
-    import subprocess
-    deploy_script = os.path.join(os.path.dirname(__file__), "deploy_quick.bat")
-    if not os.path.isfile(deploy_script):
-        return jsonify({"error": "deploy_quick.bat not found"}), 404
+
+
+
+
+# ── Packing List Tracker ──────────────────────────────────────────────────────
+import threading as _threading
+import json as _json
+
+_pl_jobs      = {}
+_pl_jobs_lock = _threading.Lock()
+
+def _pl_tracking_dir(job_name):  return safe_join(job_name, "Delivery Tracking")
+def _pl_dxf_dir(job_name):
+    d = safe_join(job_name, "DXF CAD FILE")
+    return d if os.path.isdir(d) else None
+def _pl_state_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "delivery_state.json")
+def _pl_cache_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "panel_locations.json")
+def _pl_output_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "tracked_blueprint.pdf")
+
+def _find_blueprint(job_name):
+    bp_dir = safe_join(job_name, "Blueprints")
+    if os.path.isdir(bp_dir):
+        for f in sorted(os.listdir(bp_dir)):
+            if f.lower().endswith(".pdf") and "Old Versions" not in f and "Delivery Tracked" not in f:
+                return os.path.join(bp_dir, f)
+    return None
+
+def _run_pl_job(job_name, packing_list_path, shipment_label):
     try:
-        result = subprocess.run(
-            ["cmd.exe", "/c", deploy_script],
-            capture_output=True, text=True, timeout=60,
-            cwd=os.path.dirname(__file__)
-        )
-        if result.returncode != 0:
-            return jsonify({"error": result.stderr or result.stdout}), 500
-        return jsonify({"message": "Deployed to peitools.com"})
-    except subprocess.TimeoutExpired:
-        return jsonify({"error": "Deploy timed out after 60s"}), 500
+        from packing_list_engine import parse_packing_list, scan_blueprint_panels, generate_tracked_blueprint
+        os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+
+        delivery_state = {}
+        if os.path.exists(_pl_state_path(job_name)):
+            with open(_pl_state_path(job_name)) as f:
+                delivery_state = _json.load(f)
+
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({"message": "Parsing packing list...", "progress": 10})
+
+        panels_added = 0
+        parsed, parse_warnings = parse_packing_list(packing_list_path)
+        with _pl_jobs_lock:
+            skid_count = len(parsed)
+            raw_panels = sum(len(v) for v in parsed.values())
+            _pl_jobs[job_name].update({"message": f"Parsed {raw_panels} panels across {skid_count} skids…", "progress": 15})
+
+        for skid_num, panels in parsed.items():
+            for p in panels:
+                if p not in delivery_state:
+                    delivery_state[p] = {"skid": skid_num, "shipment": shipment_label}
+                    panels_added += 1
+
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({"message": f"Added {panels_added} new panels — scanning blueprint…", "progress": 18})
+
+        with open(_pl_state_path(job_name), "w") as f:
+            _json.dump(delivery_state, f)
+
+        blueprint_path = _find_blueprint(job_name)
+        if not blueprint_path:
+            raise FileNotFoundError("No blueprint PDF found for this job.")
+
+        def progress_cb(pg, total):
+            with _pl_jobs_lock:
+                _pl_jobs[job_name].update({
+                    "progress": 20 + int(60 * pg / max(total, 1)),
+                    "message": f"Scanning blueprint page {pg+1}/{total}..."
+                })
+
+        dxf_dir = _pl_dxf_dir(job_name)
+        panel_locations = scan_blueprint_panels(blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
+
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
+
+        generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
+
+        located = sum(1 for p in delivery_state if p in panel_locations)
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({
+                "status": "done", "progress": 100,
+                "message": f"Complete — {panels_added} new panels added, {located} located on blueprint",
+                "panels_added": panels_added, "total_panels": len(delivery_state),
+                "warnings": parse_warnings,
+                "located": located,
+                "skids": sorted(set(v["skid"] for v in delivery_state.values()), key=lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))),
+            })
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({"status": "error", "message": str(e)})
 
 
-@app.route("/admin/save-page-edits", methods=["POST"])
+@app.route("/packing-list-tracker")
 @login_required
-def save_page_edits():
-    """Visual editor: save full page HTML back to the template file."""
-    data      = request.get_json() or {}
-    template  = data.get("template", "").strip()
-    full_html = data.get("full_html", "").strip()
+def packing_list_tracker():
+    return render_template("packing_list_tracker.html")
 
-    if not template:
-        return jsonify({"error": "No template specified"}), 400
 
-    # Safety: only allow templates directory, no path traversal
-    templates_dir = os.path.realpath(os.path.join(os.path.dirname(__file__), "templates"))
-    template_path = os.path.realpath(os.path.join(templates_dir, template))
-    if not template_path.startswith(templates_dir):
-        return jsonify({"error": "Invalid template path"}), 403
-    if not os.path.isfile(template_path):
-        return jsonify({"error": f"Template not found: {template}"}), 404
+@app.route("/api/packing-list/upload/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_upload(job_name):
+    if "file" not in request.files:
+        return jsonify({"error": "No file"}), 400
+    f = request.files["file"]
+    if not f.filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Must be a PDF"}), 400
+    os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+    label     = request.form.get("label", f.filename.replace(".pdf", ""))
+    save_path = os.path.join(_pl_tracking_dir(job_name), "upload_" + f.filename)
+    f.save(save_path)
+    with _pl_jobs_lock:
+        _pl_jobs[job_name] = {"status": "processing", "progress": 0, "message": "Starting..."}
+    _threading.Thread(target=_run_pl_job, args=(job_name, save_path, label), daemon=True).start()
+    return jsonify({"ok": True})
 
-    if not full_html:
-        return jsonify({"error": "No HTML received"}), 400
 
-    try:
-        # Back up original before overwriting
-        with open(template_path, "r", encoding="utf-8") as f:
-            original = f.read()
-        with open(template_path + ".bak", "w", encoding="utf-8") as f:
-            f.write(original)
-        # Write new HTML
-        with open(template_path, "w", encoding="utf-8") as f:
-            f.write(full_html)
-        return jsonify({"ok": True, "updated": 1})
-    except Exception as e:
-        return jsonify({"error": f"{type(e).__name__}: {e}"}), 500
+@app.route("/api/packing-list/process-file/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_process_file(job_name):
+    data     = request.get_json(silent=True) or {}
+    filename = data.get("filename", "").strip()
+    if not filename or not filename.lower().endswith(".pdf"):
+        return jsonify({"error": "Invalid filename"}), 400
+    pl_path = safe_join(job_name, "Packing Lists", filename)
+    if not os.path.isfile(pl_path):
+        return jsonify({"error": f"File not found: {filename}"}), 404
+    label = data.get("label") or filename.replace(".pdf", "")
+    with _pl_jobs_lock:
+        _pl_jobs[job_name] = {"status": "processing", "progress": 0, "message": "Starting..."}
+    _threading.Thread(target=_run_pl_job, args=(job_name, pl_path, label), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/packing-list/status/<path:job_name>")
+@login_required
+def packing_list_status(job_name):
+    with _pl_jobs_lock:
+        job = dict(_pl_jobs.get(job_name, {}))
+    if os.path.exists(_pl_state_path(job_name)):
+        with open(_pl_state_path(job_name)) as f:
+            state = _json.load(f)
+
+        # Build per-shipment stats preserving insertion order (= color index order)
+        shipment_info = {}   # label -> {count, skids, color_index}
+        for info in state.values():
+            s = info.get("shipment", "Unknown")
+            if s not in shipment_info:
+                shipment_info[s] = {"count": 0, "skids": set(), "color_index": len(shipment_info)}
+            shipment_info[s]["count"] += 1
+            shipment_info[s]["skids"].add(info.get("skid", ""))
+
+        job["total_panels"] = len(state)
+        _sk = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
+        job["total_skids"]  = sorted(set(v["skid"] for v in state.values()), key=_sk)
+        job["shipments"]    = [
+            {"label": k, "count": v["count"],
+             "skids": sorted(v["skids"], key=_sk),
+             "color_index": v["color_index"]}
+            for k, v in shipment_info.items()
+        ]
+        # Map filename -> color_index so the UI can highlight file items
+        job["file_colors"]  = {
+            s: v["color_index"] for s, v in shipment_info.items()
+        }
+    job["has_output"] = os.path.exists(_pl_output_path(job_name))
+    return jsonify(job)
+
+
+@app.route("/api/packing-list/download/<path:job_name>")
+@login_required
+def packing_list_download(job_name):
+    output_path = _pl_output_path(job_name)
+    if not os.path.exists(output_path):
+        return jsonify({"error": "No tracked blueprint yet"}), 404
+    return send_file(output_path, mimetype="application/pdf",
+                     as_attachment=False,
+                     download_name=f"{job_name}_delivery_tracked.pdf")
+
+
+@app.route("/api/packing-list/publish/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_publish(job_name):
+    output_path = _pl_output_path(job_name)
+    if not os.path.exists(output_path):
+        return jsonify({"error": "No tracked blueprint to publish"}), 404
+    bp_dir = safe_join(job_name, "Blueprints")
+    os.makedirs(bp_dir, exist_ok=True)
+    used = {int(re.match(r'^(\d+)\s*-', fn).group(1))
+            for fn in os.listdir(bp_dir) if re.match(r'^(\d+)\s*-', fn)}
+    n = 1
+    while n in used: n += 1
+    dest = os.path.join(bp_dir, f"{n} - {job_name} Delivery Tracked.pdf")
+    import shutil; shutil.copy2(output_path, dest)
+    return jsonify({"ok": True, "filename": os.path.basename(dest), "number": n})
+
+
+@app.route("/api/packing-list/reset/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_reset(job_name):
+    for p in [_pl_state_path(job_name), _pl_output_path(job_name)]:
+        if os.path.exists(p): os.unlink(p)
+    with _pl_jobs_lock:
+        _pl_jobs.pop(job_name, None)
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
-    # Local dev: auto-reloads when you save any .py or template file
     app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=True)
