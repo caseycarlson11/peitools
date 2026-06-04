@@ -1007,6 +1007,19 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
                 })
 
         dxf_dir = _pl_dxf_dir(job_name)
+        # Report DXF status before scanning
+        if dxf_dir:
+            try:
+                import ezdxf as _ezdxf_check
+                dxf_status = f"DXF validation active ({os.path.basename(dxf_dir)})"
+            except ImportError:
+                dxf_status = "⚠ DXF validation unavailable — ezdxf not installed (run deploy.bat)"
+                dxf_dir = None
+        else:
+            dxf_status = "⚠ No DXF folder found — panel numbers not validated"
+        with _pl_jobs_lock:
+            _pl_jobs[job_name].update({"message": f"Scanning blueprint… {dxf_status}", "progress": 19})
+
         panel_locations = scan_blueprint_panels(blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
 
         with _pl_jobs_lock:

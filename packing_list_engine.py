@@ -428,14 +428,6 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
 def _sort_key(panel_str):
     m = re.match(r"(\d+)", panel_str)
     return int(m.group(1)) if m else 0
-hy, ox+unit_w, shy+SUBHDR_H),
-                       color=(0.5,0.5,0.5), fill=(0.88,0.88,0.92), width=0.3)
-        page.insert_text((ox+SWATCH_W+PAD, shy+SUBHDR_H-4), "PANEL",
-                         fontsize=HDR_SIZE, color=(0,0,0), fontname="Helvetica-Bold")
-        page.insert_text((ox+SWATCH_W+col_p+PAD, shy+SUBHDR_H-4), "SKID",
-                         fontsize=HDR_SIZE, color=(0,0,0), fontname="Helvetica-Bold")
-        page.draw_line((ox+SWATCH_W+col_p, shy), (ox+SWATCH_W+col_p, ry1-legend_h-2),
-                       color=(0.65,0.65,0.65), width=0.3)
 
     for i, (panel_str, skid_num, shipment, _) in enumerate(panels_sorted):
         dc  = i // rows_per_col

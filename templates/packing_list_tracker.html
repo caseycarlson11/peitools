@@ -138,7 +138,10 @@
 
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
-    <div class="progress-msg" id="progressMsg">Starting…</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+      <div class="progress-msg" id="progressMsg">Starting…</div>
+      <div id="processTimer" style="font-size:.78rem;color:var(--text2);font-variant-numeric:tabular-nums"></div>
+    </div>
   </div>
   <div class="alert alert-success" id="uploadSuccess"></div>
   <div id="warningsWrap"></div>
@@ -477,21 +480,39 @@ function publishBlueprint() {
     }).catch(e=>{btn.disabled=false; btn.textContent='📌 Publish to Blueprints'; showErr(String(e));});
 }
 
+let timerInterval = null;
+let timerStart    = null;
+
 function startProgress() {
   document.getElementById('processBtn').disabled = true;
   document.getElementById('uploadError').classList.remove('show');
   document.getElementById('progressWrap').classList.add('visible');
   document.getElementById('progressFill').style.width = '5%';
   document.getElementById('progressMsg').textContent = 'Starting…';
+  // Start elapsed timer
+  timerStart = Date.now();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - timerStart) / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    document.getElementById('processTimer').textContent = `${m}:${ss} elapsed`;
+  }, 1000);
+}
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  document.getElementById('processTimer').textContent = '';
 }
 function enableBtn() {
   document.getElementById('processBtn').disabled = (selectedServerPLs.length + (selectedFile?1:0)) === 0;
   document.getElementById('progressWrap').classList.remove('visible');
+  stopTimer();
 }
 function showErr(msg) {
   const e = document.getElementById('uploadError');
   e.textContent = '⚠ ' + msg; e.classList.add('show');
   document.getElementById('progressWrap').classList.remove('visible');
+  stopTimer();
 }
 function renderWarnings(warnings) {
   const wrap = document.getElementById('warningsWrap');
