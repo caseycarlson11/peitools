@@ -1148,8 +1148,15 @@ def panel_map_blueprints(job_name):
     bp_dir = safe_join(job_name, "Blueprints")
     files = []
     if os.path.isdir(bp_dir):
-        files = sorted(f for f in os.listdir(bp_dir)
-                       if f.lower().endswith(".pdf") and "Delivery Tracked" not in f)
+        for f in sorted(os.listdir(bp_dir)):
+            if not f.lower().endswith(".pdf") or "Delivery Tracked" in f:
+                continue
+            try:
+                d = datetime.fromtimestamp(os.path.getmtime(os.path.join(bp_dir, f)))
+                date = f"{d.strftime('%b')} {d.day}, {d.year}"
+            except Exception:
+                date = ""
+            files.append({"name": f, "date": date})
     return jsonify({"blueprints": files, "has_dxf": _pl_dxf_dir(job_name) is not None})
 
 
