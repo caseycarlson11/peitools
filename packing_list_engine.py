@@ -692,6 +692,81 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
     return table_cells
 
 
+def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path, progress_cb=None):
+    """Verification view: draw a RED box on every located panel and print the
+    panel number just above each box.
+
+    Used by the Panel Print Mapper tool so a human can eyeball whether the panel
+    locator read each number correctly (the printed label = what the tool thinks
+    the panel number is, sitting right above the panel on the drawing).
+
+    Returns the number of panels drawn.
+    """
+    doc = fitz.open(blueprint_path)
+
+    # group panel locations by page
+    page_panels = {}
+    for panel_str, loc in panel_locations.items():
+        try:
+            pg = int(loc["page"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        page_panels.setdefault(pg, []).append((panel_str, loc["bbox"]))
+
+    RED   = (0.85, 0.10, 0.10)
+    WHITE = (1, 1, 1)
+    drawn = 0
+    total_pages = doc.page_count
+
+    for pg_idx in range(total_pages):
+        if progress_cb:
+            progress_cb(pg_idx, total_pages)
+        if pg_idx not in page_panels:
+            continue
+        page   = doc[pg_idx]
+        ph     = page.rect.height
+
+        for panel_str, bbox in page_panels[pg_idx]:
+            x0, y0, x1, y1 = bbox
+            pad  = 2.0
+            rect = fitz.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
+
+            # Red highlight box (selectable/deletable annotation, faint fill so
+            # the underlying printed number stays readable).
+            annot = page.add_rect_annot(rect)
+            annot.set_colors(stroke=RED, fill=RED)
+            annot.set_opacity(0.22)
+            annot.set_border(width=1.0)
+            annot.set_info(title=f"Panel {panel_str}")
+            annot.update()
+
+            # Number label above the box, on a white chip for legibility.
+            fs    = 7.0
+            label = str(panel_str)
+            try:
+                tw = fitz.get_text_length(label, fontname="helv", fontsize=fs)
+            except Exception:
+                tw = len(label) * fs * 0.55
+            cx   = (x0 + x1) / 2.0
+            lx0  = cx - tw / 2.0 - 1.5
+            lx1  = lx0 + tw + 3.0
+            lh   = fs + 3.0
+            ly1  = rect.y0 - 1.0          # label bottom sits just above the box
+            ly0  = ly1 - lh
+            if ly0 < 2:                   # no room above -> drop label below box
+                ly0 = rect.y1 + 1.0
+                ly1 = ly0 + lh
+            page.draw_rect(fitz.Rect(lx0, ly0, lx1, ly1),
+                           color=RED, fill=WHITE, width=0.5)
+            page.insert_text((lx0 + 1.5, ly1 - 2.5), label,
+                             fontsize=fs, fontname="helv", color=RED)
+            drawn += 1
+
+    doc.save(output_path, garbage=4, deflate=True)
+    doc.close()
+    return drawn
+
+
 def _insert_delivery_table(page, panels, pw, ph, shipment_order):
     if not panels:
         return {}

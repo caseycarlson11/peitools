@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+{% block title %}Panel Print Mapper{% endblock %}
+
+{% block extra_style %}
+    .pm-intro { color:var(--text2); font-size:.86rem; line-height:1.5; margin-bottom:16px; }
+    .pm-field { margin-bottom:14px; }
+    .pm-field label { display:block; color:var(--text2); font-size:.8rem; font-weight:600;
+                      text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
+    .pm-timer { font-size:.78rem; color:var(--text2); font-variant-numeric:tabular-nums; margin-top:6px; }
+    .pm-rescan { display:flex; align-items:center; gap:7px; color:var(--text2); font-size:.8rem;
+                 margin-top:12px; cursor:pointer; }
+    .pm-rescan input { width:15px; height:15px; accent-color:var(--blue); cursor:pointer; }
+    .pm-viewer { width:100%; height:78vh; min-height:480px; border:1px solid var(--border);
+                 border-radius:10px; background:#0d1117; }
+    .pm-legend { display:inline-flex; align-items:center; gap:8px; color:var(--text2);
+                 font-size:.82rem; margin-bottom:10px; }
+    .pm-swatch { width:18px; height:12px; border:1.5px solid #d91a1a;
+                 background:rgba(217,26,26,.22); border-radius:3px; flex-shrink:0; }
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <div class="card-title">Panel Print Mapper</div>
+  <p class="pm-intro">
+    Pick a job and one of its blueprints. Every panel found on the drawing is boxed in
+    <strong style="color:#f85149">red</strong> with its number printed just above it —
+    so you can verify the panel numbers are being read correctly.
+  </p>
+
+  <div class="pm-field">
+    <label for="jobSelect">Job</label>
+    <select id="jobSelect" onchange="onJobChange()">
+      <option value="">Loading jobs…</option>
+    </select>
+  </div>
+
+  <div class="pm-field" id="bpField" style="display:none">
+    <label for="bpSelect">Blueprint</label>
+    <select id="bpSelect" onchange="onBpChange()">
+      <option value="">Select a blueprint…</option>
+    </select>
+  </div>
+
+  <label class="pm-rescan" id="rescanRow" style="display:none">
+    <input type="checkbox" id="rescanChk"> Force a fresh scan (ignore cached panel positions)
+  </label>
+
+  <div class="alert alert-info" id="dxfNotice"></div>
+  <div class="alert alert-error" id="errBox"></div>
+
+  <div class="btn-row">
+    <button class="btn btn-green" id="processBtn" onclick="doProcess()" disabled>⚡ Map Panels</button>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <div class="progress-msg" id="progressMsg">Starting…</div>
+    <div class="pm-timer" id="pmTimer"></div>
+  </div>
+
+  <div class="alert alert-success" id="successBox"></div>
+</div>
+
+<div class="card" id="resultCard" style="display:none">
+  <div class="pm-legend"><span class="pm-swatch"></span> Red box = panel found · number above = how it was read</div>
+  <div class="btn-row" style="margin-top:0;margin-bottom:12px">
+    <a class="btn btn-primary" id="openBtn" href="#" target="_blank">👁 Open in new tab</a>
+    <a class="btn btn-subtle"  id="dlBtn"   href="#" download>⬇ Download</a>
+  </div>
+  <iframe class="pm-viewer" id="pmViewer" title="Panel map"></iframe>
+</div>
+{% endblock %}
+
+{% block scripts %}
+let selectedJob = "";
+let selectedBp  = "";
+let pollTimer   = null;
+let startTime   = 0;
+
+const $ = id => document.getElementById(id);
+
+function showErr(msg){ const e=$('errBox'); e.textContent=msg; e.classList.add('show'); }
+function clearErr(){ $('errBox').classList.remove('show'); }
+
+fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
+  const sel = $('jobSelect');
+  sel.innerHTML = '<option value="">Select a job…</option>';
+  jobs.forEach(j=>{
+    const o=document.createElement('option'); o.value=j; o.textContent=j; sel.appendChild(o);
+  });
+}).catch(()=>showErr('Could not load jobs.'));
+
+function onJobChange(){
+  selectedJob = $('jobSelect').value;
+  selectedBp  = "";
+  clearErr();
+  $('dxfNotice').classList.remove('show');
+  $('bpField').style.display='none';
+  $('rescanRow').style.display='none';
+  $('resultCard').style.display='none';
+  $('successBox').classList.remove('show');
+  $('processBtn').disabled = true;
+  if(!selectedJob) return;
+
+  const bpSel = $('bpSelect');
+  bpSel.innerHTML = '<option value="">Loading blueprints…</option>';
+  $('bpField').style.display='block';
+  fetch('/api/panel-map/blueprints/'+encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(d=>{
+      const files = d.blueprints || [];
+      const notice = $('dxfNotice');
+      if(d.has_dxf===false){
+        notice.innerHTML = '⚠ This job has no <strong>DXF CAD FILE</strong> folder, so panel '
+          + 'numbers can\'t be validated — results rely on OCR alone and may miss or '
+          + 'misread panels. Upload DXF files via <a href="/admin" target="_blank" '
+          + 'style="color:var(--blue)">Admin</a> for accurate mapping.';
+        notice.classList.add('show');
+      } else {
+        notice.classList.remove('show');
+      }
+      if(!files.length){
+        bpSel.innerHTML = '<option value="">No blueprints in this job</option>';
+        return;
+      }
+      bpSel.innerHTML = '<option value="">Select a blueprint…</option>';
+      files.forEach(f=>{
+        const o=document.createElement('option'); o.value=f; o.textContent=f; bpSel.appendChild(o);
+      });
+    }).catch(()=>showErr('Could not load blueprints.'));
+}
+
+function onBpChange(){
+  selectedBp = $('bpSelect').value;
+  clearErr();
+  $('resultCard').style.display='none';
+  $('successBox').classList.remove('show');
+  const ok = !!selectedBp;
+  $('processBtn').disabled = !ok;
+  $('rescanRow').style.display = ok ? 'flex' : 'none';
+}
+
+function doProcess(){
+  if(!selectedJob || !selectedBp) return;
+  clearErr();
+  $('successBox').classList.remove('show');
+  $('resultCard').style.display='none';
+  $('processBtn').disabled = true;
+  $('progressWrap').classList.add('visible');
+  $('progressFill').style.width = '0%';
+  $('progressMsg').textContent = 'Starting…';
+  startTime = Date.now();
+
+  fetch('/api/panel-map/process/'+encodeURIComponent(selectedJob), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked })
+  }).then(r=>r.json()).then(d=>{
+    if(d.error){ failProcess(d.error); return; }
+    pollTimer = setInterval(poll, 1200);
+  }).catch(()=>failProcess('Could not start processing.'));
+}
+
+function poll(){
+  fetch('/api/panel-map/status/'+encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(d=>{
+      if(d.progress!=null) $('progressFill').style.width = d.progress + '%';
+      if(d.message) $('progressMsg').textContent = d.message;
+      const secs = ((Date.now()-startTime)/1000).toFixed(0);
+      $('pmTimer').textContent = secs + 's';
+      if(d.status==='done'){ finishProcess(d); }
+      else if(d.status==='error'){ failProcess(d.message || 'Processing failed.'); }
+    }).catch(()=>{});
+}
+
+function finishProcess(d){
+  clearInterval(pollTimer); pollTimer=null;
+  $('processBtn').disabled = false;
+  setTimeout(()=>$('progressWrap').classList.remove('visible'), 600);
+  const s=$('successBox'); s.textContent = d.message || 'Done.'; s.classList.add('show');
+
+  const url = '/api/panel-map/download/'+encodeURIComponent(selectedJob)
+            + '?blueprint='+encodeURIComponent(selectedBp)+'&t='+Date.now();
+  $('openBtn').href = url;
+  $('dlBtn').href   = url;
+  $('pmViewer').src = url;
+  $('resultCard').style.display='block';
+}
+
+function failProcess(msg){
+  clearInterval(pollTimer); pollTimer=null;
+  $('processBtn').disabled = false;
+  $('progressWrap').classList.remove('visible');
+  showErr(msg);
+}
+{% endblock %}

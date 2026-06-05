@@ -1065,6 +1065,138 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             _pl_jobs[job_name].update({"status": "error", "message": str(e)})
 
 
+# ── Panel Print Mapper ────────────────────────────────────────────────────────
+# Verification tool: render a job's blueprint with every panel boxed in red and
+# its number labeled above, so a human can confirm panels are read correctly.
+
+_pm_jobs = {}                     # job_name -> {status, progress, message, ...}
+_pm_jobs_lock = _threading.Lock()
+
+def _pm_dir(job_name):
+    return safe_join(job_name, "Panel Map")
+
+def _pm_safe(name):
+    base = os.path.splitext(os.path.basename(name))[0]
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", base)[:80]
+
+def _pm_cache_path(job_name, bp_name):
+    return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(bp_name)}.json")
+
+def _pm_output_path(job_name, bp_name):
+    return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")
+
+def _run_pm_job(job_name, bp_name):
+    try:
+        from packing_list_engine import scan_blueprint_panels, generate_panel_map_blueprint
+        os.makedirs(_pm_dir(job_name), exist_ok=True)
+
+        bp_path = safe_join(job_name, "Blueprints", bp_name)
+        if not os.path.isfile(bp_path):
+            raise FileNotFoundError(f"Blueprint not found: {bp_name}")
+
+        dxf_dir = _pl_dxf_dir(job_name)
+        if dxf_dir:
+            try:
+                import ezdxf as _ezdxf_check  # noqa: F401
+                dxf_status = "DXF validation active"
+            except ImportError:
+                dxf_status = "⚠ ezdxf not installed — panels not validated"
+                dxf_dir = None
+        else:
+            dxf_status = "⚠ No DXF folder — panel numbers not validated"
+
+        with _pm_jobs_lock:
+            _pm_jobs[job_name].update({"message": f"Scanning blueprint… {dxf_status}", "progress": 10})
+
+        def progress_cb(pg, total):
+            with _pm_jobs_lock:
+                _pm_jobs[job_name].update({
+                    "progress": 10 + int(70 * pg / max(total, 1)),
+                    "message": f"Scanning page {pg+1}/{total}…",
+                })
+
+        panel_locations = scan_blueprint_panels(
+            bp_path, _pm_cache_path(job_name, bp_name), progress_cb, dxf_dir=dxf_dir)
+
+        with _pm_jobs_lock:
+            _pm_jobs[job_name].update({"progress": 85, "message": "Drawing panel map…"})
+
+        drawn = generate_panel_map_blueprint(
+            bp_path, panel_locations, _pm_output_path(job_name, bp_name))
+
+        with _pm_jobs_lock:
+            _pm_jobs[job_name].update({
+                "status": "done", "progress": 100, "blueprint": bp_name,
+                "message": f"Complete — {drawn} panels mapped on {bp_name}",
+                "panels": drawn,
+            })
+    except Exception as e:
+        with _pm_jobs_lock:
+            _pm_jobs[job_name].update({"status": "error", "message": str(e)})
+
+
+@app.route("/panel-print-mapper")
+@login_required
+def panel_print_mapper():
+    return render_template("panel_print_mapper.html")
+
+
+@app.route("/api/panel-map/blueprints/<path:job_name>")
+@login_required
+def panel_map_blueprints(job_name):
+    """List blueprint PDFs for a job, plus whether the job has DXF validation."""
+    bp_dir = safe_join(job_name, "Blueprints")
+    files = []
+    if os.path.isdir(bp_dir):
+        files = sorted(f for f in os.listdir(bp_dir)
+                       if f.lower().endswith(".pdf") and "Delivery Tracked" not in f)
+    return jsonify({"blueprints": files, "has_dxf": _pl_dxf_dir(job_name) is not None})
+
+
+@app.route("/api/panel-map/process/<path:job_name>", methods=["POST"])
+@login_required
+def panel_map_process(job_name):
+    data    = request.get_json(silent=True) or {}
+    bp_name = (data.get("blueprint") or "").strip()
+    if not bp_name or not bp_name.lower().endswith(".pdf"):
+        return jsonify({"error": "Choose a blueprint PDF"}), 400
+    if not os.path.isfile(safe_join(job_name, "Blueprints", bp_name)):
+        return jsonify({"error": f"Blueprint not found: {bp_name}"}), 404
+    if data.get("rescan"):
+        cp = _pm_cache_path(job_name, bp_name)
+        if os.path.exists(cp):
+            os.unlink(cp)
+    with _pm_jobs_lock:
+        _pm_jobs[job_name] = {"status": "processing", "progress": 0,
+                              "message": "Starting…", "blueprint": bp_name}
+    _threading.Thread(target=_run_pm_job, args=(job_name, bp_name), daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/panel-map/status/<path:job_name>")
+@login_required
+def panel_map_status(job_name):
+    with _pm_jobs_lock:
+        job = dict(_pm_jobs.get(job_name, {}))
+    bp_name = job.get("blueprint", "")
+    job["has_output"] = bool(bp_name) and os.path.exists(_pm_output_path(job_name, bp_name))
+    return jsonify(job)
+
+
+@app.route("/api/panel-map/download/<path:job_name>")
+@login_required
+def panel_map_download(job_name):
+    bp_name = (request.args.get("blueprint") or "").strip()
+    if not bp_name:
+        with _pm_jobs_lock:
+            bp_name = _pm_jobs.get(job_name, {}).get("blueprint", "")
+    out = _pm_output_path(job_name, bp_name) if bp_name else None
+    if not out or not os.path.exists(out):
+        return jsonify({"error": "No panel map yet"}), 404
+    return send_file(out, mimetype="application/pdf", as_attachment=False,
+                     download_name=f"{job_name} - Panel Map.pdf")
+
+
 @app.route("/packing-list-tracker")
 @login_required
 def packing_list_tracker():
