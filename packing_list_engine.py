@@ -8,6 +8,27 @@ from PIL import Image
 
 log = logging.getLogger(__name__)
 
+# ── Panel conventions (shared, project-agnostic) ────────────────────────────
+# KPS panel numbers: 1–3 digits with an optional letter suffix (e.g. 242R =
+# remake). Every Pacific Erectors job uses the same KPS DXF conventions, so the
+# DXF locator works for any project — but anything project-specific is kept here
+# as a single tuning point for the future.
+PANEL_RE     = re.compile(r"^\d{1,3}[A-Za-z]?$")
+PANEL_MIN    = 1
+PANEL_MAX    = 700
+PANELS_LAYER = "PANELS"          # DXF layer that holds panel-number text
+
+# DXF→PDF registration tuning (page-agnostic, units = PDF points)
+REG_MIN_ANCHORS   = 4            # distinct matched panel numbers to trust a page
+REG_MIN_SPREAD_PT = 80           # inliers must span this in BOTH axes (kills number columns)
+REG_MAX_RESID_PT  = 5.0          # max median anchor residual for an accepted transform
+
+def _is_panel(txt):
+    """True if txt is a valid panel number (shared by every step of the engine)."""
+    if not txt or not PANEL_RE.match(txt):
+        return False
+    return PANEL_MIN <= int(re.match(r"(\d+)", txt).group(1)) <= PANEL_MAX
+
 # --- Packing List Parser ---------------------------------------------------
 
 def parse_packing_list(pdf_path):
@@ -133,27 +154,140 @@ def _extract_panels(text):
     return panels
 
 
+# --- Packing List Position Scanner -----------------------------------------
+
+def scan_packing_list_positions(pdf_path, cache_path=None, progress_cb=None):
+    """OCR a packing list PDF for the positions of panel-like numbers.
+
+    Used by the Packing List Editor so a panel selected on the blueprint can be
+    cross-highlighted on the packing list. Returns:
+
+        {
+          "pages":     [{"width": <pt>, "height": <pt>}, ...],
+          "positions": [{"panel": "42", "page": 0, "bbox": [x0,y0,x1,y1]}, ...]
+        }
+
+    bbox is in PDF points (72dpi space), top-left origin — same convention as
+    panel_locations from scan_blueprint_panels, so the browser maps both the
+    same way.
+    """
+    if cache_path and os.path.exists(cache_path):
+        try:
+            if os.path.getmtime(cache_path) > os.path.getmtime(pdf_path):
+                with open(cache_path) as f:
+                    return json.load(f)
+        except Exception:
+            pass
+
+    doc = fitz.open(pdf_path)
+    scale = 300 / 72
+    pages = []
+    positions = []
+
+    for pg_idx in range(doc.page_count):
+        if progress_cb:
+            progress_cb(pg_idx, doc.page_count)
+        page = doc[pg_idx]
+        W, H = page.rect.width, page.rect.height
+        pages.append({"width": W, "height": H})
+
+        words = list(_ocr_page_words(page, f"pl{pg_idx}", scale))
+
+        # A skid sheet has up to 4 skid blocks (2x2). Panels live ONLY in each
+        # block's "PANEL #" column (the red box) — never in the ORDER # column,
+        # the SKID # / HEIGHT / WIDTH / LENGTH fields, or the "N PANELS" footer.
+        # Find the PANEL # headers and PANELS footers, then read numbers only
+        # inside each PANEL # column region.
+        panel_headers = []   # (hy, hx)
+        footers       = []   # (fy, fx0)
+        for t, x0, y0, x1, y1 in words:
+            tu = t.upper().strip(" #:.")
+            if tu == "PANEL":
+                panel_headers.append((y0, x0))
+            elif tu.startswith("PANELS"):
+                footers.append((y0, x0))
+
+        # One region per PANEL # header: spans from just below the header to its
+        # footer (or the next header / a bounded fallback), within its page half.
+        regions = []  # (hx, y_top, y_bot, x_max)
+        for left in (True, False):
+            hs = sorted([(hy, hx) for (hy, hx) in panel_headers if (hx < W / 2) == left])
+            fs = sorted([fy for (fy, fx0) in footers if (fx0 < W / 2) == left])
+            for i, (hy, hx) in enumerate(hs):
+                next_hy = hs[i + 1][0] if i + 1 < len(hs) else H
+                fbot = next((fy for fy in fs if hy < fy < next_hy), None)
+                y_bot = fbot if fbot is not None else min(hy + H * 0.40, next_hy - 5)
+                x_max = W * 0.49 if left else W * 0.99
+                regions.append((hx, hy, y_bot, x_max))
+
+        seen = set()  # de-dupe identical panel strings at near-identical spots
+        for t, x0, y0, x1, y1 in words:
+            tt = t.strip(".,:'\"")
+            if not re.match(r"^\d{1,3}R?$", tt):
+                continue
+            val = int(re.match(r"(\d+)", tt).group(1))
+            if not (1 <= val <= 700):
+                continue
+            # Must sit inside a PANEL # column region (excludes ORDER #, SKID #,
+            # dimensions and the footer count by construction).
+            in_col = any(hx - 14 <= x0 <= x_max and hy < y0 < y_bot
+                         for (hx, hy, y_bot, x_max) in regions)
+            if not in_col:
+                continue
+            key = (tt, round(x0 / 6), round(y0 / 6))
+            if key in seen:
+                continue
+            seen.add(key)
+            positions.append({"panel": tt, "page": pg_idx,
+                              "bbox": [x0, y0, x1, y1]})
+
+    doc.close()
+
+    result = {"pages": pages, "positions": positions}
+    if cache_path:
+        try:
+            os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+            with open(cache_path, "w") as f:
+                json.dump(result, f)
+        except Exception:
+            pass
+    return result
+
+
 # --- Blueprint Panel Scanner -----------------------------------------------
 
 def scan_blueprint_panels(pdf_path, cache_path=None, progress_cb=None, dxf_dir=None):
-    """Scan blueprint PDF for panel number positions using OCR.
+    """Locate panel numbers on the blueprint PDF.
 
-    If dxf_dir is provided, loads all DXF files in that folder and builds a
-    whitelist of valid panel numbers. OCR results are then filtered to only
-    include numbers confirmed by the DXF — eliminating misreads and false
-    positives while keeping exact PDF positions.
+    Primary method (when DXF files are present): the DXF paper-space layouts hold
+    every panel number with an exact coordinate. For each PDF page we OCR a few
+    panel numbers as ANCHORS, match the page to its DXF layout, solve the
+    DXF->PDF affine transform from those anchors, then place ALL of that layout's
+    panels by transforming their DXF coordinates. This finds far more panels than
+    OCR alone (OCR can only read a fraction of the small numbers on a dense sheet).
 
-    Workflow: OCR finds position → DXF confirms it's a real panel number.
+    Panels are placed ONLY through a validated transform — raw OCR hits are never
+    placed when DXF is present, so note numbers, dimensions and grid bubbles that
+    merely look like panel numbers are not highlighted. With no DXF at all, falls
+    back to the classic OCR-only scan.
+
+    Project-agnostic: works for any job whose DXF follows the KPS conventions
+    (panel-number text on the PANELS layer, one paper-space layout per sheet).
+    Tunables live in the constants near the top of this module.
     """
     if cache_path and os.path.exists(cache_path):
         if os.path.getmtime(cache_path) > os.path.getmtime(pdf_path):
             with open(cache_path) as f:
                 return json.load(f)
 
-    # Build DXF whitelist if available
-    dxf_valid = _load_dxf_panel_set(dxf_dir) if dxf_dir else None
-    if dxf_valid:
-        log.info("DXF whitelist loaded: %d valid panel numbers", len(dxf_valid))
+    layout_maps = _load_dxf_layout_panels(dxf_dir) if dxf_dir else None
+    if layout_maps:
+        dxf_valid = set()
+        for m in layout_maps.values():
+            dxf_valid |= set(m.keys())
+        log.info("DXF layouts: %d, unique panel numbers: %d", len(layout_maps), len(dxf_valid))
+    else:
+        dxf_valid = _load_dxf_panel_set(dxf_dir) if dxf_dir else None
 
     doc = fitz.open(pdf_path)
     panel_locations = {}
@@ -165,35 +299,62 @@ def scan_blueprint_panels(pdf_path, cache_path=None, progress_cb=None, dxf_dir=N
         page  = doc[pg_idx]
         pw, ph = page.rect.width, page.rect.height
 
-        first_line = page.get_text().split("\n")[0].strip()
-        if re.match(r"^[Dd]\d+", first_line) or pg_idx < 3:
-            continue
-
-        words = _ocr_page_words(page, pg_idx, scale)
-
+        # Lower OCR confidence when we have DXF layouts: the whitelist + RANSAC
+        # reject misreads, so more candidate anchors is strictly better.
+        words = _ocr_page_words(page, pg_idx, scale, min_conf=(45 if layout_maps else 75))
+        hits = []
         for text, x0, y0, x1, y1 in words:
             t = text.strip(".,\'\"")
             if not re.match(r"^\d+[A-Z]?$", t):
                 continue
             val = int(re.match(r"(\d+)", t).group(1))
-            if not (1 <= val <= 700):
-                continue
+            if 1 <= val <= 700:
+                hits.append((t, x0, y0, x1, y1))
 
-            # DXF confirmation: if we have a whitelist, only accept known panels
-            if dxf_valid and t not in dxf_valid:
-                continue
+        placed = {}   # panel -> bbox on this page
 
-            h = y1 - y0
-            if h < 4 or h >= 9:
-                continue
-            if x0 > pw * 0.82:
-                continue
-            if y0 < ph * 0.08:
-                continue
-            if x0 < pw * 0.02:
-                continue
-            if t not in panel_locations:
-                panel_locations[t] = {"page": pg_idx, "bbox": [x0, y0, x1, y1]}
+        # 1) DXF registration ------------------------------------------------
+        if layout_maps:
+            anchors = [(t, (x0+x1)/2, (y0+y1)/2)
+                       for (t, x0, y0, x1, y1) in hits if t in dxf_valid]
+            reg = _register_page_to_layout(anchors, layout_maps)
+            if reg:
+                aff, lm = reg
+                a, b, c, d, e, f = aff
+                for panel, (dx, dy, dh, dw) in lm.items():
+                    # transform the text's 4 corners (handles sheet rotation/flip)
+                    xs, ys = [], []
+                    for gx, gy in ((dx, dy), (dx+dw, dy), (dx, dy+dh), (dx+dw, dy+dh)):
+                        xs.append(a*gx + b*gy + c)
+                        ys.append(d*gx + e*gy + f)
+                    cx = (min(xs) + max(xs)) / 2.0
+                    cy = (min(ys) + max(ys)) / 2.0
+                    if not (-10 <= cx <= pw+10 and -10 <= cy <= ph+10):
+                        continue
+                    # cap to a sane highlight size regardless of DXF text height
+                    bw = min(max(max(xs)-min(xs), 7.0), 26.0)
+                    bh = min(max(max(ys)-min(ys), 6.0), 16.0)
+                    placed[panel] = [cx-bw/2, cy-bh/2, cx+bw/2, cy+bh/2]
+
+        # 2) No DXF at all -> classic OCR-only placement (whitelist + filters).
+        #    NOTE: when DXF layouts exist we deliberately do NOT place raw OCR
+        #    hits — doing so highlighted note numbers, dimensions and grid
+        #    bubbles that merely look like panel numbers. With DXF present,
+        #    panels come ONLY from the validated coordinate transform above.
+        if not layout_maps:
+            for t, x0, y0, x1, y1 in hits:
+                if dxf_valid and t not in dxf_valid:
+                    continue
+                h = y1 - y0
+                if h < 4 or h >= 9:
+                    continue
+                if x0 > pw*0.82 or y0 < ph*0.08 or x0 < pw*0.02:
+                    continue
+                placed[t] = [x0, y0, x1, y1]
+
+        for panel, bbox in placed.items():
+            if panel not in panel_locations:
+                panel_locations[panel] = {"page": pg_idx, "bbox": bbox}
 
     doc.close()
 
@@ -211,6 +372,180 @@ def scan_blueprint_panels(pdf_path, cache_path=None, progress_cb=None, dxf_dir=N
             json.dump(panel_locations, f)
 
     return panel_locations
+
+
+# --- DXF coordinate registration (DXF panel positions -> PDF page) ----------
+
+def _load_dxf_layout_panels(dxf_dir):
+    """Return {(file, layout_name): {panel: (x, y, height, width_est)}} from the
+    paper-space PANELS-layer text of every DXF. Paper-space coords are the sheet
+    coordinates, so each layout maps to a PDF page by an affine transform."""
+    try:
+        import ezdxf
+    except ImportError:
+        log.warning("ezdxf not installed — DXF positioning skipped")
+        return None
+
+    out = {}
+    for fname in os.listdir(dxf_dir):
+        if not fname.lower().endswith(".dxf"):
+            continue
+        try:
+            doc = ezdxf.readfile(os.path.join(dxf_dir, fname))
+        except Exception as ex:
+            log.warning("DXF read error %s: %s", fname, ex)
+            continue
+        for layout in doc.layouts:
+            if layout.name.lower() == "model":
+                continue
+            d = {}
+            for e in layout:
+                if e.dxftype() not in ("TEXT", "MTEXT"):
+                    continue
+                if getattr(e.dxf, "layer", "").upper() != PANELS_LAYER:
+                    continue
+                if e.dxftype() == "TEXT":
+                    txt = e.dxf.text.strip()
+                    h = float(getattr(e.dxf, "height", 1.0) or 1.0)
+                else:
+                    txt = re.sub(r"\\[^;]+;|\{|\}", "", e.text).strip()
+                    h = float(getattr(e.dxf, "char_height", 1.0) or 1.0)
+                if not _is_panel(txt):
+                    continue
+                try:
+                    p = e.dxf.insert
+                    d.setdefault(txt, (float(p.x), float(p.y), h, len(txt)*h*0.7))
+                except Exception:
+                    continue
+            if d:
+                out[(fname, layout.name)] = d
+    return out or None
+
+
+def _solve3(A, bvec):
+    """Solve a 3x3 linear system by Gaussian elimination. Returns None if singular."""
+    M = [row[:] + [bvec[i]] for i, row in enumerate(A)]
+    for col in range(3):
+        piv = max(range(col, 3), key=lambda r: abs(M[r][col]))
+        if abs(M[piv][col]) < 1e-12:
+            return None
+        M[col], M[piv] = M[piv], M[col]
+        pv = M[col][col]
+        M[col] = [v / pv for v in M[col]]
+        for r in range(3):
+            if r != col and abs(M[r][col]) > 1e-12:
+                fac = M[r][col]
+                M[r] = [a - fac*b for a, b in zip(M[r], M[col])]
+    return [M[0][3], M[1][3], M[2][3]]
+
+
+def _affine_fit(src, dst):
+    """Least-squares 2D affine mapping src(x,y) -> dst(u,v).
+    Returns (a,b,c,d,e,f): u=a*x+b*y+c, v=d*x+e*y+f. None if degenerate."""
+    Sxx = Sxy = Sx = Syy = Sy = Sn = 0.0
+    Sxu = Syu = Su = Sxv = Syv = Sv = 0.0
+    for (x, y), (u, v) in zip(src, dst):
+        Sxx += x*x; Sxy += x*y; Sx += x; Syy += y*y; Sy += y; Sn += 1
+        Sxu += x*u; Syu += y*u; Su += u
+        Sxv += x*v; Syv += y*v; Sv += v
+    N = [[Sxx, Sxy, Sx], [Sxy, Syy, Sy], [Sx, Sy, Sn]]
+    p = _solve3(N, [Sxu, Syu, Su])
+    q = _solve3(N, [Sxv, Syv, Sv])
+    if p is None or q is None:
+        return None
+    return (p[0], p[1], p[2], q[0], q[1], q[2])
+
+
+def _affine_apply(aff, x, y):
+    a, b, c, d, e, f = aff
+    return (a*x + b*y + c, d*x + e*y + f)
+
+
+def _ransac_affine(corr, iters=150, tol=18.0):
+    """corr = [((dxf_x,dxf_y),(pdf_x,pdf_y)), ...]. Returns (aff, inliers) or None."""
+    import random
+    n = len(corr)
+    if n < 3:
+        return None
+    best = None
+    rng = random.Random(12345)
+    for _ in range(iters):
+        s = rng.sample(corr, 3)
+        aff = _affine_fit([c[0] for c in s], [c[1] for c in s])
+        if not aff:
+            continue
+        inl = []
+        for c in corr:
+            u, v = _affine_apply(aff, *c[0])
+            if ((u-c[1][0])**2 + (v-c[1][1])**2) ** 0.5 < tol:
+                inl.append(c)
+        if best is None or len(inl) > len(best[1]):
+            best = (aff, inl)
+            if len(inl) == n:
+                break
+    if not best or len(best[1]) < REG_MIN_ANCHORS:
+        return None
+    refit = _affine_fit([c[0] for c in best[1]], [c[1] for c in best[1]])
+    return (refit or best[0], best[1])
+
+
+def _register_page_to_layout(anchors, layout_maps):
+    """anchors = [(panel, pdf_cx, pdf_cy)]. Find the best-matching DXF layout and
+    solve the DXF->PDF transform. Returns (aff, layout_panel_map) or None.
+
+    Strict acceptance so non-panel pages (notes, schedules, grid/dimension
+    numbers that merely look like panels) never register and place panels:
+      - need >= REG_MIN_ANCHORS distinct matched anchors and inliers
+      - inliers must span a 2D region (rejects a collinear column/row of numbers)
+      - low median residual (random numbers won't fit a real layout's geometry)
+      - transform must be a non-degenerate 2D mapping
+    The DXF→PDF transform is a general affine (sheets may be plotted with
+    different x/y scale), so no uniform-scale assumption is made.
+    """
+    if len(anchors) < REG_MIN_ANCHORS:
+        return None
+    best = None
+    for key, m in layout_maps.items():
+        ov = [a for a in anchors if a[0] in m]
+        if best is None or len(ov) > len(best[1]):
+            best = (key, ov, m)
+    _key, ov, m = best
+    corr, seen = [], set()
+    for t, px, py in ov:
+        if t in seen:
+            continue
+        seen.add(t)
+        dx, dy = m[t][0], m[t][1]
+        corr.append(((dx, dy), (px, py)))
+    if len(corr) < REG_MIN_ANCHORS:
+        return None
+    res = _ransac_affine(corr)
+    if not res:
+        return None
+    aff, inliers = res
+    if len(inliers) < REG_MIN_ANCHORS:
+        return None
+
+    # 2D spread of inlier PDF points (reject a vertical/horizontal line of numbers)
+    pus = [c[1][0] for c in inliers]
+    pvs = [c[1][1] for c in inliers]
+    if (max(pus) - min(pus)) < REG_MIN_SPREAD_PT or (max(pvs) - min(pvs)) < REG_MIN_SPREAD_PT:
+        return None
+
+    # median residual gate — this is the real junk filter: random note/grid/
+    # dimension numbers won't fit a DXF layout's panel coordinates to a few points.
+    ds = sorted(((u-c[1][0])**2 + (v-c[1][1])**2) ** 0.5
+                for c in inliers for (u, v) in [_affine_apply(aff, *c[0])])
+    if ds[len(ds)//2] > REG_MAX_RESID_PT:
+        return None
+
+    # transform must be non-degenerate (real 2D mapping, not a line collapse)
+    a, b, c2, d, e, f = aff
+    det = a*e - b*d
+    if abs(det) < 1e-6:
+        return None
+
+    return aff, m
 
 
 def _load_dxf_panel_set(dxf_dir):
@@ -260,7 +595,7 @@ def _has_panel_neighbors(panel_str, bbox, page_idx, all_locs, radius=200):
     return False
 
 
-def _ocr_page_words(page, pg_idx, scale=300/72):
+def _ocr_page_words(page, pg_idx, scale=300/72, min_conf=75):
     import xml.etree.ElementTree as ET
     mat = fitz.Matrix(scale, scale)
     pix = page.get_pixmap(matrix=mat)
@@ -280,7 +615,7 @@ def _ocr_page_words(page, pg_idx, scale=300/72):
             if not bm:
                 continue
             conf_m = re.search(r"x_wconf (\d+)", title)
-            if conf_m and int(conf_m.group(1)) < 75:
+            if conf_m and int(conf_m.group(1)) < min_conf:
                 continue
             px0, py0, px1, py1 = [int(v) for v in bm.groups()]
             t = "".join(word.itertext()).strip()
@@ -326,6 +661,7 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
         page_panels.setdefault(pg, []).append(
             (panel_str, info["skid"], info.get("shipment", ""), loc["bbox"]))
 
+    table_cells = {}   # panel_str -> {"page": idx, "bbox": [x0,y0,x1,y1]} of its table row
     for pg_idx, panels in page_panels.items():
         if pg_idx >= doc.page_count:
             continue
@@ -335,17 +671,30 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
             x0, y0, x1, y1 = bbox
             pad = 3
             fill_c, stroke_c = _shipment_color(shipment_order.get(shipment, 0))
-            page.draw_rect(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad),
-                           color=stroke_c, fill=fill_c, fill_opacity=0.50, width=0.8)
-        _insert_delivery_table(page, panels, pw, ph, shipment_order)
+            # Use a PDF annotation (not a content-stream draw) so the highlight
+            # is independently selectable and deletable in Acrobat/Preview/etc.
+            # Deleting the annotation leaves the original drawing and numbers intact.
+            annot = page.add_rect_annot(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad))
+            annot.set_colors(fill=fill_c, stroke=stroke_c)
+            annot.set_opacity(0.50)
+            annot.set_border(width=0.8)
+            annot.set_info(
+                title=f"Panel {panel_str}",
+                content=f"Skid {skid_num} — {shipment}"
+            )
+            annot.update()
+        cells = _insert_delivery_table(page, panels, pw, ph, shipment_order)
+        for ps, bbox in (cells or {}).items():
+            table_cells[ps] = {"page": pg_idx, "bbox": bbox}
 
     doc.save(output_path, garbage=4, deflate=True)
     doc.close()
+    return table_cells
 
 
 def _insert_delivery_table(page, panels, pw, ph, shipment_order):
     if not panels:
-        return
+        return {}
 
     panels_sorted = sorted(panels, key=lambda x: _sort_key(x[0]))
 
@@ -394,6 +743,7 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
         page.draw_line((ox+SWATCH_W+col_p, shy), (ox+SWATCH_W+col_p, ry1-legend_h-2),
                        color=(0.65,0.65,0.65), width=0.3)
 
+    cells = {}   # panel_str -> [x0, y0, x1, y1] of its table row (PDF points)
     for i, (panel_str, skid_num, shipment, _) in enumerate(panels_sorted):
         dc  = i // rows_per_col
         row = i  % rows_per_col
@@ -409,6 +759,7 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
                          fontsize=FONT_SIZE, color=(0,0,0), fontname="Helvetica-Bold")
         page.insert_text((ox+SWATCH_W+col_p+PAD, ry+ROW_H-4), skid_num,
                          fontsize=FONT_SIZE, color=(0,0,0), fontname="Helvetica")
+        cells[panel_str] = [ox, ry, ox+unit_w, ry+ROW_H]
 
     legend_y = ry1 - legend_h
     page.draw_line((rx0, legend_y), (rx1, legend_y), color=(0.7,0.7,0.7), width=0.5)
@@ -423,43 +774,10 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
                          fontsize=7, color=(0.1,0.1,0.1), fontname="Helvetica")
 
     page.draw_rect(fitz.Rect(rx0, ry0, rx1, ry1), color=(0,0,0), fill=None, width=1.2)
+    return cells
 
 
 def _sort_key(panel_str):
     m = re.match(r"(\d+)", panel_str)
     return int(m.group(1)) if m else 0
-
-    for i, (panel_str, skid_num, shipment, _) in enumerate(panels_sorted):
-        dc  = i // rows_per_col
-        row = i  % rows_per_col
-        ox  = rx0 + dc * (unit_w + DIVIDER)
-        ry  = shy + SUBHDR_H + row * ROW_H
-        fill_c, stroke_c = _shipment_color(shipment_order.get(shipment, 0))
-        tint = tuple(min(1.0, 0.55+0.45*c) for c in fill_c)
-        page.draw_rect(fitz.Rect(ox, ry, ox+unit_w, ry+ROW_H),
-                       color=(0.78,0.78,0.78), fill=tint, width=0.2)
-        page.draw_rect(fitz.Rect(ox, ry, ox+SWATCH_W, ry+ROW_H),
-                       color=stroke_c, fill=fill_c, width=0)
-        page.insert_text((ox+SWATCH_W+PAD, ry+ROW_H-4), panel_str,
-                         fontsize=FONT_SIZE, color=(0,0,0), fontname="Helvetica-Bold")
-        page.insert_text((ox+SWATCH_W+col_p+PAD, ry+ROW_H-4), skid_num,
-                         fontsize=FONT_SIZE, color=(0,0,0), fontname="Helvetica")
-
-    legend_y = ry1 - legend_h
-    page.draw_line((rx0, legend_y), (rx1, legend_y), color=(0.7,0.7,0.7), width=0.5)
-    for j, ship in enumerate(page_shipments):
-        ly  = legend_y + 2 + j * LEGEND_ROW_H
-        idx = shipment_order.get(ship, 0)
-        fill_c, stroke_c = _shipment_color(idx)
-        page.draw_rect(fitz.Rect(rx0+PAD, ly+2, rx0+PAD+10, ly+LEGEND_ROW_H-2),
-                       color=stroke_c, fill=fill_c, width=0)
-        label = ship if len(ship) <= 30 else ship[:30] + "..."
-        page.insert_text((rx0+PAD+14, ly+LEGEND_ROW_H-3), label,
-                         fontsize=7, color=(0.1,0.1,0.1), fontname="Helvetica")
-
-    page.draw_rect(fitz.Rect(rx0, ry0, rx1, ry1), color=(0,0,0), fill=None, width=1.2)
-
-
-def _sort_key(panel_str):
-    m = re.match(r"(\d+)", panel_str)
-    return int(m.group(1)) if m else 0
+# end of packing_list_engine.py

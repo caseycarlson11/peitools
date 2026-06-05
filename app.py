@@ -232,6 +232,13 @@ def api_job_files(job):
                             if f.lower().endswith(".pdf")])
             if files:
                 result[cat] = files
+    # Include DXF CAD FILE so admin can verify uploads
+    cad_path = os.path.join(job_path, CAD_FOLDER)
+    if os.path.isdir(cad_path):
+        cad_files = sorted([f for f in os.listdir(cad_path)
+                            if os.path.splitext(f)[1].lower() in {".dxf", ".dwg"}])
+        if cad_files:
+            result[CAD_FOLDER] = cad_files
     return jsonify(result)
 
 @app.route("/api/jobs/<path:job>/all-files")
@@ -952,8 +959,9 @@ def _pl_dxf_dir(job_name):
     d = safe_join(job_name, "DXF CAD FILE")
     return d if os.path.isdir(d) else None
 def _pl_state_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "delivery_state.json")
-def _pl_cache_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "panel_locations.json")
+def _pl_cache_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "panel_locations_v2.json")  # v2 = DXF-coordinate locator
 def _pl_output_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "tracked_blueprint.pdf")
+def _pl_cells_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "table_cells.json")
 
 def _find_blueprint(job_name):
     bp_dir = safe_join(job_name, "Blueprints")
@@ -1022,10 +1030,25 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
 
         panel_locations = scan_blueprint_panels(blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
 
+        # Re-apply the user's saved manual corrections so re-processing never
+        # undoes their hand-fixes (deletions, renumbers, manual additions).
+        corr = _pl_load_corrections(job_name)
+        if any(corr.get(k) for k in ("deletions", "renames", "additions")):
+            _apply_corrections(delivery_state, panel_locations, corr)
+            with open(_pl_state_path(job_name), "w") as f:
+                _json.dump(delivery_state, f)
+            with open(_pl_cache_path(job_name), "w") as f:
+                _json.dump(panel_locations, f)
+
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
 
-        generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
+        table_cells = generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
+        try:
+            with open(_pl_cells_path(job_name), "w") as f:
+                _json.dump(table_cells or {}, f)
+        except Exception:
+            pass
 
         located = sum(1 for p in delivery_state if p in panel_locations)
         with _pl_jobs_lock:
@@ -1154,6 +1177,398 @@ def packing_list_reset(job_name):
     with _pl_jobs_lock:
         _pl_jobs.pop(job_name, None)
     return jsonify({"ok": True})
+
+
+# ── Packing List Editor (interactive cross-reference) ─────────────────────────
+
+_sk_key = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
+
+def _pl_stats(state):
+    """Per-shipment stats from a delivery_state dict, color index = first-seen order."""
+    shipment_info = {}
+    for info in state.values():
+        s = info.get("shipment", "Unknown")
+        if s not in shipment_info:
+            shipment_info[s] = {"count": 0, "skids": set(), "color_index": len(shipment_info)}
+        shipment_info[s]["count"] += 1
+        shipment_info[s]["skids"].add(str(info.get("skid", "")))
+    shipments = [
+        {"label": k, "count": v["count"],
+         "skids": sorted(v["skids"], key=_sk_key),
+         "color_index": v["color_index"]}
+        for k, v in shipment_info.items()
+    ]
+    return {
+        "total_panels": len(state),
+        "total_skids": sorted({str(v.get("skid", "")) for v in state.values()}, key=_sk_key),
+        "shipments": shipments,
+        "file_colors": {s: v["color_index"] for s, v in shipment_info.items()},
+    }
+
+def _pl_load_state(job_name):
+    if os.path.exists(_pl_state_path(job_name)):
+        with open(_pl_state_path(job_name)) as f:
+            return _json.load(f)
+    return {}
+
+def _pl_load_locations(job_name):
+    if os.path.exists(_pl_cache_path(job_name)):
+        with open(_pl_cache_path(job_name)) as f:
+            return _json.load(f)
+    return {}
+
+def _pl_load_cells(job_name):
+    if os.path.exists(_pl_cells_path(job_name)):
+        try:
+            with open(_pl_cells_path(job_name)) as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return {}
+
+# ── Manual corrections store ─────────────────────────────────────────────────
+# Captures every hand-fix made in the editor (delete a false positive, renumber a
+# panel, add a missing one). Stored per job so the fixes survive re-processing,
+# and appended to a single cross-project log so future panel-finding work can
+# learn from how humans corrected the automatic results.
+_GLOBAL_CORRECTIONS = os.path.join(JOBS_DIR, ".panel_corrections.jsonl")
+
+def _pl_corrections_path(job_name):
+    return os.path.join(_pl_tracking_dir(job_name), "corrections.json")
+
+def _pl_load_corrections(job_name):
+    c = {}
+    p = _pl_corrections_path(job_name)
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                c = _json.load(f)
+        except Exception:
+            c = {}
+    c.setdefault("deletions", [])
+    c.setdefault("renames", {})
+    c.setdefault("additions", {})
+    return c
+
+def _pl_save_corrections(job_name, c):
+    try:
+        os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+        with open(_pl_corrections_path(job_name), "w") as f:
+            _json.dump(c, f)
+    except Exception:
+        pass
+
+def _log_global_correction(job_name, event):
+    """Append one correction event to the cross-project corrections log."""
+    try:
+        ev = dict(event)
+        ev["job"] = job_name
+        ev["ts"] = datetime.utcnow().isoformat() + "Z"
+        with open(_GLOBAL_CORRECTIONS, "a") as f:
+            f.write(_json.dumps(ev) + "\n")
+    except Exception:
+        pass
+
+def _apply_corrections(delivery_state, panel_locations, corr):
+    """Re-apply a job's saved manual corrections after an automatic scan, so the
+    user's fixes are not undone by re-processing."""
+    for old, new in (corr.get("renames") or {}).items():
+        if old in panel_locations:
+            panel_locations[new] = panel_locations.pop(old)
+        if old in delivery_state:
+            delivery_state[new] = delivery_state.pop(old)
+    for p in (corr.get("deletions") or []):
+        panel_locations.pop(p, None)
+        delivery_state.pop(p, None)
+    for p, info in (corr.get("additions") or {}).items():
+        if info.get("page") is not None and info.get("bbox"):
+            panel_locations[p] = {"page": int(info["page"]), "bbox": info["bbox"]}
+        if p not in delivery_state and info.get("shipment"):
+            delivery_state[p] = {"skid": info.get("skid", ""), "shipment": info["shipment"]}
+
+def _pl_blueprint_dims(job_name):
+    """Per-page [{width,height}] of the job blueprint, in PDF points."""
+    bp = _find_blueprint(job_name)
+    if not bp:
+        return [], None
+    import fitz as _fitz
+    doc = _fitz.open(bp)
+    dims = [{"width": p.rect.width, "height": p.rect.height} for p in doc]
+    doc.close()
+    return dims, bp
+
+
+@app.route("/packing-list/editor/<path:job_name>")
+@login_required
+def packing_list_editor(job_name):
+    return render_template("packing_list_editor.html", job_name=job_name)
+
+
+@app.route("/api/packing-list/editor-data/<path:job_name>")
+@login_required
+def packing_list_editor_data(job_name):
+    """Everything the editor needs to render the blueprint with panel overlays."""
+    state = _pl_load_state(job_name)
+    locations = _pl_load_locations(job_name)
+    dims, bp = _pl_blueprint_dims(job_name)
+    if not bp:
+        return jsonify({"error": "No blueprint PDF found for this job."}), 404
+
+    # Available packing list files (for the right pane selector)
+    pl_files = []
+    pl_dir = safe_join(job_name, "Packing Lists")
+    if os.path.isdir(pl_dir):
+        pl_files = sorted(f for f in os.listdir(pl_dir) if f.lower().endswith(".pdf"))
+
+    stats = _pl_stats(state)
+    return jsonify({
+        "job": job_name,
+        "pages": dims,
+        "panel_locations": locations,   # {panel: {page, bbox}}  ALL panels on blueprint
+        "delivery_state": state,        # {panel: {skid, shipment}} delivered only
+        "table_cells": _pl_load_cells(job_name),  # {panel: {page, bbox}} DELIVERED table row
+        "packing_lists": pl_files,
+        **stats,
+        "has_output": os.path.exists(_pl_output_path(job_name)),
+    })
+
+
+@app.route("/api/packing-list/blueprint/<path:job_name>")
+@login_required
+def packing_list_blueprint(job_name):
+    """Serve the base (un-annotated) blueprint PDF — overlays are drawn client-side."""
+    bp = _find_blueprint(job_name)
+    if not bp or not os.path.exists(bp):
+        return jsonify({"error": "No blueprint PDF found"}), 404
+    return send_file(bp, mimetype="application/pdf")
+
+
+def _pl_safe_list_file(job_name, filename):
+    if not filename or not filename.lower().endswith(".pdf"):
+        return None
+    p = safe_join(job_name, "Packing Lists", filename)
+    return p if os.path.isfile(p) else None
+
+
+@app.route("/api/packing-list/pl-file/<path:job_name>")
+@login_required
+def packing_list_pl_file(job_name):
+    """Serve a single packing list PDF for the editor's right pane."""
+    p = _pl_safe_list_file(job_name, request.args.get("file", ""))
+    if not p:
+        return jsonify({"error": "File not found"}), 404
+    return send_file(p, mimetype="application/pdf")
+
+
+@app.route("/api/packing-list/pl-positions/<path:job_name>")
+@login_required
+def packing_list_pl_positions(job_name):
+    """OCR a packing list for panel-number positions (cached) for cross-highlighting."""
+    filename = request.args.get("file", "")
+    p = _pl_safe_list_file(job_name, filename)
+    if not p:
+        return jsonify({"error": "File not found"}), 404
+    try:
+        from packing_list_engine import scan_packing_list_positions
+        safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
+        # v2 = PANEL #-column-aware scan (invalidates older full-page caches)
+        cache = os.path.join(_pl_tracking_dir(job_name), f"pl_pos_v2_{safe_name}.json")
+        os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+        data = scan_packing_list_positions(p, cache_path=cache)
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/packing-list/update-panels/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_update_panels(job_name):
+    """Add/remove/renumber delivered panels, then regenerate the tracked blueprint.
+
+    Body: {
+      "add":     [{"panel","skid","shipment","page"?,"bbox"?}, ...],
+      "remove":  ["panel", ...],
+      "renames": [{"from","to","skid"?,"shipment"?}, ...]
+    }
+    All edits are also recorded in the per-job + global corrections store.
+    """
+    data = request.get_json(silent=True) or {}
+    to_add = data.get("add", []) or []
+    to_remove = data.get("remove", []) or []
+    renames = data.get("renames", []) or []
+
+    state = _pl_load_state(job_name)
+    locations = _pl_load_locations(job_name)
+    corr = _pl_load_corrections(job_name)
+
+    # ── Renames (renumber a panel; the table will then show the correct number) ──
+    for r in renames:
+        old = str(r.get("from", "")).strip()
+        new = str(r.get("to", "")).strip()
+        if not old or not new or old == new:
+            continue
+        if old in state:
+            state[new] = state.pop(old)
+        if old in locations:
+            locations[new] = locations.pop(old)
+        corr["renames"][old] = new
+        if old in corr["additions"]:
+            corr["additions"][new] = corr["additions"].pop(old)
+        if old in corr["deletions"]:
+            corr["deletions"].remove(old)
+        _log_global_correction(job_name, {
+            "type": "rename", "from": old, "to": new,
+            "page": (locations.get(new) or {}).get("page"),
+            "bbox": (locations.get(new) or {}).get("bbox")})
+
+    removed = 0
+    for panel in to_remove:
+        if panel in state:
+            del state[panel]
+            removed += 1
+        loc = locations.pop(panel, None)   # also drop the highlight location (false positives)
+        if panel not in corr["deletions"]:
+            corr["deletions"].append(panel)
+        corr["additions"].pop(panel, None)
+        _log_global_correction(job_name, {
+            "type": "delete", "panel": panel,
+            "page": (loc or {}).get("page"), "bbox": (loc or {}).get("bbox")})
+
+    added = 0
+    for item in to_add:
+        panel = str(item.get("panel", "")).strip()
+        if not panel:
+            continue
+        skid = str(item.get("skid", "")).strip()
+        shipment = str(item.get("shipment", "")).strip() or "Manual"
+        state[panel] = {"skid": skid, "shipment": shipment}
+        page = item.get("page")
+        bbox = None
+        # If the panel wasn't located by OCR, store the box the user drew so the
+        # regenerated PDF highlights it too.
+        if item.get("bbox") and page is not None:
+            try:
+                bbox = [float(v) for v in item["bbox"]]
+                locations[panel] = {"page": int(page), "bbox": bbox}
+            except Exception:
+                bbox = None
+        # Record as a manual addition so a future re-scan keeps it.
+        corr["additions"][panel] = {"panel": panel, "skid": skid, "shipment": shipment,
+                                    "page": (int(page) if page is not None else None), "bbox": bbox}
+        if panel in corr["deletions"]:
+            corr["deletions"].remove(panel)
+        _log_global_correction(job_name, {
+            "type": "add", "panel": panel, "skid": skid, "shipment": shipment,
+            "page": (int(page) if page is not None else None), "bbox": bbox})
+        added += 1
+
+    _pl_save_corrections(job_name, corr)
+
+    os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+    with open(_pl_state_path(job_name), "w") as f:
+        _json.dump(state, f)
+    with open(_pl_cache_path(job_name), "w") as f:
+        _json.dump(locations, f)
+
+    # Regenerate the annotated PDF so Download / Publish reflect the edits.
+    regen_ok, regen_err = True, None
+    table_cells = {}
+    try:
+        from packing_list_engine import generate_tracked_blueprint
+        bp = _find_blueprint(job_name)
+        if bp:
+            table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name)) or {}
+            try:
+                with open(_pl_cells_path(job_name), "w") as f:
+                    _json.dump(table_cells, f)
+            except Exception:
+                pass
+        else:
+            regen_ok, regen_err = False, "No blueprint PDF found"
+    except Exception as e:
+        regen_ok, regen_err = False, str(e)
+
+    stats = _pl_stats(state)
+    located = sum(1 for p in state if p in locations)
+    return jsonify({
+        "ok": True, "added": added, "removed": removed,
+        "located": located, "regenerated": regen_ok, "regen_error": regen_err,
+        "panel_locations": locations,
+        "delivery_state": state,
+        "table_cells": table_cells,
+        **stats,
+        "has_output": os.path.exists(_pl_output_path(job_name)),
+    })
+
+
+# ── Public document links (shareable without login) ──────────────────────────
+PL_DOCLINKS_FILE = os.path.join(JOBS_DIR, ".pl_doclinks.json")
+
+def _load_doclinks():
+    if os.path.exists(PL_DOCLINKS_FILE):
+        try:
+            with open(PL_DOCLINKS_FILE) as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _save_doclinks(d):
+    try:
+        with open(PL_DOCLINKS_FILE, "w") as f:
+            _json.dump(d, f)
+    except Exception:
+        pass
+
+
+@app.route("/api/packing-list/public-link/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_public_link(job_name):
+    """Create (or reuse) a public, login-free link to a document for SMS/email sharing."""
+    data = request.get_json(silent=True) or {}
+    kind = data.get("kind", "bp")
+    file = (data.get("file") or "").strip()
+    if kind not in ("bp", "pl"):
+        return jsonify({"error": "Bad document type"}), 400
+    if kind == "bp":
+        if not os.path.exists(_pl_output_path(job_name)):
+            return jsonify({"error": "No tracked blueprint yet — process a packing list first"}), 404
+    else:
+        if not file.lower().endswith(".pdf") or not _pl_safe_list_file(job_name, file):
+            return jsonify({"error": "Packing list not found"}), 404
+
+    rotate = bool(data.get("rotate"))
+    links = _load_doclinks()
+    want_file = file if kind == "pl" else ""
+    def _matches(v):
+        return v.get("job") == job_name and v.get("kind") == kind and (v.get("file") or "") == want_file
+    if rotate:
+        # "Change link" — revoke any previous link(s) for this document.
+        links = {t: v for t, v in links.items() if not _matches(v)}
+    else:
+        # One link per document — reuse the existing token if there is one.
+        for t, v in links.items():
+            if _matches(v):
+                return jsonify({"url": f"/p/{t}", "rotated": False})
+    token = secrets.token_urlsafe(12)
+    links[token] = {"job": job_name, "kind": kind, "file": want_file,
+                    "created": datetime.utcnow().isoformat()}
+    _save_doclinks(links)
+    return jsonify({"url": f"/p/{token}", "rotated": rotate})
+
+
+@app.route("/p/<token>")
+def public_doc(token):
+    """Serve a shared document with no login required."""
+    info = _load_doclinks().get(token)
+    if not info:
+        return "This link has expired or does not exist.", 404
+    job, kind, file = info["job"], info.get("kind", "bp"), info.get("file", "")
+    path = _pl_output_path(job) if kind == "bp" else _pl_safe_list_file(job, file)
+    if not path or not os.path.exists(path):
+        return "Document not found.", 404
+    dl = f"{job} Delivery Tracked.pdf" if kind == "bp" else file
+    return send_file(path, mimetype="application/pdf", as_attachment=False, download_name=dl)
 
 
 if __name__ == "__main__":

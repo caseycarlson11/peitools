@@ -349,11 +349,13 @@ function processNextInQueue() {
   if (!processQueue.length) {
     fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
       .then(r=>r.json()).then(data=>{
+        const elapsed = timerStart ? Math.round((Date.now() - timerStart) / 1000) : 0;
+        const took = `${Math.floor(elapsed/60)}:${String(elapsed%60).padStart(2,'0')}`;
         enableBtn();
         const ok = document.getElementById('uploadSuccess');
         const added = data.panels_added ?? 0;
         const warnSuffix = added === 0 ? ' ⚠ No new panels found — check the packing list format.' : '';
-        ok.textContent = `✅ Done — ${added} new panels added, ${data.located||0} located on blueprint.${warnSuffix}`;
+        ok.textContent = `✅ Done in ${took} — ${added} new panels added, ${data.located||0} located on blueprint.${warnSuffix}`;
         ok.classList.add('show');
         renderWarnings(data.warnings || []);
         renderStatus(data);
@@ -458,11 +460,12 @@ function renderStatus(data) {
 
   // ── Action buttons ──
   const url = '/api/packing-list/download/' + encodeURIComponent(selectedJob);
-  ['viewBtn','downloadBtn'].forEach(id=>{
-    const el = document.getElementById(id);
-    el.href = url;
-    el.style.display = data.has_output ? '' : 'none';
-  });
+  document.getElementById('downloadBtn').href = url;
+  document.getElementById('downloadBtn').style.display = data.has_output ? '' : 'none';
+  // View opens the interactive cross-reference editor (not the raw PDF)
+  const viewBtn = document.getElementById('viewBtn');
+  viewBtn.href = '/packing-list/editor/' + encodeURIComponent(selectedJob);
+  viewBtn.style.display = data.has_output ? '' : 'none';
   document.getElementById('publishBtn').style.display = data.has_output ? '' : 'none';
   document.getElementById('publishNote').classList.remove('show');
 }

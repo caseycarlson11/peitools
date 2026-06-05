@@ -1,0 +1,1332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>Packing List Editor — {{ job_name }}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', sans-serif; background: #0d1520; color: #fff;
+           display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    /* ── Toolbar ── */
+    .toolbar { display: flex; align-items: center; gap: .5rem; padding: .45rem .8rem;
+      background: #111d30; border-bottom: 1px solid rgba(255,255,255,.1);
+      flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: thin; }
+    .tb-logo { width: 24px; height: 24px; object-fit: cover; border-radius: 4px; flex-shrink: 0; }
+    .tb-title { font-size: .74rem; color: rgba(255,255,255,.45); white-space: nowrap;
+      max-width: 230px; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; }
+    .tb-sep { width: 1px; height: 22px; background: rgba(255,255,255,.1); flex-shrink: 0; }
+    .tb-btn { display: flex; align-items: center; gap: 5px; padding: .36rem .7rem;
+      border-radius: 7px; font-size: .76rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+      border: 1px solid rgba(255,255,255,.13); background: rgba(255,255,255,.06); color: #fff;
+      transition: all .12s; flex-shrink: 0; }
+    .tb-btn:hover:not(:disabled) { background: rgba(255,255,255,.13); }
+    .tb-btn:disabled { opacity: .35; cursor: not-allowed; }
+    .tb-btn.active  { background: rgba(96,180,240,.28); border-color: #60b4f0; color: #cfe8ff; }
+    .tb-btn.green   { background: linear-gradient(135deg,#14532d,#16a34a); border-color: #22c55e; }
+    .tb-btn.green.dirty { box-shadow: 0 0 0 2px rgba(34,197,94,.5); animation: pulse 1.6s infinite; }
+    @keyframes pulse { 0%,100%{box-shadow:0 0 0 2px rgba(34,197,94,.5);} 50%{box-shadow:0 0 0 4px rgba(34,197,94,.15);} }
+    .tb-btn.blue    { background: linear-gradient(135deg,#1e3a8a,#2563eb); border-color: #60a5fa; }
+    .tb-hint { font-size: .72rem; color: rgba(255,255,255,.32); white-space: nowrap; flex-shrink: 0; }
+    .tb-zoom { display: flex; align-items: center; flex-shrink: 0; }
+    .tb-zoom button { width: 26px; height: 26px; border: 1px solid rgba(255,255,255,.13);
+      background: rgba(255,255,255,.06); color: #fff; cursor: pointer; font-size: 1rem; font-weight: 700;
+      display: flex; align-items: center; justify-content: center; }
+    .tb-zoom button:first-child { border-radius: 7px 0 0 7px; }
+    .tb-zoom button:last-child  { border-radius: 0 7px 7px 0; }
+    .tb-zoom-label { padding: 0 .45rem; font-size: .74rem; font-weight: 600; height: 26px;
+      border-top: 1px solid rgba(255,255,255,.13); border-bottom: 1px solid rgba(255,255,255,.13);
+      background: rgba(255,255,255,.04); min-width: 44px; display: flex; align-items: center; justify-content: center; }
+
+    /* ── Shipment legend / color picker ── */
+    .legend { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
+    .ship-chip { display: flex; align-items: center; gap: 5px; padding: .26rem .55rem;
+      border-radius: 6px; font-size: .72rem; font-weight: 600; cursor: pointer; white-space: nowrap;
+      border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #fff; transition: all .12s; }
+    .ship-chip:hover { background: rgba(255,255,255,.12); }
+    .ship-chip.active { border-color: #fff; box-shadow: 0 0 0 1px #fff inset; }
+    .ship-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
+    .ship-chip .ct { color: rgba(255,255,255,.45); font-weight: 700; }
+
+    /* ── Main split ── */
+    .main { display: flex; flex: 1; overflow: hidden; }
+    .pane { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
+    .pane.left  { flex: 1 1 0; min-width: 0; }
+    .pane.right { flex: 1 1 0; min-width: 0; background: #0a1018;
+      border-left: 1px solid rgba(255,255,255,.12); }
+    .divider { width: 6px; background: #1a2540; cursor: col-resize; flex-shrink: 0; }
+    .divider:hover { background: #2d8bef; }
+
+    .pane-head { display: flex; align-items: center; gap: .5rem; padding: .4rem .7rem;
+      background: #0f1a2b; border-bottom: 1px solid rgba(255,255,255,.08); flex-shrink: 0; font-size: .76rem; }
+    .pane-head .lbl { font-weight: 700; color: rgba(255,255,255,.55); text-transform: uppercase;
+      letter-spacing: .05em; font-size: .64rem; }
+    .pane-head select { background: #1a2840; color: #fff; border: 1px solid rgba(255,255,255,.22);
+      border-radius: 6px; padding: .3rem .5rem; font-family: inherit; font-size: .74rem;
+      min-width: 220px; max-width: 320px; }
+    /* native dropdown items render with OS colors — force readable dark-on-light */
+    .pane-head select option { background: #fff; color: #111; }
+    .pane-head .pill { font-size: .66rem; color: rgba(255,255,255,.4); padding: .15rem .45rem;
+      border: 1px solid rgba(255,255,255,.12); border-radius: 20px; }
+    .pane-head button { background: rgba(63,185,80,.15); color: #7ee787; border: 1px solid rgba(63,185,80,.5);
+      border-radius: 6px; padding: .3rem .55rem; font-family: inherit; font-size: .72rem; font-weight: 700;
+      cursor: pointer; white-space: nowrap; }
+    .pane-head button:hover { background: rgba(63,185,80,.28); }
+    /* Print / Share buttons (neutral, not green) */
+    .pane-head .ph-btn { background: rgba(255,255,255,.08); color: #fff; border: 1px solid rgba(255,255,255,.22);
+      font-weight: 600; }
+    .pane-head .ph-btn:hover { background: rgba(255,255,255,.18); }
+    .share-menu { display: none; position: fixed; z-index: 400; background: #182236;
+      border: 1px solid rgba(255,255,255,.16); border-radius: 10px; padding: 5px; min-width: 150px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.6); flex-direction: column; gap: 3px; }
+    .share-menu.open { display: flex; }
+    .share-menu button { background: none; border: none; color: #fff; text-align: left; font-family: inherit;
+      font-size: .82rem; padding: .5rem .6rem; border-radius: 6px; cursor: pointer; }
+    .share-menu button:hover { background: rgba(255,255,255,.12); }
+    .toggle { display: flex; align-items: center; gap: 5px; font-size: .7rem; color: rgba(255,255,255,.55); cursor: pointer; }
+    .toggle input { accent-color: #60b4f0; }
+
+    .viewer { flex: 1; overflow: auto; padding: 1rem; display: flex; flex-direction: column;
+      align-items: safe center; gap: 1rem; touch-action: pan-x pan-y; }
+    .page-wrap { position: relative; flex-shrink: 0; box-shadow: 0 4px 22px rgba(0,0,0,.55); }
+    .page-wrap canvas { display: block; width: 100%; height: 100%; }
+    .overlay { position: absolute; inset: 0; }
+    .page-label { font-size: .64rem; color: rgba(255,255,255,.25); }
+
+    /* ── Panel boxes ── */
+    .pbox { position: absolute; border-radius: 2px; cursor: pointer; box-sizing: border-box;
+      transition: box-shadow .1s, background .1s; }
+    .pbox.delivered { border: 0; background: transparent; }   /* colour comes from the baked PDF */
+    .pbox.pending-add { border: 1.5px solid; }
+    .pbox.place-temp { border: 2px solid; cursor: move; box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(0,0,0,.4); z-index: 9; }
+    .pbox.marker { border: 1.5px dashed #ff5050; background: rgba(255,80,80,.20); cursor: pointer; }
+    .plbox.plmarker { border: 2px solid; cursor: pointer; box-sizing: border-box; }
+    .plbox.plmarker.active { cursor: move; box-shadow: 0 0 0 2px #fff; }
+    .plbox.plmarker:hover { box-shadow: 0 0 0 2px #fff; }
+    .plmarker-resize { position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px;
+      background: #fff; border: 1px solid #333; border-radius: 2px; cursor: nwse-resize; z-index: 6; }
+    .place-banner { position: sticky; top: 0; align-self: stretch; z-index: 30; background: #16a34a; color: #fff;
+      text-align: center; font-weight: 700; font-size: .82rem; padding: .5rem .8rem; border-radius: 6px;
+      margin-bottom: .4rem; box-shadow: 0 2px 12px rgba(0,0,0,.45); }
+    .pbox.pending-remove { border: 1.5px dashed #c9c9c9; background: rgba(150,150,150,.30); }
+    .pbox.missed { border: 1.5px dashed rgba(255,80,80,.9); background: rgba(255,80,80,.10); }
+    .pbox.missed.hidden { display: none; }
+    .pbox:hover { box-shadow: 0 0 0 2px #fff; z-index: 5; }
+    .pbox.sel { box-shadow: 0 0 0 2px #fff, 0 0 10px 2px rgba(255,255,255,.6); z-index: 6; }
+    .pbox.flash { animation: flash 1.4s ease-out; z-index: 7; }
+    /* confirmation overlay: darkens a panel highlight + its table row when selected */
+    /* white-out cover that erases a deleted highlight's colour immediately */
+    .del-mask { position:absolute; background:rgba(255,255,255,0.94); pointer-events:none; z-index:7;
+      border:1px dashed rgba(220,60,60,.7); border-radius:2px; }
+    /* selecting a panel highlights it the same way as a matched packing-list mark */
+    .confirm-hl { position:absolute; border-radius:2px; pointer-events:none; z-index:8;
+      animation: flash 1.4s ease-out; }
+    @keyframes flash { 0%{box-shadow:0 0 0 3px #fff,0 0 16px 5px rgba(255,255,80,.9);}
+      100%{box-shadow:0 0 0 0 rgba(255,255,255,0);} }
+    .pbox .tag { position: absolute; top: -15px; left: 0; font-size: 9px; font-weight: 800;
+      padding: 0 3px; border-radius: 3px; white-space: nowrap; pointer-events: none; line-height: 1.4;
+      background: rgba(0,0,0,.78); color: #fff; opacity: 0; transition: opacity .1s; }
+    .pbox:hover .tag, .pbox.sel .tag { opacity: 1; }
+
+    /* PL boxes (right pane) — thinner */
+    .plbox { position: absolute; border: 1px solid rgba(96,180,240,.55); border-radius: 2px;
+      background: rgba(96,180,240,.06); cursor: pointer; box-sizing: border-box; }
+    /* accounted for = in the blueprint table → highlighted in the list's shipment
+       colour and "crossed off" with a line through it */
+    /* accounted for = in the blueprint table → just highlight it (no strike) */
+    .plbox.accounted { border-width: 1.5px; }
+    /* on the sheet but NOT in the table → missing / unaccounted */
+    .plbox.missing { border: 1.5px dashed #ff5050; background: rgba(255,80,80,.14); }
+    .plbox:hover { box-shadow: 0 0 0 2px #fff; }
+    .plbox.flash { animation: flash 1.4s ease-out; }
+    /* cross-highlight must win over the per-mark inline shipment colour */
+    .plbox.matched { border-color: #ffe14d !important; background: rgba(255,225,77,.30) !important; }
+
+    /* rubber band for drawing a new panel */
+    #drawRect { position: fixed; border: 2px dashed #ffd900; background: rgba(255,217,0,.1);
+      pointer-events: none; display: none; z-index: 100; }
+
+    /* ── Selection action bar ── */
+    #actionBar { position: fixed; bottom: 1.1rem; left: 50%; transform: translateX(-50%);
+      background: rgba(16,28,48,.97); border: 1px solid rgba(255,255,255,.16); border-radius: 12px;
+      padding: .6rem .8rem; display: none; align-items: center; gap: .7rem; z-index: 250;
+      box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+    #actionBar.show { display: flex; }
+    #actionBar .ab-title { font-size: .8rem; font-weight: 700; }
+    #actionBar .ab-sub { font-size: .68rem; color: rgba(255,255,255,.45); }
+    #actionBar input { width: 70px; padding: .35rem .5rem; background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.2); border-radius: 7px; color: #fff; font-family: inherit; font-size: .82rem; }
+    #actionBar select { padding: .35rem .5rem; background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.2); border-radius: 7px; color: #fff; font-family: inherit; font-size: .74rem; }
+    .ab-btn { padding: .4rem .8rem; border-radius: 8px; font-size: .78rem; font-weight: 700; cursor: pointer; border: none; }
+    .ab-add { background: #16a34a; color: #fff; }
+    .ab-add:hover { background: #15803d; }
+    .ab-del { background: rgba(185,28,28,.25); color: #fca5a5; border: 1px solid rgba(185,28,28,.5); }
+    .ab-del:hover { background: rgba(185,28,28,.45); }
+    .ab-x { background: rgba(255,255,255,.08); color: #fff; }
+
+    /* ── Toast & loading ── */
+    #toast { position: fixed; bottom: 5rem; left: 50%; transform: translateX(-50%);
+      background: rgba(20,40,80,.96); color: #fff; border: 1px solid rgba(96,180,240,.3);
+      padding: .5rem 1.1rem; border-radius: 8px; font-size: .8rem; font-weight: 600;
+      opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 300; }
+    #toast.show { opacity: 1; }
+    .loadbox { display: flex; flex-direction: column; align-items: center; gap: 1rem;
+      color: rgba(255,255,255,.45); padding: 3rem 1rem; font-size: .85rem; text-align: center; }
+    .spinner { width: 34px; height: 34px; border: 3px solid rgba(255,255,255,.1);
+      border-top-color: #60b4f0; border-radius: 50%; animation: spin .8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .empty { color: rgba(255,255,255,.35); font-size: .82rem; padding: 2.5rem 1rem; text-align: center; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <a href="/packing-list-tracker" title="Back to tracker"><img class="tb-logo" src="/static/logo.jpg" alt="PEI"/></a>
+    <div class="tb-sep"></div>
+    <div class="tb-title">📦 {{ job_name }}</div>
+    <div class="tb-sep"></div>
+
+    <button class="tb-btn" id="hideBlankBtn" onclick="toggleBlankPages()">▦ Hide blank pages</button>
+
+    <div class="tb-sep"></div>
+    <div class="tb-zoom">
+      <button onclick="zoomBlueprint(-0.1)">−</button>
+      <div class="tb-zoom-label" id="zoomLabel">100%</div>
+      <button onclick="zoomBlueprint(+0.1)">+</button>
+    </div>
+
+    <div class="tb-sep"></div>
+    <button class="tb-btn green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
+    <a class="tb-btn" id="downloadBtn" href="/api/packing-list/download/{{ job_name|urlencode }}" target="_blank">⬇ Download</a>
+    <button class="tb-btn blue" id="publishBtn" onclick="publish()">📌 Publish</button>
+    <div class="tb-hint" id="hint">Click a panel to inspect & cross-reference</div>
+  </div>
+
+  <!-- Split -->
+  <div class="main">
+    <!-- LEFT: blueprint -->
+    <div class="pane left">
+      <div class="pane-head">
+        <span class="lbl">Blueprint</span>
+        <span class="pill" id="bpStat">—</span>
+        <span class="tb-hint">· double-click empty space to mark a new panel</span>
+        <button class="ph-btn" onclick="printDoc('bp')" style="margin-left:auto">🖨 Print</button>
+        <button class="ph-btn" data-share-btn onclick="toggleShare('bp',this)">🔗 Share</button>
+      </div>
+      <div class="viewer" id="bpViewer">
+        <div class="loadbox"><div class="spinner"></div><span id="bpLoad">Loading blueprint…</span></div>
+      </div>
+    </div>
+
+    <div class="divider" id="divider"></div>
+
+    <!-- RIGHT: packing list -->
+    <div class="pane right">
+      <div class="pane-head">
+        <span class="lbl">Packing List</span>
+        <select id="plSelect" onchange="onPlChange()"><option value="">— Select a packing list —</option></select>
+        <button id="addPanelBtn" onclick="addMissingPanel()" title="Add a panel the scan missed">＋ Add missing panel</button>
+        <span class="pill" id="plStat"></span>
+        <button class="ph-btn" onclick="printDoc('pl')" style="margin-left:auto">🖨 Print</button>
+        <button class="ph-btn" data-share-btn onclick="toggleShare('pl',this)">🔗 Share</button>
+      </div>
+      <div class="viewer" id="plViewer">
+        <div class="empty">Select a packing list to cross-reference.<br>Panels you click on the blueprint will be highlighted here.</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="drawRect"></div>
+
+  <!-- Selection action bar -->
+  <div id="actionBar">
+    <div>
+      <div class="ab-title" id="abTitle">Panel</div>
+      <div class="ab-sub" id="abSub"></div>
+    </div>
+    <div class="tb-sep"></div>
+    <button class="ab-btn" id="abMoveBtn" onclick="enterPlaceMode()" style="display:none">📍 Move highlight</button>
+    <button class="ab-btn" id="abDupBtn" onclick="duplicatePanel()" style="display:none">⧉ Duplicate</button>
+    <button class="ab-btn" id="abChangeBtn" onclick="changeNumber()" style="display:none">✎ Change #</button>
+    <button class="ab-btn ab-del" id="abDelBtn" onclick="deleteSelected()" style="display:none">🗑 Delete highlight</button>
+    <button class="ab-btn ab-x" onclick="clearSelection()">✕</button>
+  </div>
+
+  <!-- Share dropdown -->
+  <div id="shareMenu" class="share-menu">
+    <button onclick="shareVia('sms')">💬 SMS</button>
+    <button onclick="shareVia('email')">✉️ Email</button>
+    <button onclick="shareVia('link')">🔗 Copy link</button>
+    <button onclick="shareVia('newlink')" style="border-top:1px solid rgba(255,255,255,.12);color:#ffb454">🔄 New link (revokes old)</button>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+  const JOB = {{ job_name | tojson }};
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  const SHIP_COLORS = ['#18f23c','#ffd900','#00c6ff','#ff8800','#e000e0','#00e8d8','#b800ff','#ff4444'];
+  const shipColor = i => SHIP_COLORS[((i%SHIP_COLORS.length)+SHIP_COLORS.length)%SHIP_COLORS.length];
+
+  // ── State ──
+  let delivery   = {};   // panel -> {skid, shipment}
+  let locations  = {};   // panel -> {page, bbox}
+  let tableCells = {};   // panel -> {page, bbox} of its row in the DELIVERED table
+  let shipments  = [];   // [{label, color_index, skids}]
+  let shipIndex  = {};   // label -> color_index
+  let bpPages    = [];   // PDF.js page dims (points) [{w,h}]
+  let bpDoc      = null;
+  let bpScale    = 1.0;  // display scale
+  let bpRenderScale = 1.0; // scale the canvases were last rasterized at
+  let activeShip = null; // label
+  let selected   = null; // {panel, kind:'delivered'|'missed'|'new', page, bbox}
+  let pendingAdd = {};   // panel -> {panel,skid,shipment,page?,bbox?}
+  let pendingRemove = new Set();
+  let pendingRenames = [];  // [{from,to,skid,shipment}]
+  let placeMode = null;     // {panel,skid,shipment} — next blueprint click sets the highlight
+  let dismissed = new Set();// missing panels the user deleted (hidden on the packing list)
+  let markers = [];         // packing-list markers: [{id,page,bbox,panel,skid}]
+  let bpMarkers = [];       // (unused) blueprint markers
+  let markerSeq = 0;
+  let activeMarkerId = null;     // the marker currently being sized/moved
+  let markerJustActivated = false;
+
+  // PL pane
+  let plDoc = null, plPages = [], plPositions = [], plFile = '';
+  let plScale = 1.4, plRenderScale = 1.4;
+  let plColorIndex = null;   // shipment colour index of the selected packing list
+  let plAccounted = 0, plMissing = 0;  // panels in the table vs not, on this list
+
+  // A packing list maps to a shipment (its label = filename without .pdf),
+  // which carries the same colour shown on the blueprint.
+  function plShipmentColorIndex(file){
+    for(const c of [file, file.replace(/\.pdf$/i,'')]) if(c in shipIndex) return shipIndex[c];
+    return null;
+  }
+
+  // A mark is only "accounted for" if the panel is actually IN THE PRINTS — i.e. it
+  // appears in the DELIVERED table on the blueprint, which means it was both parsed
+  // from a packing list (delivery_state) AND located on the blueprint drawing
+  // (panel_locations). Panels that were parsed but never found on the prints are
+  // NOT highlighted. Returns the matching key, or null.
+  function tablePanelKey(p){
+    const inPrints = k => delivery[k]!==undefined && locations[k]!==undefined;
+    if(inPrints(p)) return p;
+    const base=p.replace(/R$/i,'');
+    if(inPrints(base)) return base;
+    if(inPrints(base+'R')) return base+'R';
+    return null;
+  }
+
+  const $ = id => document.getElementById(id);
+  let toastT = null;
+  function toast(m){ const t=$('toast'); t.textContent=m; t.classList.add('show');
+    clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
+
+  // ── Boot ──
+  async function boot(){
+    try {
+      const r = await fetch(`/api/packing-list/editor-data/${encodeURIComponent(JOB)}`);
+      if(!r.ok){ const j=await r.json().catch(()=>({})); throw new Error(j.error||('Server '+r.status)); }
+      const d = await r.json();
+      delivery  = d.delivery_state || {};
+      locations = d.panel_locations || {};
+      tableCells = d.table_cells || {};
+      shipments = d.shipments || [];
+      shipIndex = d.file_colors || {};
+      activeShip = shipments.length ? shipments[0].label : null;
+
+      buildLegend();
+      buildShipSelect();
+      fillPlSelect(d.packing_lists || []);
+
+      $('bpLoad').textContent = 'Rendering blueprint…';
+      // Show the exact tracked PDF you can publish/download (table + highlights baked in)
+      bpDoc = await pdfjsLib.getDocument(trackedUrl()).promise;
+      await renderBlueprint();
+      refreshStats();
+    } catch(e){
+      $('bpViewer').innerHTML = `<div class="loadbox" style="color:#f87171">⚠ ${e.message}</div>`;
+    }
+  }
+
+  // ── Legend / shipment picker ──
+  function buildLegend(){
+    const el = $('legend'); if(!el) return;   // legend removed from toolbar
+    el.innerHTML='';
+    if(!shipments.length){ el.innerHTML='<span class="tb-hint">No shipments yet</span>'; return; }
+    shipments.forEach(s=>{
+      const c = shipColor(s.color_index);
+      const chip = document.createElement('div');
+      chip.className='ship-chip'+(s.label===activeShip?' active':'');
+      chip.dataset.ship=s.label;
+      chip.innerHTML=`<span class="ship-dot" style="background:${c}"></span>${esc(s.label)} <span class="ct">${s.count}</span>`;
+      chip.title='Click to make this the active shipment for new panels';
+      chip.onclick=()=>{ activeShip=s.label; buildLegend(); buildShipSelect();
+        toast('Active shipment: '+s.label); };
+      el.appendChild(chip);
+    });
+  }
+  function buildShipSelect(){
+    const sel=$('abShip'); if(!sel) return; sel.innerHTML='';
+    shipments.forEach(s=>{
+      const o=document.createElement('option'); o.value=s.label;
+      o.textContent=s.label; if(s.label===activeShip)o.selected=true; sel.appendChild(o);
+    });
+  }
+  function esc(s){ return String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+  // The viewer shows the same tracked PDF that Download/Publish produce.
+  function trackedUrl(){ return `/api/packing-list/download/${encodeURIComponent(JOB)}?t=${Date.now()}`; }
+  async function reloadBlueprint(){
+    const v=$('bpViewer'); const a=captureAnchor(v);
+    bpDoc = await pdfjsLib.getDocument(trackedUrl()).promise;
+    await renderBlueprint();
+    restoreAnchor(v, a);
+  }
+
+  // ── Blueprint render ──
+  async function renderBlueprint(){
+    const viewer=$('bpViewer'); viewer.innerHTML='';
+    bpPages=[];
+    for(let pi=1; pi<=bpDoc.numPages; pi++){
+      const page=await bpDoc.getPage(pi);
+      const vp=page.getViewport({scale:bpScale});
+      const base=page.getViewport({scale:1});
+      bpPages[pi-1]={w:base.width,h:base.height};
+
+      const wrap=document.createElement('div'); wrap.className='page-wrap';
+      wrap.id=`bp-page-${pi-1}`; wrap.dataset.pi=pi-1;
+      wrap.style.width=Math.round(vp.width)+'px'; wrap.style.height=Math.round(vp.height)+'px';
+      const canvas=document.createElement('canvas');
+      canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
+      const overlay=document.createElement('div'); overlay.className='overlay'; overlay.dataset.pi=pi-1;
+      overlay.addEventListener('dblclick',e=>onBpDblClick(e,overlay,pi-1));
+      wrap.appendChild(canvas); wrap.appendChild(overlay);
+      const lbl=document.createElement('div'); lbl.className='page-label'; lbl.textContent=`Page ${pi} of ${bpDoc.numPages}`;
+      viewer.appendChild(wrap); viewer.appendChild(lbl);
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    }
+    bpRenderScale = bpScale;
+    renderPanelBoxes();
+  }
+
+  function renderPanelBoxes(){
+    document.querySelectorAll('#bpViewer .pbox').forEach(b=>b.remove());
+    const showMissed = $('toggleMissed') && $('toggleMissed').checked;
+    // The tracked PDF underneath already paints delivered panels + the table, so
+    // delivered boxes are invisible click targets. We only DRAW a box for things
+    // the baked PDF can't show yet: unsaved adds/removes, and (optionally) panels
+    // that aren't on any processed packing list.
+    Object.keys(locations).forEach(panel=>{
+      const loc=locations[panel];
+      const overlay=document.querySelector(`#bpViewer .overlay[data-pi="${loc.page}"]`);
+      if(!overlay) return;
+      const dims=bpPages[loc.page]; if(!dims) return;
+
+      const delivered = delivery[panel] !== undefined;
+      const isAdd     = pendingAdd[panel] !== undefined;   // added, not yet saved
+      const isRemove  = pendingRemove.has(panel);          // removed, not yet saved
+
+      const box=document.createElement('div');
+      box.dataset.panel=panel;
+      const pad=2.5;
+      const [x0,y0,x1,y1]=loc.bbox;
+      Object.assign(box.style,{
+        left:((x0-pad)/dims.w*100)+'%', top:((y0-pad)/dims.h*100)+'%',
+        width:((x1-x0+pad*2)/dims.w*100)+'%', height:((y1-y0+pad*2)/dims.h*100)+'%'
+      });
+
+      let tag;
+      if(isRemove){
+        box.className='pbox pending-remove';
+        tag=`#${panel} · removing — Save to apply`;
+      } else if(isAdd){
+        const c=shipColor(shipIndex[delivery[panel].shipment] ?? 0);
+        box.className='pbox pending-add';
+        box.style.borderColor=c; box.style.background=hexA(c,.32);
+        tag=`#${panel} · added — Save to apply`;
+      } else if(delivered){
+        box.className='pbox delivered';   // invisible; colour comes from the PDF
+        tag=`#${panel} · ${delivery[panel].shipment||''} · skid ${delivery[panel].skid||'?'}`;
+      } else {
+        box.className='pbox missed'+(showMissed?'':' hidden');  // not on any packing list
+        tag=`#${panel} · not on a packing list`;
+      }
+      const t=document.createElement('div'); t.className='tag'; t.textContent=tag;
+      box.appendChild(t);
+      box.onclick=e=>{ if(placeMode) return; e.stopPropagation(); selectPanel(panel,'bp'); };
+      overlay.appendChild(box);
+    });
+    // blank red markers placed by Duplicate
+    bpMarkers.forEach(m=>{
+      const overlay=document.querySelector(`#bpViewer .overlay[data-pi="${m.page}"]`);
+      const dims=bpPages[m.page]; if(!overlay||!dims) return;
+      const [x0,y0,x1,y1]=m.bbox; const pad=2.5;
+      const box=document.createElement('div'); box.className='pbox marker'; box.dataset.bpmarker=m.id;
+      box.title = m.panel ? `Panel ${m.panel}` : 'Blank marker — click to set its panel #';
+      Object.assign(box.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
+        width:((x1-x0+pad*2)/dims.w*100)+'%',height:((y1-y0+pad*2)/dims.h*100)+'%'});
+      box.onclick=ev=>{ if(placeMode) return; ev.stopPropagation(); onBpMarkerClick(m); };
+      overlay.appendChild(box);
+    });
+    refreshStats();
+    applyBlankPageVisibility();
+  }
+
+  function hexA(hex,a){ const n=parseInt(hex.slice(1),16);
+    return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`; }
+
+  function refreshStats(){
+    const located=Object.keys(locations).length;
+    const delivered=Object.keys(delivery).length;
+    const missed=Object.keys(locations).filter(p=>delivery[p]===undefined).length;
+    $('bpStat').textContent=`${delivered} delivered · ${missed} missed · ${located} on sheet`;
+    const dirty = Object.keys(pendingAdd).length + pendingRemove.size + pendingRenames.length;
+    const sb=$('saveBtn');
+    sb.disabled = dirty===0;
+    sb.classList.toggle('dirty', dirty>0);
+    sb.textContent = dirty>0 ? `💾 Save Changes (${dirty})` : '💾 Save Changes';
+  }
+
+  // ── Selection ──
+  function selectPanel(panel, source){
+    cancelPlaceMode();             // dropping any prior placement before re-selecting
+    clearSelection(true);
+    const loc=locations[panel];
+    const inTable = delivery[panel]!==undefined;
+    const located = !!loc;
+    // delivered = in table AND placed on the prints; unlocated = in table but
+    // not yet placed (knows its skid/shipment); missed = not in the table.
+    const kind = inTable ? (located ? 'delivered' : 'unlocated') : 'missed';
+    selected={panel, kind, page:loc?loc.page:null, bbox:loc?loc.bbox:null};
+    // ring on the blueprint panel box(es)
+    document.querySelectorAll(`#bpViewer .pbox[data-panel="${cssesc(panel)}"]`).forEach(b=>b.classList.add('sel'));
+    // Only scroll the OTHER pane: clicking on the packing list scrolls the
+    // blueprint; clicking on the blueprint scrolls the packing list. The pane you
+    // clicked never moves.
+    confirmOnBlueprint(panel, located, source==='pl');
+    showActionBar();
+    crossHighlightPL(panel, source==='bp');
+    // A panel that isn't on the prints yet: assume we want to place it — arm place
+    // mode so the next click on the blueprint sets it (unless another button is used).
+    if(kind==='unlocated' || (kind==='missed' && !located)) enterPlaceMode();
+  }
+  function cssesc(s){ return String(s).replace(/"/g,'\\"'); }
+
+  // Darken hex colour by factor f, return rgba with alpha a.
+  function darkenRGBA(hex,f,a){ const n=parseInt(hex.slice(1),16);
+    return `rgba(${Math.round(((n>>16)&255)*f)},${Math.round(((n>>8)&255)*f)},${Math.round((n&255)*f)},${a})`; }
+
+  function placeConfirm(page, bbox, fill, border){
+    const overlay=document.querySelector(`#bpViewer .overlay[data-pi="${page}"]`);
+    const dims=bpPages[page]; if(!overlay||!dims) return;
+    const [x0,y0,x1,y1]=bbox; const pad=2;
+    const el=document.createElement('div'); el.className='confirm-hl';
+    Object.assign(el.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
+      width:((x1-x0+pad*2)/dims.w*100)+'%',height:((y1-y0+pad*2)/dims.h*100)+'%',background:fill});
+    if(border){ el.style.border='2px solid '+border; }
+    overlay.appendChild(el);
+  }
+
+  // Centre the blueprint on a panel's bbox, on BOTH axes, at the current zoom.
+  // wr.width/wr.height are the on-screen (zoomed) page size, so the panel's pixel
+  // offset scales correctly — the higher the zoom, the more it scrolls to centre.
+  function scrollBpToBBox(page,bbox){
+    const wrap=document.getElementById(`bp-page-${page}`); const v=$('bpViewer');
+    const dims=bpPages[page]; if(!wrap||!dims) return;
+    const wr=wrap.getBoundingClientRect(), vr=v.getBoundingClientRect();
+    const cxFrac=((bbox[0]+bbox[2])/2)/dims.w;
+    const cyFrac=((bbox[1]+bbox[3])/2)/dims.h;
+    const top  = v.scrollTop  + (wr.top  - vr.top ) + cyFrac*wr.height - v.clientHeight/2;
+    const left = v.scrollLeft + (wr.left - vr.left) + cxFrac*wr.width  - v.clientWidth/2;
+    v.scrollTo({ top: Math.max(0, top), left: Math.max(0, left), behavior: 'smooth' });
+  }
+
+  // Jump to the panel and LIGHTEN its highlight + its DELIVERED table row (white
+  // wash drops the colour to ~20% so the actual panel number reads clearly); a
+  // coloured border + pulse marks the selection.
+  function confirmOnBlueprint(panel, delivered, doScroll){
+    document.querySelectorAll('#bpViewer .confirm-hl').forEach(e=>e.remove());
+    // same look as a matched packing-list mark: yellow box + flash
+    const fill = 'rgba(255,225,77,0.30)';
+    const border = '#ffe14d';
+    const loc=locations[panel];
+    let target=null;
+    if(loc){ placeConfirm(loc.page, loc.bbox, fill, border); target={page:loc.page,bbox:loc.bbox}; }
+    if(delivered && tableCells[panel]){
+      const cell=tableCells[panel];
+      placeConfirm(cell.page, cell.bbox, fill, border);
+      if(!target) target={page:cell.page,bbox:cell.bbox};
+    }
+    if(doScroll && target) scrollBpToBBox(target.page, target.bbox);
+  }
+
+  function showActionBar(){
+    const bar=$('actionBar'); bar.classList.add('show');
+    const p=selected.panel;
+    const k=selected.kind;
+    $('abTitle').textContent=`Panel ${p}`;
+    // Delete is always available — any highlight, missing or not, can be removed.
+    $('abDelBtn').style.display='';
+    // Duplicate only makes sense for a missing panel (red) you want to copy.
+    $('abDupBtn').style.display = (k==='delivered') ? 'none' : '';
+    if(k==='delivered'){
+      $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'}`;
+      $('abChangeBtn').style.display='';
+      $('abMoveBtn').style.display='';            // re-position an already-placed highlight
+    } else if(k==='unlocated'){
+      // In the table (skid/shipment already known) but not placed — place mode is
+      // auto-armed; just click the blueprint to set it.
+      $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'} · click the blueprint to place it`;
+      $('abChangeBtn').style.display='';
+      $('abMoveBtn').style.display='none';
+    } else {
+      $('abSub').textContent='Not in table — click the blueprint to place it';
+      $('abChangeBtn').style.display='none';
+      $('abMoveBtn').style.display='none';
+    }
+  }
+  function clearSelection(silent){
+    cancelPlaceMode();
+    document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
+    // drop any un-confirmed "new panel" temp box
+    document.querySelectorAll('#bpViewer .pbox[data-temp="1"]').forEach(b=>b.remove());
+    document.querySelectorAll('#plViewer .plbox.matched').forEach(b=>b.classList.remove('matched','flash'));
+    document.querySelectorAll('#bpViewer .confirm-hl').forEach(e=>e.remove());
+    selected=null;
+    $('actionBar').classList.remove('show');
+  }
+
+  // White-out cover so a deleted highlight's colour disappears immediately
+  // (the baked colour is regenerated away on Save; this is instant feedback).
+  function maskOut(page, bbox){
+    const overlay=document.querySelector(`#bpViewer .overlay[data-pi="${page}"]`);
+    const dims=bpPages[page]; if(!overlay||!dims) return;
+    const [x0,y0,x1,y1]=bbox; const pad=2.5;
+    const el=document.createElement('div'); el.className='del-mask';
+    Object.assign(el.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
+      width:((x1-x0+pad*2)/dims.w*100)+'%',height:((y1-y0+pad*2)/dims.h*100)+'%'});
+    overlay.appendChild(el);
+  }
+
+  // ── Delete a panel / false-positive highlight (color + table entry) ──
+  function deleteSelected(){
+    if(!selected) return;
+    const p=selected.panel;
+    const loc=locations[p];            // capture before removing
+    const cell=tableCells[p];
+    delete delivery[p];
+    delete locations[p];               // drop the highlight + its location
+    dismissed.add(p);                  // hide its mark on the packing list
+    if(pendingAdd[p]) delete pendingAdd[p]; else pendingRemove.add(p);
+    // erase the baked colour right now — on the panel AND its table row
+    if(loc)  maskOut(loc.page,  loc.bbox);
+    if(cell) maskOut(cell.page, cell.bbox);
+    rebuildShipmentsLocal();
+    renderPanelBoxes();
+    if(plDoc) renderPlMarks();
+    clearSelection();
+    toast(`Panel ${p} deleted — Save to apply`);
+  }
+
+  // ── Change a panel's number (keeps its position + shipment/skid) ──
+  function changeNumber(){
+    if(!selected) return;
+    const oldP=selected.panel;
+    const np=prompt('New panel number for this highlight:', oldP);
+    if(np===null) return;
+    const newP=np.trim();
+    if(!newP || newP===oldP) return;
+    const loc=locations[oldP];
+    const rec=delivery[oldP] || {skid:'', shipment:activeShip||'Manual'};
+    if(loc){ locations[newP]={page:loc.page,bbox:loc.bbox}; delete locations[oldP]; }
+    delivery[newP]={skid:rec.skid||'', shipment:rec.shipment||activeShip||'Manual'};
+    delete delivery[oldP];
+    pendingRemove.delete(newP);
+    if(pendingAdd[oldP]){
+      // renaming an unsaved addition — just relabel it
+      const a=pendingAdd[oldP]; delete pendingAdd[oldP];
+      a.panel=newP; pendingAdd[newP]=a;
+    } else {
+      // a real renumber of a saved panel — record it so the table updates and
+      // the correction is captured for re-processing / other projects
+      pendingRenames.push({from:oldP, to:newP, skid:delivery[newP].skid, shipment:delivery[newP].shipment});
+    }
+    rebuildShipmentsLocal();
+    renderPanelBoxes();
+    clearSelection();
+    toast(`Renumbered ${oldP} → ${newP} — Save to apply`);
+  }
+
+
+  // Recompute shipments list + color indexes from local delivery (first-seen order)
+  function rebuildShipmentsLocal(){
+    const info={};
+    Object.values(delivery).forEach(v=>{
+      const s=v.shipment||'Unknown';
+      if(!(s in info)) info[s]={count:0,skids:new Set(),color_index:Object.keys(info).length};
+      info[s].count++; info[s].skids.add(String(v.skid||''));
+    });
+    shipments=Object.entries(info).map(([label,v])=>({label,count:v.count,
+      skids:[...v.skids],color_index:v.color_index}));
+    shipIndex={}; shipments.forEach(s=>shipIndex[s.label]=s.color_index);
+    if(activeShip && !(activeShip in shipIndex)) activeShip = shipments.length?shipments[0].label:null;
+    buildLegend();
+  }
+
+  // ── Mark a brand-new panel (double-click empty blueprint space) ──
+  function onBpDblClick(e, overlay, pi){
+    if(e.target.classList.contains('pbox')) return;
+    const dims=bpPages[pi]; if(!dims) return;
+    const obr=overlay.getBoundingClientRect();
+    const cx=(e.clientX-obr.left)/overlay.offsetWidth*dims.w;
+    const cy=(e.clientY-obr.top)/overlay.offsetHeight*dims.h;
+    const np=prompt('New panel number to mark here:');
+    if(np===null) return;
+    const panel=np.trim(); if(!panel) return;
+    const shipment=plShipmentLabel()||activeShip||'Manual';
+    const skid=(delivery[panel]&&delivery[panel].skid)||'';
+    const hw=11, hh=6;
+    const bbox=[cx-hw, cy-hh, cx+hw, cy+hh];
+    locations[panel]={page:pi, bbox};
+    delivery[panel]={skid, shipment};
+    pendingAdd[panel]={panel, skid, shipment, page:pi, bbox};
+    pendingRemove.delete(panel); dismissed.delete(panel);
+    rebuildShipmentsLocal();
+    renderPanelBoxes();
+    if(plDoc) renderPlMarks();
+    toast(`Placed panel ${panel} — Save to apply`);
+  }
+
+  // ── Place / move a panel's highlight on the prints ──
+  // Selecting a missing panel auto-arms place mode; the next single click on the
+  // blueprint SETS the highlight there. "Move highlight" re-arms it for a panel
+  // that's already placed.
+  function enterPlaceMode(){
+    if(!selected) return;
+    const panel=selected.panel;
+    let shipment, skid;
+    if(delivery[panel]){
+      // already in the table — reuse its known panel #, skid and shipment
+      shipment = delivery[panel].shipment || plShipmentLabel() || 'Manual';
+      skid     = delivery[panel].skid || '';
+    } else {
+      shipment = ($('abShip') && $('abShip').value) || plShipmentLabel() || activeShip || 'Manual';
+      skid     = ($('abSkid') && $('abSkid').value.trim()) || '';
+    }
+    placeMode={panel, skid, shipment};
+    document.body.style.cursor='crosshair';
+    showPlaceBanner('bp',`Click the BLUEPRINT (left) where panel ${panel} goes`);
+  }
+  function onBpOverlayClick(e, overlay, pi){
+    if(!placeMode) return;
+    const dims=bpPages[pi]; if(!dims) return;
+    const obr=overlay.getBoundingClientRect();
+    const cx=(e.clientX-obr.left)/overlay.offsetWidth*dims.w;
+    const cy=(e.clientY-obr.top)/overlay.offsetHeight*dims.h;
+    const hw=11, hh=6;
+    const bbox=[cx-hw, cy-hh, cx+hw, cy+hh];
+    // Duplicate → drop a blank red marker on the blueprint (no number/skid yet)
+    if(placeMode.bpDup){
+      bpMarkers.push({id:++markerSeq, page:pi, bbox, panel:'', skid:''});
+      placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+      renderPanelBoxes();
+      toast('Blank marker placed — click it to set its panel #');
+      return;
+    }
+    const {panel, skid, shipment}=placeMode;
+    locations[panel]={page:pi, bbox};
+    delivery[panel]={skid, shipment};
+    pendingAdd[panel]={panel, skid, shipment, page:pi, bbox};
+    pendingRemove.delete(panel);
+    placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+    rebuildShipmentsLocal();
+    renderPanelBoxes();
+    if(plDoc) renderPlMarks();
+    $('actionBar').classList.remove('show'); selected=null;
+    toast(`Placed panel ${panel} (skid ${skid||'?'}) — Save to apply`);
+  }
+  function cancelPlaceMode(){
+    placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+  }
+  function hidePlaceBanner(){ const b=document.getElementById('placeBanner'); if(b) b.remove(); }
+  function showPlaceBanner(which, text){
+    hidePlaceBanner();
+    const v = which==='pl' ? $('plViewer') : $('bpViewer');
+    if(!v) return;
+    const b=document.createElement('div'); b.id='placeBanner'; b.className='place-banner'; b.textContent='👉 '+text;
+    v.insertBefore(b, v.firstChild);
+  }
+
+  // ── Cross-reference on the packing list ──
+  function crossHighlightPL(panel, doScroll){
+    document.querySelectorAll('#plViewer .plbox.matched').forEach(b=>b.classList.remove('matched','flash'));
+    if(!plPositions.length){ return; }
+    const base=panel.replace(/R$/i,'');
+    const matches=plPositions.filter(q=>q.panel===panel || q.panel.replace(/R$/i,'')===base);
+    if(!matches.length){ return; }
+    let first=null;
+    matches.forEach(m=>{
+      const el=document.querySelector(`#plViewer .plbox[data-key="${m.page}_${m.idx}"]`);
+      if(el){ el.classList.add('matched','flash'); if(!first)first=el; }
+    });
+    if(doScroll && first) first.scrollIntoView({behavior:'smooth',block:'center'});
+  }
+
+  // ── Packing list pane ──
+  function fillPlSelect(files){
+    const sel=$('plSelect');
+    files.forEach(f=>{ const o=document.createElement('option'); o.value=f; o.textContent=f; sel.appendChild(o); });
+  }
+  async function onPlChange(){
+    plFile=$('plSelect').value;
+    plColorIndex = plFile ? plShipmentColorIndex(plFile) : null;
+    const viewer=$('plViewer');
+    if(!plFile){ viewer.innerHTML='<div class="empty">Select a packing list to cross-reference.</div>'; plPositions=[]; setPlStat(); return; }
+    viewer.innerHTML='<div class="loadbox"><div class="spinner"></div><span>Loading & scanning packing list…<br><small>(first open OCRs the file — may take a moment)</small></span></div>';
+    plPositions=[]; $('plStat').textContent='';
+    try{
+      const url=`/api/packing-list/pl-file/${encodeURIComponent(JOB)}?file=${encodeURIComponent(plFile)}`;
+      const [doc, posR] = await Promise.all([
+        pdfjsLib.getDocument(url).promise,
+        fetch(`/api/packing-list/pl-positions/${encodeURIComponent(JOB)}?file=${encodeURIComponent(plFile)}`)
+      ]);
+      plDoc=doc;
+      const pos = posR.ok ? await posR.json() : {positions:[]};
+      plPositions = (pos.positions||[]).map((p,i)=>({...p, idx:i}));
+      await renderPL();
+      setPlStat();
+      if(selected) crossHighlightPL(selected.panel);
+    }catch(e){
+      viewer.innerHTML=`<div class="loadbox" style="color:#f87171">⚠ ${e.message}</div>`;
+    }
+  }
+  async function renderPL(){
+    const viewer=$('plViewer'); viewer.innerHTML=''; plPages=[];
+    for(let pi=1; pi<=plDoc.numPages; pi++){
+      const page=await plDoc.getPage(pi);
+      const vp=page.getViewport({scale:plScale});
+      const base=page.getViewport({scale:1});
+      plPages[pi-1]={w:base.width,h:base.height};
+      const wrap=document.createElement('div'); wrap.className='page-wrap'; wrap.id=`pl-page-${pi-1}`; wrap.dataset.pi=pi-1;
+      wrap.style.width=Math.round(vp.width)+'px'; wrap.style.height=Math.round(vp.height)+'px';
+      const canvas=document.createElement('canvas'); canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
+      const overlay=document.createElement('div'); overlay.className='overlay'; overlay.dataset.pi=pi-1;
+      wrap.appendChild(canvas); wrap.appendChild(overlay);
+      const lbl=document.createElement('div'); lbl.className='page-label'; lbl.textContent=`Page ${pi}`;
+      viewer.appendChild(wrap); viewer.appendChild(lbl);
+      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    }
+    plRenderScale = plScale;
+    renderPlMarks();
+  }
+
+  // (Re)draw packing-list marks: a panel present in the blueprint table is just
+  // highlighted in the list's shipment colour (no strike-through); panels not in
+  // the table are flagged red. Safe to call again after edits.
+  function renderPlMarks(){
+    document.querySelectorAll('#plViewer .plbox').forEach(b=>b.remove());
+    plAccounted = 0; plMissing = 0;
+    const listColor = plColorIndex!=null ? shipColor(plColorIndex) : '#9aa4b2';
+    plPositions.forEach(q=>{
+      if(dismissed.has(q.panel)) return;       // user deleted this mark
+      const overlay=document.querySelector(`#plViewer .overlay[data-pi="${q.page}"]`);
+      const dims=plPages[q.page]; if(!overlay||!dims) return;
+      const [x0,y0,x1,y1]=q.bbox; const pad=1.5;
+      const key=tablePanelKey(q.panel);        // present in the blueprint table?
+      const box=document.createElement('div');
+      box.dataset.key=`${q.page}_${q.idx}`; box.dataset.panel=key||q.panel;
+      Object.assign(box.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
+        width:((x1-x0+pad*2)/dims.w*100)+'%',height:((y1-y0+pad*2)/dims.h*100)+'%'});
+      if(key!==null){
+        box.className='plbox accounted';
+        box.style.borderColor=listColor; box.style.background=hexA(listColor,.34);
+        box.title=`Panel ${key} — accounted for`;
+        plAccounted++;
+      } else {
+        box.className='plbox missing';
+        box.title=`Panel ${q.panel} — NOT in blueprint table (missing)`;
+        plMissing++;
+      }
+      box.onclick=()=> selectPanel(key||q.panel, 'pl');
+      overlay.appendChild(box);
+    });
+    // user-placed markers. The ACTIVE one is movable/resizable; once you click off
+    // it's "placed" and clicking it assigns its value + skid.
+    markers.forEach(m=>{
+      const overlay=document.querySelector(`#plViewer .overlay[data-pi="${m.page}"]`);
+      const dims=plPages[m.page]; if(!overlay||!dims) return;
+      const active = (m.id===activeMarkerId);
+      const box=document.createElement('div'); box.className='plbox plmarker'+(active?' active':''); box.dataset.marker=m.id;
+      // colour like a real mark: shipment colour if its panel is in the table, else red
+      const key = m.panel ? tablePanelKey(m.panel) : null;
+      if(key){ const c=shipColor(shipIndex[delivery[key].shipment] ?? plColorIndex ?? 0);
+               box.style.borderColor=c; box.style.background=hexA(c,.34); }
+      else { box.style.borderColor='#ff5050'; box.style.background='rgba(255,80,80,.22)'; }
+      box.title = active ? 'Drag to move · corner to resize · click off to set it'
+                         : (m.assigned ? `Panel ${m.panel}${m.skid?' · skid '+m.skid:''} — click for options`
+                                       : 'Click to set its value & skid');
+      positionPlMarker(box, m, dims);
+      if(active){
+        box.addEventListener('mousedown', e=>beginPlMarkerInteract(e, m, box, dims, 'move'));
+        const rh=document.createElement('div'); rh.className='plmarker-resize';
+        rh.addEventListener('mousedown', e=>{ e.stopPropagation(); beginPlMarkerInteract(e, m, box, dims, 'resize'); });
+        box.appendChild(rh);
+        box.addEventListener('click', e=>{ e.stopPropagation(); });   // stays active
+      } else {
+        box.addEventListener('click', e=>{ e.stopPropagation(); onPlMarkerClick(m); });
+      }
+      overlay.appendChild(box);
+    });
+    setPlStat();
+  }
+  function positionPlMarker(box, m, dims){
+    const [x0,y0,x1,y1]=m.bbox; const pad=1.5;
+    box.style.left=((x0-pad)/dims.w*100)+'%';   box.style.top=((y0-pad)/dims.h*100)+'%';
+    box.style.width=((x1-x0+pad*2)/dims.w*100)+'%'; box.style.height=((y1-y0+pad*2)/dims.h*100)+'%';
+  }
+  // Drag the marker body to move it, or drag the corner handle to resize it.
+  function beginPlMarkerInteract(e, m, box, dims, mode){
+    if(placeMode) return;              // don't grab markers while placing a new one
+    e.preventDefault();
+    const overlay=box.parentElement;
+    const start=m.bbox.slice(); const sx=e.clientX, sy=e.clientY; let moved=false;
+    function onMove(ev){
+      if(Math.abs(ev.clientX-sx)>2 || Math.abs(ev.clientY-sy)>2) moved=true;
+      const kx=dims.w/(overlay.offsetWidth||1), ky=dims.h/(overlay.offsetHeight||1);
+      const dx=(ev.clientX-sx)*kx, dy=(ev.clientY-sy)*ky;
+      if(mode==='move'){ m.bbox=[start[0]+dx, start[1]+dy, start[2]+dx, start[3]+dy]; }
+      else { m.bbox=[start[0], start[1], Math.max(start[0]+6, start[2]+dx), Math.max(start[1]+4, start[3]+dy)]; }
+      positionPlMarker(box, m, dims);
+    }
+    function onUp(){ document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp); box._dragged=moved; }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }
+
+  // Shipment label that the selected packing list belongs to.
+  function plShipmentLabel(){
+    if(plFile){
+      const base=plFile.replace(/\.pdf$/i,'');
+      if(base in shipIndex) return base;
+      if(plFile in shipIndex) return plFile;
+    }
+    return activeShip || 'Manual';
+  }
+
+  // ── Add a missing panel (header button) ──
+  // No prompts — the next click on the blueprint drops a red marker there. The
+  // marker can then be clicked to assign its number, or deleted.
+  function addMissingPanel(){
+    if(!plDoc){ toast('Open a packing list first'); return; }
+    clearSelection();
+    placeMode={plMissing:true};
+    document.body.style.cursor='crosshair';
+    showPlaceBanner('pl','Click the PACKING LIST (right) to drop a marker');
+    toast('Click the packing list to drop a red marker');
+  }
+  // Click on the packing list while in "add missing panel" mode → drop a red marker.
+  function onPlOverlayClick(e, overlay, pi){
+    if(!(placeMode && (placeMode.plMissing || placeMode.plDup))) return;
+    const dims=plPages[pi]; if(!dims) return;
+    const obr=overlay.getBoundingClientRect();
+    const cx=(e.clientX-obr.left)/overlay.offsetWidth*dims.w;
+    const cy=(e.clientY-obr.top)/overlay.offsetHeight*dims.h;
+    const hw=10, hh=7;
+    const dup = placeMode.plDup;
+    const panel = dup ? placeMode.panel : null;   // duplicate keeps the original number
+    const id=++markerSeq;
+    markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid:'', assigned:false});
+    activeMarkerId=id; markerJustActivated=true;   // new marker is editable until you click off
+    placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+    renderPlMarks();
+    toast('Size & move it, then click off to set it');
+  }
+  // Duplicate → drop a blank red marker on the BLUEPRINT (panel + skid blank).
+  function duplicatePanel(){
+    if(!selected || !selected.panel) return;
+    const panel=selected.panel;
+    clearSelection();
+    if(!plDoc){ toast('Open a packing list first'); return; }
+    placeMode={plDup:true, panel};
+    document.body.style.cursor='crosshair';
+    showPlaceBanner('pl',`Click the PACKING LIST to place a duplicate of panel ${panel}`);
+    toast('Click the packing list to place the duplicate');
+  }
+  // Click a blueprint marker → assign its panel number (skid stays blank).
+  function onBpMarkerClick(m){
+    const np=prompt('Panel number for this marker:');
+    if(np===null) return;
+    const panel=np.trim(); if(!panel) return;
+    const shipment=plShipmentLabel()||activeShip||'Manual';
+    locations[panel]={page:m.page, bbox:m.bbox};
+    delivery[panel]={skid:'', shipment};                 // blank skid
+    pendingAdd[panel]={panel, skid:'', shipment, page:m.page, bbox:m.bbox};
+    pendingRemove.delete(panel); dismissed.delete(panel);
+    bpMarkers=bpMarkers.filter(x=>x.id!==m.id);
+    rebuildShipmentsLocal();
+    renderPanelBoxes(); if(plDoc) renderPlMarks();
+    toast(`Panel ${panel} placed (blank skid) — Save to apply`);
+  }
+  // Click a packing-list marker: assign its number (first click), then it behaves
+  // like any missing panel — click it again to place it on the blueprint.
+  function onPlMarkerClick(m){
+    // Already has a value → behave like a normal missing-panel mark: open the pop-up.
+    if(m.assigned){ selectPanel(m.panel, 'pl'); return; }
+    // First time → assign its value (panel number) and skid.
+    const np=prompt('Panel number:', m.panel||''); if(np===null) return;
+    const panel=np.trim(); if(!panel) return;
+    const sk=prompt('Skid # (optional):', m.skid||''); if(sk===null) return;
+    const skid=sk.trim();
+    m.panel=panel; m.skid=skid; m.assigned=true;
+    const shipment=plShipmentLabel()||activeShip||'Manual';
+    delivery[panel]={skid, shipment};
+    pendingAdd[panel]={panel, skid, shipment};
+    pendingRemove.delete(panel); dismissed.delete(panel);
+    rebuildShipmentsLocal();
+    renderPanelBoxes(); renderPlMarks();
+    toast(`Panel ${panel} (skid ${skid||'?'}) set — click it again for options`);
+  }
+
+  // Pane header: show the packing list's shipment colour + mark count.
+  function setPlStat(){
+    const stat=$('plStat'); if(!stat) return;
+    if(!plFile){ stat.textContent=''; stat.style.background=''; stat.style.borderColor=''; return; }
+    const c = plColorIndex!=null ? shipColor(plColorIndex) : null;
+    const miss = plMissing>0 ? ` · <span style="color:#ff7676">${plMissing} missing</span>` : ' · 0 missing';
+    stat.innerHTML = (c?`<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:5px;vertical-align:middle"></span>`:'')
+                   + `${plAccounted} accounted${miss}`;
+    stat.style.background = c ? hexA(c,.22) : '';
+    stat.style.borderColor = c || '';
+    stat.style.color = '#fff';
+  }
+
+  // ── Hide blank pages (pages with no delivered/marked panels) ──
+  let hideBlank=false;
+  function pagesWithMarkup(){
+    const s=new Set();
+    Object.keys(delivery).forEach(p=>{ const loc=locations[p]; if(loc) s.add(loc.page); });
+    return s;
+  }
+  function applyBlankPageVisibility(){
+    const keep=pagesWithMarkup();
+    document.querySelectorAll('#bpViewer .page-wrap').forEach(w=>{
+      const pi=+w.dataset.pi;
+      const show = !hideBlank || keep.has(pi);
+      w.style.display = show?'':'none';
+      const lbl=w.nextElementSibling;
+      if(lbl && lbl.classList.contains('page-label')) lbl.style.display = show?'':'none';
+    });
+  }
+  function toggleBlankPages(){
+    hideBlank=!hideBlank;
+    applyBlankPageVisibility();
+    const btn=$('hideBlankBtn');
+    btn.classList.toggle('active',hideBlank);
+    btn.textContent = hideBlank ? '▦ Show all pages' : '▦ Hide blank pages';
+  }
+
+  // ── Zoom (per-pane, anchored, gesture/pinch aware) ──
+  // Zooming resizes the already-rendered pages (instant, keeps your place) and
+  // only re-rasterizes for crispness after you stop. The view never jumps to the
+  // top, and pinch/ctrl-zoom only affects the document under the pointer.
+  const BP_MIN=0.4, BP_MAX=4, PL_MIN=0.5, PL_MAX=5;
+
+  // Find the page nearest a reference point and remember where that point sits
+  // inside it, so we can keep it fixed across a zoom.
+  function captureAnchor(viewer, clientX, clientY){
+    const vr=viewer.getBoundingClientRect();
+    const refX=(clientX==null)?vr.left+viewer.clientWidth/2:clientX;
+    const refY=(clientY==null)?vr.top +viewer.clientHeight/2:clientY;
+    let best=null, bd=Infinity;
+    viewer.querySelectorAll('.page-wrap').forEach(w=>{
+      const r=w.getBoundingClientRect();
+      const d=(refY<r.top)?r.top-refY:(refY>r.bottom?refY-r.bottom:0);
+      if(d<bd){ bd=d; best=w; }
+    });
+    if(!best) return null;
+    const r=best.getBoundingClientRect();
+    return {id:best.id, fx:(refX-r.left)/r.width, fy:(refY-r.top)/r.height, refX, refY};
+  }
+  function restoreAnchor(viewer, a){
+    if(!a) return; const el=document.getElementById(a.id); if(!el) return;
+    const r=el.getBoundingClientRect();
+    viewer.scrollLeft += (r.left + a.fx*r.width)  - a.refX;
+    viewer.scrollTop  += (r.top  + a.fy*r.height) - a.refY;
+  }
+  function sizeWraps(viewer, pages, scale){
+    viewer.querySelectorAll('.page-wrap').forEach(w=>{
+      const pi=+w.dataset.pi; const d=pages[pi]; if(!d) return;
+      w.style.width=(d.w*scale)+'px'; w.style.height=(d.h*scale)+'px';
+    });
+  }
+
+  // Blueprint pane
+  let bpCommitT=null;
+  function applyBpScale(scale, anchor){
+    scale=Math.max(BP_MIN,Math.min(BP_MAX,scale));
+    bpScale=scale;
+    sizeWraps($('bpViewer'), bpPages, scale);
+    $('zoomLabel').textContent=Math.round(scale*100)+'%';
+    restoreAnchor($('bpViewer'), anchor);
+    clearTimeout(bpCommitT);
+    bpCommitT=setTimeout(async()=>{
+      if(Math.abs(bpScale-bpRenderScale)<0.001) return;
+      const v=$('bpViewer'); const a=captureAnchor(v);
+      await renderBlueprint();   // re-raster crisp at bpScale
+      restoreAnchor(v, a);
+    },180);
+  }
+  function zoomBlueprint(delta){           // toolbar +/- buttons
+    const a=captureAnchor($('bpViewer'));  // anchor on what's centered now
+    applyBpScale(Math.round((bpScale+delta)*10)/10, a);
+  }
+
+  // Packing-list pane
+  let plCommitT=null;
+  function applyPlScale(scale, anchor){
+    if(!plDoc) return;
+    scale=Math.max(PL_MIN,Math.min(PL_MAX,scale));
+    plScale=scale;
+    sizeWraps($('plViewer'), plPages, scale);
+    restoreAnchor($('plViewer'), anchor);
+    clearTimeout(plCommitT);
+    plCommitT=setTimeout(async()=>{
+      if(Math.abs(plScale-plRenderScale)<0.001) return;
+      const v=$('plViewer'); const a=captureAnchor(v);
+      await renderPL();
+      restoreAnchor(v, a);
+    },180);
+  }
+
+  function within(el,x,y){ const r=el.getBoundingClientRect();
+    return x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom; }
+  function touchDist(t){ return Math.hypot(t[0].clientX-t[1].clientX, t[0].clientY-t[1].clientY); }
+  function touchMid(t){ return {x:(t[0].clientX+t[1].clientX)/2, y:(t[0].clientY+t[1].clientY)/2}; }
+
+  function setupZoomGestures(){
+    // Desktop trackpad pinch & Ctrl/⌘+wheel → zoom only the hovered pane; the
+    // browser's whole-page zoom (which would move the toolbar) is suppressed.
+    document.addEventListener('wheel', e=>{
+      if(!(e.ctrlKey||e.metaKey)) return;       // plain scroll = normal scrolling
+      e.preventDefault();
+      const bp=$('bpViewer'), pl=$('plViewer');
+      const factor=Math.exp(-e.deltaY*0.0015);
+      if(within(bp,e.clientX,e.clientY))      applyBpScale(bpScale*factor, captureAnchor(bp,e.clientX,e.clientY));
+      else if(within(pl,e.clientX,e.clientY)) applyPlScale(plScale*factor, captureAnchor(pl,e.clientX,e.clientY));
+    }, {passive:false});
+
+    [['bpViewer','bp'],['plViewer','pl']].forEach(([id,which])=>{
+      const v=$(id); if(!v) return;
+      let startScale=1, gAnchor=null;
+      // Safari (iPad/iPhone/trackpad) gesture events
+      v.addEventListener('gesturestart', e=>{ e.preventDefault();
+        startScale = which==='bp'?bpScale:plScale;
+        gAnchor = captureAnchor(v, e.clientX, e.clientY);
+      });
+      v.addEventListener('gesturechange', e=>{ e.preventDefault();
+        const s=startScale*e.scale;
+        if(which==='bp') applyBpScale(s,gAnchor); else applyPlScale(s,gAnchor);
+      });
+      v.addEventListener('gestureend', e=>e.preventDefault());
+
+      // Android / generic two-finger pinch
+      let pinching=false, pDist=0, pStart=1, pAnchor=null;
+      v.addEventListener('touchstart', e=>{
+        if(e.touches.length===2){
+          pinching=true; pDist=touchDist(e.touches);
+          pStart=which==='bp'?bpScale:plScale;
+          const m=touchMid(e.touches); pAnchor=captureAnchor(v,m.x,m.y);
+        }
+      }, {passive:false});
+      v.addEventListener('touchmove', e=>{
+        if(pinching && e.touches.length===2){
+          e.preventDefault();
+          const d=touchDist(e.touches);
+          const m=touchMid(e.touches);
+          if(pAnchor){ pAnchor.refX=m.x; pAnchor.refY=m.y; }  // let fingers pan too
+          const s=pStart*(d/(pDist||d));
+          if(which==='bp') applyBpScale(s,pAnchor); else applyPlScale(s,pAnchor);
+        }
+      }, {passive:false});
+      v.addEventListener('touchend', e=>{ if(e.touches.length<2) pinching=false; });
+    });
+  }
+
+  // ── Save ──
+  async function saveChanges(){
+    const add=Object.values(pendingAdd);
+    const remove=[...pendingRemove];
+    const renames=pendingRenames;
+    if(!add.length && !remove.length && !renames.length) return;
+    const btn=$('saveBtn'); btn.disabled=true; btn.textContent='Saving…';
+    try{
+      const r=await fetch(`/api/packing-list/update-panels/${encodeURIComponent(JOB)}`,{
+        method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({add,remove,renames})});
+      const d=await r.json();
+      if(!r.ok||d.error) throw new Error(d.error||'Save failed');
+      delivery=d.delivery_state||{}; locations=d.panel_locations||{};
+      tableCells=d.table_cells||tableCells;
+      shipments=d.shipments||[]; shipIndex=d.file_colors||{};
+      pendingAdd={}; pendingRemove.clear(); pendingRenames=[];
+      if(activeShip && !(activeShip in shipIndex)) activeShip=shipments.length?shipments[0].label:null;
+      buildLegend();
+      // reload the freshly regenerated tracked PDF so the viewer == the publishable doc
+      if(d.regenerated) await reloadBlueprint(); else renderPanelBoxes();
+      toast(d.regenerated ? '✅ Saved — tracked blueprint updated' : `⚠ Saved, but PDF regen failed: ${d.regen_error||''}`);
+    }catch(e){ toast('⚠ '+e.message); }
+    finally{ refreshStats(); }
+  }
+
+  async function publish(){
+    if(Object.keys(pendingAdd).length||pendingRemove.size){
+      if(!confirm('You have unsaved changes. Save them first, then publish?')) return;
+      await saveChanges();
+    }
+    const btn=$('publishBtn'); btn.disabled=true; btn.textContent='Publishing…';
+    try{
+      const r=await fetch(`/api/packing-list/publish/${encodeURIComponent(JOB)}`,{method:'POST'});
+      const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Publish failed');
+      toast(`✅ Published as "${d.filename}"`);
+    }catch(e){ toast('⚠ '+e.message); }
+    finally{ btn.disabled=false; btn.textContent='📌 Publish'; }
+  }
+
+  document.addEventListener('keydown',e=>{
+    if(e.key==='Escape'){ if(placeMode){ cancelPlaceMode(); toast('Placement cancelled'); return; } clearSelection(); }
+    if((e.key==='Delete'||e.key==='Backspace') && selected && selected.kind==='delivered'){
+      e.preventDefault(); deleteSelected();
+    }
+  });
+
+  // ── Resizable divider ──
+  (function(){
+    const div=$('divider'), left=document.querySelector('.pane.left'), right=document.querySelector('.pane.right');
+    let dragging=false;
+    div.addEventListener('mousedown',()=>{dragging=true; document.body.style.cursor='col-resize';});
+    document.addEventListener('mousemove',e=>{
+      if(!dragging) return;
+      const total=div.parentElement.getBoundingClientRect();
+      const lw=e.clientX-total.left;
+      const pct=Math.max(20,Math.min(80, lw/total.width*100));
+      left.style.flex=`0 0 ${pct}%`; right.style.flex=`1 1 0`;
+    });
+    document.addEventListener('mouseup',()=>{dragging=false; document.body.style.cursor='';});
+  })();
+
+  // Robust placement clicks: one handler per viewer (survives re-renders). When a
+  // placement is armed, a click anywhere on the correct document places the marker.
+  function viewerPlaceClick(e, which){
+    if(!placeMode) return;
+    const wantPl = !!(placeMode.plMissing || placeMode.plDup);   // these go on the packing list
+    if((which==='pl') !== wantPl) return;
+    const wrap = e.target.closest('.page-wrap'); if(!wrap) return;
+    const overlay = wrap.querySelector('.overlay'); if(!overlay) return;
+    const pi = +wrap.dataset.pi;
+    if(which==='pl') onPlOverlayClick(e, overlay, pi); else onBpOverlayClick(e, overlay, pi);
+  }
+  $('bpViewer').addEventListener('click', e=>viewerPlaceClick(e,'bp'));
+  $('plViewer').addEventListener('click', e=>viewerPlaceClick(e,'pl'));
+
+  // ── Print / Share ──
+  let shareTarget='bp';
+  function docUrl(which){
+    if(which==='pl'){
+      if(!plFile) return null;
+      return location.origin + '/api/packing-list/pl-file/' + encodeURIComponent(JOB) + '?file=' + encodeURIComponent(plFile);
+    }
+    return location.origin + '/api/packing-list/download/' + encodeURIComponent(JOB);
+  }
+  function docName(which){
+    return which==='pl' ? (plFile ? plFile.replace(/\.pdf$/i,'') : 'Packing list')
+                        : (JOB + ' — Delivery Tracked');
+  }
+  // Print → open the PDF and bring up the print dialog (which also offers Save as PDF).
+  function printDoc(which){
+    const url=docUrl(which);
+    if(!url){ toast(which==='pl' ? 'Select a packing list first' : 'Nothing to print'); return; }
+    const f=document.createElement('iframe');
+    f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    f.src=url;
+    f.onload=()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){ window.open(url,'_blank'); } };
+    document.body.appendChild(f);
+  }
+  function toggleShare(which, btn){
+    shareTarget=which;
+    const m=$('shareMenu');
+    if(m.classList.contains('open') && m.dataset.for===which){ m.classList.remove('open'); return; }
+    const r=btn.getBoundingClientRect();
+    m.dataset.for=which;
+    m.style.left=Math.max(8, Math.min(r.left, window.innerWidth-170))+'px';
+    m.style.top=(r.bottom+5)+'px';
+    m.classList.add('open');
+  }
+  async function shareVia(method){
+    const which=shareTarget;
+    $('shareMenu').classList.remove('open');
+    if(which==='pl' && !plFile){ toast('Select a packing list first'); return; }
+    // One PUBLIC link per document. "New link" rotates it, revoking the old one.
+    const rotate = (method==='newlink');
+    if(rotate && !confirm('Create a new link?\n\nThis will REVOKE the current link — anyone who already has it (texts, emails) will lose access and need the new link.')){
+      return;
+    }
+    let url;
+    try{
+      const body = which==='pl' ? {kind:'pl', file:plFile, rotate} : {kind:'bp', rotate};
+      const r=await fetch(`/api/packing-list/public-link/${encodeURIComponent(JOB)}`,{
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)});
+      const d=await r.json();
+      if(!r.ok || d.error || !d.url) throw new Error(d.error||'Could not create link');
+      url = location.origin + d.url;
+    }catch(e){ toast('⚠ '+e.message); return; }
+    const name=docName(which);
+    const msg=`${name}: ${url}`;
+    if(method==='link' || method==='newlink'){
+      const done = ()=>toast(rotate ? 'New link copied — old link revoked' : 'Public link copied');
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(url).then(done, ()=>fallbackCopy(url));
+      } else fallbackCopy(url);
+    } else if(method==='email'){
+      window.location.href=`mailto:?subject=${encodeURIComponent(name)}&body=${encodeURIComponent(msg)}`;
+    } else if(method==='sms'){
+      window.location.href=`sms:?&body=${encodeURIComponent(msg)}`;
+    }
+  }
+  function fallbackCopy(text){
+    const t=document.createElement('textarea'); t.value=text; t.style.position='fixed'; t.style.opacity='0';
+    document.body.appendChild(t); t.select();
+    try{ document.execCommand('copy'); toast('Link copied'); }catch(e){ toast('Copy failed — '+text); }
+    t.remove();
+  }
+  // close the share menu when clicking elsewhere
+  document.addEventListener('click', e=>{
+    const m=$('shareMenu');
+    if(m.classList.contains('open') && !e.target.closest('#shareMenu') && !e.target.closest('[data-share-btn]')){
+      m.classList.remove('open');
+    }
+  });
+  // click off an active marker → place it (the size/move handles go away)
+  document.addEventListener('click', e=>{
+    if(activeMarkerId==null) return;
+    if(markerJustActivated){ markerJustActivated=false; return; }   // ignore the placing click
+    if(e.target.closest('.plmarker') || e.target.closest('.plmarker-resize')) return;
+    activeMarkerId=null;
+    renderPlMarks();
+    toast('Marker set — click it to assign value & skid');
+  });
+
+  setupZoomGestures();
+  boot();
+  </script>
+</body>
+</html>

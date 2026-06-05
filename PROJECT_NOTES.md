@@ -112,6 +112,12 @@ PEItools.com/
 | `/api/packing-list/download/<job>` | Download tracked blueprint PDF | Login required |
 | `/api/packing-list/publish/<job>` | Copy tracked PDF to Blueprints folder (numbered prefix) | Login required |
 | `/api/packing-list/reset/<job>` | Clear delivery state for a job | Login required |
+| `/packing-list/editor/<job>` | Interactive split-screen cross-reference editor | Login required |
+| `/api/packing-list/editor-data/<job>` | Panel locations, delivery state, shipments, page dims, PL list | Login required |
+| `/api/packing-list/blueprint/<job>` | Serve base (un-annotated) blueprint PDF | Login required |
+| `/api/packing-list/pl-file/<job>?file=` | Serve a packing list PDF for the right pane | Login required |
+| `/api/packing-list/pl-positions/<job>?file=` | OCR panel-number positions on a packing list (cached) | Login required |
+| `/api/packing-list/update-panels/<job>` | Add/remove delivered panels, regenerate tracked PDF | Login required |
 | `/share/<token>` | Shared job folder | Public |
 | `/compass/<token>` | Shared Field Compass | Public |
 | `/api/jobs` | List all jobs | Public |
@@ -227,17 +233,136 @@ Processes KPS packing list PDFs and annotates the job blueprint with colored hig
 - Colors used in: blueprint highlights, table row swatches, UI shipment stat cards, file list badges
 - Palette defined in `packing_list_engine.py → _SHIPMENT_COLORS` and `packing_list_tracker.html → SHIP_COLORS[]`
 
+### KPS Packing List / Skid Sheet Format
+
+> **Reference image:** `pictures for context/PackingListLayout.png` — the canonical
+> layout of a KPS packing list page. Consult it before changing any packing-list
+> parsing/scanning logic.
+>
+> **Annotation colors on that image (what each colored box marks):**
+> - 🟩 **Green box** = one **skid block** (a quadrant of the 2×2 grid). Each green box is a full skid.
+> - 🟦 **Blue box** = the **SKID #** field of a block (the skid's plain-integer number).
+> - 🟥 **Red box** = the **PANEL # column** — the ONLY place real panel numbers live. The scanner reads numbers only inside these red regions; everything else (ORDER #, dimensions, the "X PANELS" footer) is ignored.
+> - 🟨 **Yellow box** = a PANEL # column on a **special-condition skid** (skid #29 in the example) that has a handwritten "shipping"/"not shipping" scrawl over it. Same column type as red, but flagged for review / treated as not-delivered, so its panels are excluded from the table.
+
+KPS packing lists are PDF documents. Each page has up to **4 skid blocks arranged in a 2×2 grid** (top-left, top-right, bottom-left, bottom-right). A page may have fewer than 4 — determine how many are present by whether a SKID # appears in each quadrant. The layout matches `pictures for context/PackingListLayout.png`.
+
+**Each skid block contains:**
+- **SKID #** — plain integer (e.g. `28`). If a quadrant has no SKID #, it's empty/unused.
+- **HEIGHT / WIDTH / LENGTH** — panel dimensions, ignore for tracking.
+- **ORDER # column** (left) — small numbers ≤99. These are order line numbers, NOT panel numbers. Skip the first number on a line if it is ≤99 and followed by larger numbers.
+- **PANEL # column** (right) — comma-separated panel numbers. Format: 1–3 digits, optional `R` suffix meaning **remake** (e.g. `242R`). Range 1–700.
+- **X PANELS** footer — total panel count for that skid. Used to validate OCR extraction. If the count doesn't match what was extracted (< 70% match), flag for review.
+- **ACCESSORIES** section — ignore; contains clips, tracks, etc., not panels.
+
+**OCR quirks to handle:**
+- OCR sometimes reads order number `27` as `2/7` due to a printed table line through the digit. Fix: `re.sub(r'(?<!\d)(\d)/(\d{1,2})(?!\d)', r'\1\2', text)` before parsing.
+- Handwriting in a skid block (e.g. "not shipping") corrupts OCR output. Detection: if the `X PANELS` count footer is unreadable (OCR can't parse a number before "PANELS"), the block is flagged and excluded pending manual review.
+- Page 1 of each packing list is a cover/shipping summary page — skip it (no SKID # present).
+
+**Panel number rules:**
+- Skid numbers: always plain integers.
+- Panel numbers: 1–700, optional `R` suffix (remake).
+- Leading order number on a line: skip if value ≤99 and at least one following number is >99.
+- "Not shipping" handwriting = exclude the **entire skid**, not individual panels.
+
+### Panel location on the blueprint — DXF-coordinate registration
+Panel numbers are NOT selectable text in the blueprint PDF (they're baked-in
+graphics), so they can't be read directly. The DXF files, however, hold every
+panel number with an exact coordinate on the **paper-space PANELS layer**, and
+each DXF layout (`3.1`, `2.10`, …) corresponds to a blueprint sheet.
+
+`scan_blueprint_panels()` therefore:
+1. OCRs each PDF page at low confidence to get a few panel numbers as **anchors**
+   (the DXF whitelist + RANSAC reject misreads, so low confidence is fine).
+2. Matches the page to its DXF layout (the layout containing those anchors).
+3. Solves the DXF→PDF **affine transform** from the anchors (`_register_page_to_layout`,
+   `_ransac_affine`, pure-Python `_affine_fit`/`_solve3` — no numpy dependency).
+4. Transforms ALL of that layout's panel coordinates onto the page (box built from
+   the 4 transformed text corners, so it survives sheet rotation/flip).
+5. Panels are placed **only** through a validated transform. Raw OCR hits are
+   never placed when DXF is present — that earlier "fallback" highlighted note
+   numbers, dimension strings and grid bubbles that merely look like panels. With
+   no DXF at all, it falls back to the classic OCR-only scan.
+
+**Junk-page rejection (`_register_page_to_layout`):** a page only registers if it
+has ≥4 matched anchors that form a real 2D fit — ≥4 RANSAC inliers, spanning ≥80pt
+in both axes (rejects a collinear column/row of note or grid numbers), with median
+residual <5pt and a non-degenerate transform. The DXF→PDF map is a **general
+affine** (sheets may be plotted with different x/y scale), so no uniform-scale
+assumption is made.
+
+**Built for any future project:** nothing is hardcoded to Modesto. Page↔sheet
+matching is by panel-number overlap (not sheet names), and the KPS conventions
+(panel range, `PANELS` layer, registration tolerances) are constants at the top of
+`packing_list_engine.py` (`PANEL_MIN/MAX`, `PANELS_LAYER`, `REG_*`). Any job whose
+DXF puts panel-number text on the PANELS layer with one paper-space layout per
+sheet works automatically. Known limit: panels stored only in DXF *model* space
+(viewed through viewports) aren't placed yet — Modesto's are in paper space.
+
+Validated on Modesto page 16: OCR-only kept 3 panels; DXF registration placed 30
+(8 inliers, 0.65pt residual). Collinear note-number columns and grid-bubble rows
+are correctly rejected.
+
+**Cache:** panel positions cache is now `panel_locations_v2.json` so existing jobs
+rescan with the new locator. After deploying, **re-process each job's packing lists
+once** to rebuild positions.
+
 ### Blueprint annotation (packing_list_engine.py)
 - Packing lists: rendered at 300dpi, cropped into 4 quadrants (2×2 = 4 skids/page), OCR'd with tesseract `--psm 6`
 - Blueprint: rendered at 300dpi with tesseract hOCR for word-level bounding boxes
-- Panel label filter: height 4–9pt, y > 8% from top, x < 82% (excludes title block)
-- Isolated small numbers (1–9) filtered if no panel neighbors within 200pt
-- Panel locations cached to `panel_locations.json` — delete to force rescan after blueprint update
+- **DXF validation**: if a `DXF CAD FILE/` folder exists for the job, all DXF files are scanned for the PANELS layer (paper space blocks and model space). The resulting set of valid panel numbers acts as a whitelist — OCR results not in this set are discarded. This eliminates misreads from dimension callouts, grid labels, etc.
+- Panel label filter (without DXF): height 4–9pt, y > 8% from top, x < 82% (excludes title block)
+- Panel locations cached to `panel_locations.json` — delete to force rescan after blueprint update or after uploading DXF files
 - Output table titled "DELIVERED", top-right corner, auto-sized columns, 2-column layout for large counts, legend strip at bottom
+
+### DXF File Structure (Modesto Courthouse)
+- `KeyElevations.dxf` — panels 59–519 stored in paper space blocks `*Paper_Space170` (layout 3.3 → PDF page 17) and `*Paper_Space172` (layout 3.4 → PDF page 18) on the `PANELS` layer as TEXT entities.
+- `Sections.dxf` — panels 577–622 in model space on the `PANELS` layer as MTEXT entities.
+- `Plans.dxf`, `KeyPlan.dxf` — no panel entities (PDF-imported background geometry only).
+- DXF files must be uploaded to the job's `DXF CAD FILE/` folder via `/admin` for validation to activate.
+- After uploading DXF files, delete `panel_locations.json` from `Delivery Tracking/` to force a fresh validated scan.
 
 ### Publish
 - Copies tracked PDF to Blueprints folder as `N - <Job> Delivery Tracked.pdf`
 - N = lowest unused integer prefix starting at 1
+
+### Manual corrections store (captured + referenced)
+Every hand-fix in the editor — delete a false positive, **renumber** a panel, add a
+missing one — is recorded so it isn't lost and can inform future work:
+
+- **Per job:** `Delivery Tracking/corrections.json` = `{deletions:[], renames:{old:new}, additions:{panel:{page,bbox,skid,shipment}}}`. On **re-processing**, after the automatic DXF/OCR scan, `_apply_corrections()` re-applies these so the user's fixes survive (renumbers carry through, deletions stay gone, manual adds come back). A renumber updates `delivery_state`, so the DELIVERED table shows the corrected number.
+- **Global:** every edit is also appended to `/var/www/pei-jobs/.panel_corrections.jsonl` (one JSON event per line: type, from/to/panel, page, bbox, job, timestamp) — a growing cross-project record of how humans corrected the automatic panel-finding, available for future tuning/learning across all jobs.
+
+Routes: edits flow through `/api/packing-list/update-panels` (now accepts a
+`renames:[{from,to}]` field alongside `add`/`remove`).
+
+### Interactive Editor (the "View" button)
+The **View** button on the tracker opens `/packing-list/editor/<job>` — a split-screen
+cross-reference tool. Template: `templates/packing_list_editor.html`.
+
+- **Left pane = the tracked blueprint PDF** (the exact publishable doc, table + highlights baked in), rendered with PDF.js. Panel positions are invisible click targets on top.
+- **Right pane = a packing list PDF**; selecting one lazily OCRs it for panel-number positions (`scan_packing_list_positions`, cached as `pl_pos_v2_<file>.json` in Delivery Tracking). Each mark is colored by whether that panel is in the blueprint table.
+- **Cross-reference / selecting:** click a panel on either side → it flashes **yellow** on both, and the OTHER pane scrolls to center it (the pane you clicked never moves). Centering is zoom-aware.
+- **Action-bar pop-up** (bottom) for a selected panel: **Delete highlight**, **Change #**, **Duplicate**, **Move highlight** (re-place a located one). Delete whites-out the color immediately and drops it from the table on Save.
+- **Place a missing panel:** clicking a missing panel auto-arms placement — a green banner appears on the BLUEPRINT, then a single click sets its highlight there (skid/shipment inherited from the table).
+- **＋ Add missing panel** (packing-list header): no prompts → click the packing list → drops a red marker → click it to assign its value & skid.
+- **⧉ Duplicate** (pop-up): click the packing list → drops a marker that is **active** (white outline + corner handle): drag the body to move, drag the corner to resize. **Click off** to set it (handles disappear). Click the set marker once to assign value + skid; after that, clicking it opens the normal pop-up.
+- **Hide blank pages**, anchored zoom (buttons + Ctrl/pinch on the hovered pane only), **Print** (opens the PDF's print/save dialog), **Share** (SMS/Email/Copy link via a **public** `/p/<token>` link; "New link" rotates and revokes the old one).
+- **Save Changes** POSTs pending add/remove/rename to `/update-panels`, which rewrites `delivery_state.json` + `panel_locations_v2.json`, records corrections, and regenerates `tracked_blueprint.pdf`; the viewer reloads it.
+
+**Color key (what every colored box in the editor means):**
+
+| Color | Where | Meaning |
+|-------|-------|---------|
+| Shipment color (green, yellow, cyan, orange, magenta, teal, purple, red — `SHIP_COLORS` = `_SHIPMENT_COLORS`) | blueprint + packing list | Panel is **accounted for** — in the blueprint table for that shipment. |
+| **Red** (dashed/solid) | packing-list marks, new markers | Panel is **NOT in the blueprint table** (missing / unaccounted), or a freshly-placed marker with no value yet. |
+| **Yellow** highlight + flash | both panes | The **currently selected** panel (same look as a matched cross-reference mark). |
+| **White outline + corner square** | packing-list marker | The **active** marker being sized/moved (Duplicate / Add missing). Click off to finalize → outline + handle disappear. |
+| **White-out box, dashed red border** | blueprint | A highlight you just **deleted** — color erased instantly; made permanent on Save. |
+| **Green banner** | top of a pane | "Click here to place" instruction shown while a placement is armed. |
+
+All edits are local (instant overlay/table update) until **Save** — the green Save button shows a pending count and pulses when there are unsaved changes.
 
 ### API status response shape
 ```json
