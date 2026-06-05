@@ -1121,14 +1121,19 @@ def _run_pm_job(job_name, bp_name):
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({"progress": 85, "message": "Drawing panel map…"})
 
-        drawn = generate_panel_map_blueprint(
+        result = generate_panel_map_blueprint(
             bp_path, panel_locations, _pm_output_path(job_name, bp_name))
+        drawn = result["drawn"]
+        kept  = result["kept_count"]
+        total = result["total_pages"]
 
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({
                 "status": "done", "progress": 100, "blueprint": bp_name,
-                "message": f"Complete — {drawn} panels mapped on {bp_name}",
-                "panels": drawn,
+                "message": f"Complete — {drawn} panels mapped across {kept} of "
+                           f"{total} pages (blank pages removed).",
+                "panels": drawn, "kept_pages": result["kept_pages"],
+                "kept_count": kept, "total_pages": total,
             })
     except Exception as e:
         with _pm_jobs_lock:

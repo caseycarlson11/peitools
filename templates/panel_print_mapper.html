@@ -21,7 +21,14 @@
     .pm-rescan { display:flex; align-items:center; gap:7px; color:var(--text2); font-size:.8rem;
                  margin-top:12px; cursor:pointer; }
     .pm-rescan input { width:15px; height:15px; accent-color:var(--blue); cursor:pointer; }
-    .pm-viewer { width:100%; height:78vh; min-height:480px; border:1px solid var(--border);
+    /* Result card breaks out of the centered 860px column to span the full page width */
+    .pm-result-full {
+      position:relative; width:100vw; left:50%; right:50%;
+      margin-left:-50vw; margin-right:-50vw;
+      border-radius:0; border-left:none; border-right:none;
+      padding-left:24px; padding-right:24px;
+    }
+    .pm-viewer { width:100%; height:88vh; min-height:520px; border:1px solid var(--border);
                  border-radius:10px; background:#0d1117; }
     .pm-legend { display:inline-flex; align-items:center; gap:8px; color:var(--text2);
                  font-size:.82rem; margin-bottom:10px; }
@@ -30,14 +37,14 @@
 {% endblock %}
 
 {% block content %}
-<div class="card">
-  <div class="card-title">Panel Print Mapper</div>
-  <p class="pm-intro">
-    Pick a job and one of its blueprints. Every panel found on the drawing is boxed in
-    <strong style="color:#f85149">red</strong> with its number printed just above it —
-    so you can verify the panel numbers are being read correctly.
-  </p>
+<h1 class="page-heading">🗺️ Panel Print Mapper</h1>
+<p class="page-subtitle">
+  Pick a job and one of its blueprints. Every panel found is boxed in red with its number
+  printed above it — so you can verify the panel numbers are being read correctly. Blank
+  pages are removed so only the sheets with panels show.
+</p>
 
+<div class="card">
   <div class="pm-field">
     <label for="jobSelect">Job</label>
     <select id="jobSelect" onchange="onJobChange()">
@@ -70,7 +77,7 @@
   <div class="alert alert-success" id="successBox"></div>
 </div>
 
-<div class="card" id="resultCard" style="display:none">
+<div class="card pm-result-full" id="resultCard" style="display:none">
   <div class="pm-legend"><span class="pm-swatch"></span> Red box = panel found · number above = how it was read</div>
   <div class="btn-row" style="margin-top:0;margin-bottom:12px">
     <a class="btn btn-primary" id="openBtn" href="#" target="_blank">👁 Open in new tab</a>
@@ -87,6 +94,12 @@ let pollTimer   = null;
 let startTime   = 0;
 
 const $ = id => document.getElementById(id);
+
+function fmtElapsed(ms){
+  const t = Math.floor(ms/1000);
+  const m = Math.floor(t/60), s = t % 60;
+  return m > 0 ? (m + 'm ' + s + 's') : (s + 's');
+}
 
 function showErr(msg){ const e=$('errBox'); e.textContent=msg; e.classList.add('show'); }
 function clearErr(){ $('errBox').classList.remove('show'); }
@@ -183,8 +196,7 @@ function poll(){
     .then(r=>r.json()).then(d=>{
       if(d.progress!=null) $('progressFill').style.width = d.progress + '%';
       if(d.message) $('progressMsg').textContent = d.message;
-      const secs = ((Date.now()-startTime)/1000).toFixed(0);
-      $('pmTimer').textContent = secs + 's';
+      $('pmTimer').textContent = 'Elapsed: ' + fmtElapsed(Date.now()-startTime);
       if(d.status==='done'){ finishProcess(d); }
       else if(d.status==='error'){ failProcess(d.message || 'Processing failed.'); }
     }).catch(()=>{});
@@ -193,14 +205,18 @@ function poll(){
 function finishProcess(d){
   clearInterval(pollTimer); pollTimer=null;
   $('processBtn').disabled = false;
+  const elapsed = fmtElapsed(Date.now()-startTime);
   setTimeout(()=>$('progressWrap').classList.remove('visible'), 600);
-  const s=$('successBox'); s.textContent = d.message || 'Done.'; s.classList.add('show');
+  const s=$('successBox');
+  s.textContent = (d.message || 'Done.') + '  (scan took ' + elapsed + ')';
+  s.classList.add('show');
 
   const url = '/api/panel-map/download/'+encodeURIComponent(selectedJob)
             + '?blueprint='+encodeURIComponent(selectedBp)+'&t='+Date.now();
   $('openBtn').href = url;
   $('dlBtn').href   = url;
-  $('pmViewer').src = url;
+  // #pagemode=none hides the PDF viewer's left thumbnail/page panel — show only the document
+  $('pmViewer').src = url + '#pagemode=none&zoom=page-width';
   $('resultCard').style.display='block';
 }
 

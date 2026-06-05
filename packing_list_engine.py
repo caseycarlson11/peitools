@@ -692,7 +692,8 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
     return table_cells
 
 
-def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path, progress_cb=None):
+def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
+                                 progress_cb=None, keep_only_panel_pages=True):
     """Verification view: draw a RED box on every located panel and print the
     panel number just above each box.
 
@@ -700,7 +701,12 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path, p
     locator read each number correctly (the printed label = what the tool thinks
     the panel number is, sitting right above the panel on the drawing).
 
-    Returns the number of panels drawn.
+    When ``keep_only_panel_pages`` is True (default) the saved PDF contains ONLY
+    the pages that actually have panels — every blank/non-panel page is dropped so
+    the viewer shows just the relevant sheets. The original blueprint is untouched.
+
+    Returns a dict: {"drawn", "total_pages", "kept_pages", "kept_count"} where
+    ``kept_pages`` is the list of original (1-based) page numbers kept.
     """
     doc = fitz.open(blueprint_path)
 
@@ -762,9 +768,19 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path, p
                              fontsize=fs, fontname="helv", color=RED)
             drawn += 1
 
+    kept_pages = sorted(page_panels.keys())
+    if keep_only_panel_pages and kept_pages:
+        # Keep only the panel-bearing pages (annotations + labels travel with them).
+        doc.select(kept_pages)
+
     doc.save(output_path, garbage=4, deflate=True)
     doc.close()
-    return drawn
+    return {
+        "drawn": drawn,
+        "total_pages": total_pages,
+        "kept_pages": [p + 1 for p in kept_pages],   # 1-based original page numbers
+        "kept_count": len(kept_pages),
+    }
 
 
 def _insert_delivery_table(page, panels, pw, ph, shipment_order):
