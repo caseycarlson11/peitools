@@ -71,6 +71,7 @@
     <div class="ed-title">Panel Editor <span id="bpName"></span></div>
     <div class="sp"></div>
     <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Missing Panel</button>
+    <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each">🔢 Add Panel Series</button>
     <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="2200" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
@@ -78,6 +79,7 @@
   </div>
 
   <div class="ed-banner" id="addBanner">📍 Click on the print where the panel belongs, then type its number. Click “Add Missing Panel” again to stop.</div>
+  <div class="ed-banner" id="seriesBanner"></div>
   <div class="ed-body" id="body"><div style="padding:40px;text-align:center;color:#ccc">Loading…</div></div>
 
   <div class="ed-actionbar" id="actionBar">
@@ -100,6 +102,8 @@ let locs   = {};            // panel -> {page, bbox}  (working copy)
 let dirty  = false;
 let addMode = false;
 let selPanel = null;
+let seriesMode = false;     // "Add Panel Series" active
+let seriesNext = null;      // next number to drop in the series
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
@@ -212,26 +216,69 @@ function deleteSelected(){
 
 function toggleAdd(){
   addMode = !addMode;
-  if(addMode && handMode) toggleHand();   // add and hand are mutually exclusive
+  if(addMode && handMode) toggleHand();        // add and hand are mutually exclusive
+  if(addMode && seriesMode) toggleSeries();    // add and series are mutually exclusive
   $('addBtn').classList.toggle('active', addMode);
   $('addBanner').classList.toggle('show', addMode);
-  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode));
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
   $('hint').textContent = addMode
     ? 'ADD MODE: click anywhere on a sheet to drop a new panel, then type its number.'
     : 'Click a panel to rename or delete it. Click “Add Missing Panel”, then click on a sheet to add a missing one.';
 }
 
-function onOverlayClick(e, pi){
-  if(!addMode) return;
+function toggleSeries(){
+  seriesMode = !seriesMode;
+  if(seriesMode){
+    if(addMode) toggleAdd();
+    if(handMode) toggleHand();
+    seriesNext = null;        // start fresh each time the series begins
+  }
+  $('seriesBtn').classList.toggle('active', seriesMode);
+  $('seriesBanner').classList.toggle('show', seriesMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
+  updateSeriesBanner();
+}
+function updateSeriesBanner(){
+  $('seriesBanner').textContent = !seriesMode ? '' :
+    (seriesNext == null
+      ? '🔢 Series mode: click the FIRST panel on the print and enter its number.'
+      : '🔢 Series mode: click to drop panel ' + seriesNext + ', then ' + (seriesNext+1)
+        + ', … — one click each. Click “Add Panel Series” (or Esc) to stop.');
+}
+
+function pageXY(e, pi){
   const ovl = ovlOf(pi); const rect = ovl.getBoundingClientRect(); const d = dims[pi];
-  const xf = (e.clientX-rect.left)/rect.width, yf = (e.clientY-rect.top)/rect.height;
-  const x = xf*d.w, y = yf*d.h;
+  return [ (e.clientX-rect.left)/rect.width*d.w, (e.clientY-rect.top)/rect.height*d.h ];
+}
+
+function onOverlayClick(e, pi){
+  if(seriesMode){ placeSeries(e, pi); return; }
+  if(!addMode) return;
+  const [x,y] = pageXY(e, pi);
   const v = prompt('Panel number to add here:');
   if(v==null) return;
   const nn = String(v).trim(); if(!nn) return;
   if(locs[nn] && !confirm('Panel "'+nn+'" already exists — move it here?')) return;
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
-  setDirty(true); drawBoxes(); selectPanel(nn);
+  setDirty(true); drawBoxes(); toast('Added panel ' + nn);   // stays red (not selected)
+}
+
+function placeSeries(e, pi){
+  const [x,y] = pageXY(e, pi);
+  let num;
+  if(seriesNext == null){
+    const v = prompt('Starting panel number for the series:');
+    if(v == null) return;
+    const n = parseInt(String(v).trim(), 10);
+    if(isNaN(n)){ toast('Enter a whole number to start the series.'); return; }
+    num = n; seriesNext = n + 1;
+  } else {
+    num = seriesNext; seriesNext++;
+  }
+  const nn = String(num);
+  if(locs[nn]) toast('Panel ' + nn + ' moved here.');
+  locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
+  setDirty(true); drawBoxes(); updateSeriesBanner();
 }
 
 async function saveChanges(){
@@ -283,6 +330,14 @@ function toggleHand(){
   pane.addEventListener('pointerup', end);
   pane.addEventListener('pointercancel', end);
 })();
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape'){
+    if(seriesMode) toggleSeries();
+    else if(addMode) toggleAdd();
+    else clearSel();
+  }
+});
 
 window.addEventListener('beforeunload', (e)=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 load();
