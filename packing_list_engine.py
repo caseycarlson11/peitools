@@ -907,11 +907,10 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
                 chip_color = GRAY_FILL
                 chip_text_color = (0.4, 0.4, 0.4)
 
-            # Panel highlight annotation (selectable/deletable in Acrobat etc.)
-            # Fill only, NO border — a border outlines the box and hides the printed
-            # panel number when zoomed out.
+            # Panel highlight annotation. Make the border the SAME colour as the fill
+            # (and width 0) so there's no contrasting outline hiding the printed number.
             annot = page.add_rect_annot(rect)
-            annot.set_colors(fill=fill_c)
+            annot.set_colors(stroke=fill_c, fill=fill_c)
             annot.set_opacity(opacity)
             annot.set_border(width=0)
             if label in delivered:
@@ -985,9 +984,8 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
             # is independently selectable and deletable in Acrobat/Preview/etc.
             # Deleting the annotation leaves the original drawing and numbers intact.
             annot = page.add_rect_annot(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad))
-            # Fill only, NO border — a border outlines the box and hides the printed
-            # panel number when zoomed out. The translucent fill marks it delivered.
-            annot.set_colors(fill=fill_c)
+            # Border same colour as fill (width 0) → no contrasting outline over the number.
+            annot.set_colors(stroke=fill_c, fill=fill_c)
             annot.set_opacity(0.45)
             annot.set_border(width=0)
             annot.set_info(
