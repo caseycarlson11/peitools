@@ -471,13 +471,13 @@
         box.style.borderColor=c; box.style.background=hexA(c,.32);
         tag=`#${panel} · added — Save to apply`;
       } else if(delivered){
-        // When showing panels_only (no baked highlights), draw the shipment colour ourselves.
+        // When showing panels_only (no baked highlights), draw the shipment colour
+        // ourselves — FILL ONLY, no border, so the printed panel number stays readable.
         const shipI = shipIndex[delivery[panel].shipment] ?? 0;
         const c = shipColor(shipI);
-        box.className = _panelsOnlyUrl ? 'pbox pending-add' : 'pbox delivered';
+        box.className = 'pbox delivered';
         if(_panelsOnlyUrl){
-          box.style.borderColor = c;
-          box.style.background  = hexA(c, 0.45);
+          box.style.background = hexA(c, 0.45);
         }
         tag=`#${panel} · ${delivery[panel].shipment||''} · skid ${delivery[panel].skid||'?'}`;
       } else {
