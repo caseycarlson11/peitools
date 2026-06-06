@@ -21,7 +21,7 @@
                  margin-top:12px; cursor:pointer; }
     .pm-rescan input { width:15px; height:15px; accent-color:var(--blue); cursor:pointer; }
     .pm-pagestatus { color:var(--text2); font-size:.82rem; margin-top:10px; }
-    .pm-pagestatus b { color:var(--blue); }
+    .pm-pagestatus b { color:var(--green); }
 
     /* Result card breaks out of the centered column to span the full page width */
     .pm-result-full {
@@ -37,33 +37,35 @@
     .pm-swatch { width:18px; height:12px; border:1.5px solid #d91a1a;
                  background:rgba(217,26,26,.22); border-radius:3px; flex-shrink:0; }
 
-    /* ── Page-selector viewer (looks like a PDF reader) ── */
-    .pm-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(6,10,18,.9); }
+    /* ── Page-selector viewer ── */
+    .pm-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(6,10,18,.92); }
     .pm-modal.open { display:flex; }
-    .pm-vwrap { margin:auto; width:100%; height:100%; display:flex; flex-direction:column;
-                background:#1b1f27; }
-    .pm-vhead { display:flex; align-items:center; gap:12px; padding:12px 18px;
-                border-bottom:1px solid var(--border); }
+    .pm-vwrap { margin:auto; width:100%; height:100%; display:flex; flex-direction:column; background:#1b1f27; }
+    .pm-vhead { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border); }
     .pm-vtitle { font-weight:700; font-size:.95rem; }
-    .pm-vtitle span { color:var(--text2); font-weight:400; margin-left:8px; }
+    .pm-vtitle span { color:var(--green); font-weight:600; margin-left:8px; }
+    .pm-vhead .hint { color:var(--text2); font-size:.78rem; margin-left:8px; }
     .pm-vhead .sp { flex:1; }
     .pm-vbody { flex:1; display:flex; min-height:0; }
-    .pm-sidebar { width:220px; flex-shrink:0; overflow-y:auto; background:#23272f;
-                  border-right:1px solid var(--border); padding:12px 10px; }
-    .pm-docview { flex:1; border:none; background:#525659; }
 
-    .pm-thumb { position:relative; margin:0 auto 14px; cursor:pointer; }
+    .pm-sidebar { position:relative; width:172px; flex-shrink:0; overflow-y:auto; background:#23272f;
+                  border-right:1px solid var(--border); padding:12px 8px; }
+    .pm-mainpane { position:relative; flex:1; overflow-y:auto; background:#525659; padding:20px 0; }
+    .pm-page { margin:0 auto 18px; width:min(1100px, 94%); background:#fff;
+               box-shadow:0 4px 18px rgba(0,0,0,.4); }
+    .pm-page canvas { display:block; width:100%; height:auto; }
+
+    .pm-thumb { position:relative; margin:0 auto 12px; cursor:pointer; }
     .pm-thumb-pic { border:2px solid #3a3f4a; border-radius:4px; overflow:hidden; background:#fff; }
-    .pm-thumb.current .pm-thumb-pic { border-color:var(--blue); box-shadow:0 0 0 2px rgba(96,180,240,.5); }
-    .pm-thumb.excluded .pm-thumb-pic { opacity:.32; }
     .pm-thumb canvas { display:block; width:100%; height:auto; }
-    .pm-thumb-foot { display:flex; align-items:center; gap:7px; justify-content:center;
-                     margin-top:5px; color:var(--text2); font-size:.78rem; font-weight:600; }
-    .pm-thumb.excluded .pm-thumb-foot { color:#f85149; }
-    .pm-thumb-foot input { width:15px; height:15px; accent-color:var(--green); cursor:pointer; }
-    .pm-thumb-x { position:absolute; top:5px; right:5px; background:#f85149; color:#fff;
-                  border-radius:4px; font-size:.66rem; font-weight:800; padding:1px 5px; display:none; }
-    .pm-thumb.excluded .pm-thumb-x { display:block; }
+    .pm-thumb.current .pm-thumb-pic { border-color:#9aa4b2; }
+    .pm-thumb.included .pm-thumb-pic { border-color:var(--green); box-shadow:0 0 0 2px rgba(63,185,80,.55); }
+    .pm-thumb-foot { text-align:center; margin-top:4px; color:var(--text2); font-size:.76rem; font-weight:600; }
+    .pm-thumb.included .pm-thumb-foot { color:var(--green); }
+    .pm-thumb-tick { position:absolute; top:5px; right:5px; width:20px; height:20px; border-radius:50%;
+                     background:var(--green); color:#fff; display:none; align-items:center; justify-content:center;
+                     font-size:.72rem; font-weight:800; }
+    .pm-thumb.included .pm-thumb-tick { display:flex; }
 {% endblock %}
 
 {% block content %}
@@ -122,16 +124,17 @@
 <div class="pm-modal" id="pageModal">
   <div class="pm-vwrap">
     <div class="pm-vhead">
-      <div class="pm-vtitle">Select Pages <span id="selCount"></span></div>
+      <div class="pm-vtitle">Select Pages to Include <span id="selCount"></span></div>
+      <div class="hint">Click a page to include it · Shift-click to include a range</div>
       <div class="sp"></div>
       <button class="btn btn-subtle" onclick="selectAllPages()">Select all</button>
-      <button class="btn btn-subtle" onclick="unselectAllPages()">Unselect all</button>
-      <button class="btn btn-green"  onclick="confirmPageSelection()">✓ Done</button>
-      <button class="btn btn-subtle" onclick="closePageSelector()">✕ Close</button>
+      <button class="btn btn-subtle" onclick="clearSelection()">Clear</button>
+      <button class="btn btn-green"  onclick="confirmPageSelection()">✓ Use these pages</button>
+      <button class="btn btn-subtle" onclick="closePageSelector()">✕ Cancel</button>
     </div>
     <div class="pm-vbody">
       <div class="pm-sidebar" id="thumbSidebar"><div class="pm-empty">Loading…</div></div>
-      <iframe class="pm-docview" id="docFrame" title="Blueprint"></iframe>
+      <div class="pm-mainpane" id="mainPane"></div>
     </div>
   </div>
 </div>
@@ -143,11 +146,14 @@ let selectedBp  = "";
 let pollTimer   = null;
 let startTime   = 0;
 
-let totalPages  = 0;          // pages in the selected blueprint
-let included    = new Set();  // page numbers (1-based) to include in the scan
-let keptPages   = null;       // computed on Done: sorted array, or null = all
-let pdfDoc      = null;       // pdf.js doc for the thumbnails
-let currentPg   = 1;          // page shown in the right document pane
+let totalPages  = 0;
+let included    = new Set();  // pages (1-based) to INCLUDE in the scan
+let anchor      = null;       // last clicked page (anchor for shift-range)
+let keptPages   = null;       // computed on confirm: sorted array, or null = all
+let pdfDoc      = null;
+let thumbEls    = {};         // pg -> sidebar element
+let pageEls     = {};         // pg -> main-pane element
+let currentPg   = 1;
 
 const $ = id => document.getElementById(id);
 
@@ -164,7 +170,6 @@ function blueprintUrl(){
        + '/Blueprints/' + encodeURIComponent(selectedBp);
 }
 
-// Load pdf.js on demand (only for rendering the sidebar thumbnails)
 let pdfjsReady = null;
 function ensurePdfjs(){
   if(pdfjsReady) return pdfjsReady;
@@ -250,136 +255,165 @@ function selectBp(name, item){
   $('processBtn').disabled = false;
   $('selectPagesBtn').disabled = false;
   $('rescanRow').style.display = 'flex';
-  resetPageState();   // new blueprint -> include all pages until the user trims
+  resetPageState();
 }
 
 function resetPageState(){
-  totalPages = 0; included.clear(); keptPages = null; pdfDoc = null; currentPg = 1;
+  totalPages = 0; included.clear(); anchor = null; keptPages = null;
+  pdfDoc = null; thumbEls = {}; pageEls = {}; currentPg = 1;
   updatePageStatus();
 }
 
 function updatePageStatus(){
   const el = $('pageStatus');
   if(keptPages && totalPages){
-    el.innerHTML = 'Scanning <b>' + keptPages.length + '</b> of ' + totalPages
-                 + ' pages. <a href="#" onclick="includeAllPages();return false;" style="color:var(--blue)">scan all</a>';
+    el.innerHTML = 'Including <b>' + keptPages.length + '</b> of ' + totalPages + ' pages in the scan.';
   } else if(totalPages){
-    el.innerHTML = 'Scanning all <b>' + totalPages + '</b> pages.';
+    el.innerHTML = 'Including <b>all ' + totalPages + '</b> pages in the scan.';
   } else {
     el.textContent = '';
   }
 }
-function includeAllPages(){ keptPages = null; updatePageStatus(); }
 
-/* ── Page selector viewer ──────────────────────────────────────────────── */
+/* ── Page selector viewer (sidebar + scroll-synced document) ───────────── */
 async function openPageSelector(){
   if(!selectedBp) return;
   clearErr();
   $('pageModal').classList.add('open');
-  const bar = $('thumbSidebar');
-  bar.innerHTML = '<div class="pm-empty">Loading the PDF…</div>';
-  $('docFrame').src = blueprintUrl() + '#pagemode=none&page=1';
+  $('thumbSidebar').innerHTML = '<div class="pm-empty">Loading…</div>';
+  $('mainPane').innerHTML = '';
   try{
     await ensurePdfjs();
     if(!pdfDoc){
       pdfDoc = await pdfjsLib.getDocument(blueprintUrl()).promise;
       totalPages = pdfDoc.numPages;
     }
-    if(included.size === 0){ for(let i=1;i<=totalPages;i++) included.add(i); }  // default: all
-    currentPg = 1;
-    await buildSidebar();
+    anchor = null;
+    buildSidebar();
+    buildMainPane();
     updateSelCount();
   }catch(err){
-    bar.innerHTML = '<div class="pm-empty">Could not load: ' + (err.message||err) + '</div>';
+    $('thumbSidebar').innerHTML = '<div class="pm-empty">Could not load: ' + (err.message||err) + '</div>';
   }
 }
 function closePageSelector(){ $('pageModal').classList.remove('open'); }
 
-let thumbObserver = null;
-async function renderThumbCanvas(pg, canvas){
+async function renderCanvas(pg, canvas, targetW){
   if(canvas.dataset.rendered) return;
   const page = await pdfDoc.getPage(pg);
   const base = page.getViewport({scale:1});
-  const vp   = page.getViewport({scale: 190 / base.width});
+  const vp   = page.getViewport({scale: targetW / base.width});
   canvas.width = vp.width; canvas.height = vp.height;
   await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
   canvas.dataset.rendered = '1';
 }
 
-async function buildSidebar(){
-  const bar = $('thumbSidebar');
-  bar.innerHTML = '';
-  if(thumbObserver) thumbObserver.disconnect();
-  thumbObserver = new IntersectionObserver((entries)=>{
+function makeObserver(root, targetW){
+  return new IntersectionObserver((entries)=>{
     entries.forEach(en=>{
       if(en.isIntersecting){
         const c = en.target.querySelector('canvas');
-        thumbObserver.unobserve(en.target);
-        renderThumbCanvas(parseInt(en.target.dataset.pg,10), c).catch(()=>{});
+        if(c){ renderCanvas(parseInt(en.target.dataset.pg,10), c, targetW).catch(()=>{}); }
       }
     });
-  }, {root: bar, rootMargin: '500px 0px'});
+  }, {root, rootMargin:'600px 0px'});
+}
 
+function buildSidebar(){
+  const bar = $('thumbSidebar');
+  bar.innerHTML = ''; thumbEls = {};
+  const obs = makeObserver(bar, 150);
   for(let pg=1; pg<=totalPages; pg++){
     const cell = document.createElement('div');
-    cell.className = 'pm-thumb' + (included.has(pg) ? '' : ' excluded') + (pg===currentPg ? ' current' : '');
+    cell.className = 'pm-thumb' + (included.has(pg) ? ' included' : '');
     cell.dataset.pg = pg;
-    cell.innerHTML =
-        '<div class="pm-thumb-x">EXCLUDED</div>'
-      + '<div class="pm-thumb-pic"><canvas></canvas></div>'
-      + '<div class="pm-thumb-foot">'
-      +   '<input type="checkbox" ' + (included.has(pg) ? 'checked' : '') + '> p.' + pg
-      + '</div>';
-    // checkbox toggles inclusion
-    cell.querySelector('input').onclick = (e)=>{ e.stopPropagation(); togglePage(pg); };
-    // clicking the page image shows it in the right pane
-    cell.querySelector('.pm-thumb-pic').onclick = ()=>gotoPage(pg);
+    cell.innerHTML = '<div class="pm-thumb-tick">✓</div>'
+                   + '<div class="pm-thumb-pic"><canvas></canvas></div>'
+                   + '<div class="pm-thumb-foot">p.' + pg + '</div>';
+    cell.onclick = (e)=>onThumbClick(pg, e);
     bar.appendChild(cell);
-    thumbObserver.observe(cell);
+    thumbEls[pg] = cell;
+    obs.observe(cell);
   }
 }
 
-function cellOf(pg){ return $('thumbSidebar').querySelector('.pm-thumb[data-pg="'+pg+'"]'); }
-
-function togglePage(pg){
-  if(included.has(pg)) included.delete(pg); else included.add(pg);
-  const cell = cellOf(pg);
-  if(cell){
-    cell.classList.toggle('excluded', !included.has(pg));
-    const cb = cell.querySelector('input'); if(cb) cb.checked = included.has(pg);
+function buildMainPane(){
+  const pane = $('mainPane');
+  pane.innerHTML = ''; pageEls = {};
+  const obs = makeObserver(pane, 1100);
+  for(let pg=1; pg<=totalPages; pg++){
+    const wrap = document.createElement('div');
+    wrap.className = 'pm-page'; wrap.dataset.pg = pg;
+    wrap.innerHTML = '<canvas></canvas>';
+    pane.appendChild(wrap);
+    pageEls[pg] = wrap;
+    obs.observe(wrap);
   }
-  updateSelCount();
+  pane.onscroll = onMainScroll;
 }
 
-function gotoPage(pg){
-  currentPg = pg;
-  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
-    c.classList.toggle('current', parseInt(c.dataset.pg,10)===pg);
+let scrollRAF = null;
+function onMainScroll(){
+  if(scrollRAF) return;
+  scrollRAF = requestAnimationFrame(()=>{
+    scrollRAF = null;
+    const pane = $('mainPane');
+    const top = pane.scrollTop;
+    let cur = 1, best = Infinity;
+    for(let pg=1; pg<=totalPages; pg++){
+      const el = pageEls[pg]; if(!el) continue;
+      const d = Math.abs(el.offsetTop - top);
+      if(d < best){ best = d; cur = pg; }
+    }
+    setCurrentThumb(cur);
   });
-  $('docFrame').src = blueprintUrl() + '#pagemode=none&page=' + pg;
+}
+
+function setCurrentThumb(pg){
+  if(pg === currentPg) return;
+  currentPg = pg;
+  Object.keys(thumbEls).forEach(k=>thumbEls[k].classList.toggle('current', (+k)===pg));
+  // keep the current thumbnail visible in the sidebar
+  const bar = $('thumbSidebar'), cell = thumbEls[pg];
+  if(cell){
+    const cTop = cell.offsetTop;
+    if(cTop < bar.scrollTop + 20 || cTop + cell.offsetHeight > bar.scrollTop + bar.clientHeight - 20){
+      bar.scrollTop = cTop - bar.clientHeight/2 + cell.offsetHeight/2;
+    }
+  }
+}
+
+function onThumbClick(pg, e){
+  if(e.shiftKey && anchor!=null){
+    const lo = Math.min(anchor, pg), hi = Math.max(anchor, pg);
+    for(let i=lo;i<=hi;i++) included.add(i);
+  } else {
+    if(included.has(pg)) included.delete(pg); else included.add(pg);
+    anchor = pg;
+  }
+  refreshIncluded();
+  updateSelCount();
+  // scroll the document to the clicked page
+  const el = pageEls[pg];
+  if(el) $('mainPane').scrollTo({ top: el.offsetTop, behavior:'smooth' });
+}
+
+function refreshIncluded(){
+  for(const k in thumbEls){ thumbEls[k].classList.toggle('included', included.has(+k)); }
 }
 
 function selectAllPages(){
   included = new Set(); for(let i=1;i<=totalPages;i++) included.add(i);
-  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
-    c.classList.remove('excluded'); const cb=c.querySelector('input'); if(cb) cb.checked=true;
-  });
-  updateSelCount();
+  refreshIncluded(); updateSelCount();
 }
-function unselectAllPages(){
-  included.clear();
-  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
-    c.classList.add('excluded'); const cb=c.querySelector('input'); if(cb) cb.checked=false;
-  });
-  updateSelCount();
-}
+function clearSelection(){ included.clear(); anchor = null; refreshIncluded(); updateSelCount(); }
 
 function updateSelCount(){
-  $('selCount').textContent = included.size + ' of ' + totalPages + ' pages selected';
+  $('selCount').textContent = included.size + ' of ' + totalPages + ' selected';
 }
 
 function confirmPageSelection(){
-  if(included.size === 0){ alert('Select at least one page.'); return; }
+  if(included.size === 0){ alert('Pick at least one page to include.'); return; }
   keptPages = (included.size === totalPages) ? null : Array.from(included).sort((a,b)=>a-b);
   closePageSelector();
   updatePageStatus();
