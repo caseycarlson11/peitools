@@ -118,6 +118,18 @@ PEItools.com/
 | `/api/packing-list/pl-file/<job>?file=` | Serve a packing list PDF for the right pane | Login required |
 | `/api/packing-list/pl-positions/<job>?file=` | OCR panel-number positions on a packing list (cached) | Login required |
 | `/api/packing-list/update-panels/<job>` | Add/remove delivered panels, regenerate tracked PDF | Login required |
+| `/panel-print-mapper` | Panel Print Mapper landing (job + blueprint picker, page selector) | Login required |
+| `/api/panel-map/blueprints/<job>` | List sources from Blueprints + Panel Mapper folders (+has_dxf, has_session) | Login required |
+| `/api/panel-map/process/<job>` | Scan selected pages, draw panel map (body: blueprint, folder, pages, rescan) | Login required |
+| `/api/panel-map/load-only/<job>` | Set up editor on selected pages with NO scan (hand-placement) | Login required |
+| `/api/panel-map/status/<job>` | Poll map processing status | Login required |
+| `/api/panel-map/download/<job>?blueprint=` | Marked-up pages-only map PDF | Login required |
+| `/api/panel-map/download-full/<job>?blueprint=` | Full document with marked pages merged back in | Login required |
+| `/panel-map/editor/<job>` | Interactive panel editor (PDF.js) — resumes saved session | Login required |
+| `/api/panel-map/editor-data/<job>` | Page dims + panel_locations + blueprint name for editor | Login required |
+| `/api/panel-map/base/<job>` | Serve the editor's base (scan) PDF | Login required |
+| `/api/panel-map/update/<job>` | Save panels (full replace), regenerate both PDFs, publish to viewer | Login required |
+| `/api/panel-map/ocr-region/<job>` | OCR a dragged rectangle → panel numbers ("Select Multiple Panels") | Login required |
 | `/share/<token>` | Shared job folder | Public |
 | `/compass/<token>` | Shared Field Compass | Public |
 | `/api/jobs` | List all jobs | Public |
@@ -435,3 +447,63 @@ docker build -t panelmapper .
 docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs panelmapper
 # Configure nginx, run certbot, re-upload job files via /admin
 ```
+
+---
+
+## Panel Print Mapper
+
+A tool to verify and hand-correct which panel numbers sit where on a blueprint, producing
+clean prints. **Goal:** "dial in" the prints so the Packing List Tracker can read them
+later. Files: route logic + helpers in `app.py` (search `_pm_`/`panel_map_`), drawing +
+OCR in `packing_list_engine.py`, UIs `templates/panel_print_mapper.html` (picker/selector)
+and `templates/panel_map_editor.html` (standalone PDF.js editor).
+
+### Flow
+1. **Pick job → blueprint.** The blueprint list pulls from the **Blueprints** folder AND
+   the job's **Panel Mapper** folder (prior saved work), each tagged. No Panel Mapper
+   folder → only originals.
+2. **Page selector** (modal, lifted to `document.body` so it sits above the site header):
+   left thumbnail column (resizable divider, scroll-synced to the document), click pages
+   to **include** (green), Shift-click for ranges. Then:
+   - **Select Pages & Map** → OCR/DXF scan of the chosen pages, draws the red boxes.
+   - **Load Prints Without Mapping** → opens the editor with a clean sheet (place panels by hand).
+   - **Continue Mapping** (enabled when a saved session exists) → jumps straight into the editor, resuming the last session.
+3. **Editor** (`/panel-map/editor/<job>`) — see below.
+4. **Save** regenerates two PDFs and copies them into the job's **Panel Mapper** folder
+   (stable names, overwritten each save → cumulative progress): `<bp> - Panel Mapper.pdf`
+   (full doc, edited pages merged back at their original positions) and
+   `<bp> - panels_only.pdf` (just the marked pages).
+
+### Data model
+- `panel_locations` is `{ key: {page, bbox, label?, rel?} }`. Normal panel: key = number.
+  Duplicate instances stored under unique keys (e.g. `211#2`) with `label` = real number and
+  `rel` = `"sheet"` (same panel on multiple sheets) or `"dup"` (different panel, same number).
+  This duplicate metadata is saved for the Packing List Tracker to use later.
+- `generate_panel_map_blueprint(..., keep_only_panel_pages=False)` draws a red box + the
+  number (white chip, above-and-left of the printed digits) using `loc.label or key`.
+- Per-job `Panel Map/session.json` = `{bp_name, folder, src_pdf, scan_pdf, locs, pages}` so the
+  editor can reload. Output/cache/full paths are keyed by a canonical base name (`_pm_base`
+  strips a trailing " - Panel Mapper"); `panels_only` stays its own set so editing it can't
+  overwrite the full doc. Human edits also appended to global `.panel_corrections.jsonl`.
+
+### Editor capabilities (`panel_map_editor.html`)
+- Crisp zoom: **Ctrl+scroll** re-rasterizes pages at the zoom level, centered on the cursor
+  (no page jump); also a Size slider and ✋ **Hand** tool (H) to pan.
+- Click a panel → small popup beside it: **Change #**, **Move**, **Resize**, **Delete**,
+  and **Find Other** (cycles to other instances of the number, centers + flashes yellow border).
+- **Add Missing Panel** (A), **Add Panel Series** (S) with a live ▲▼ number counter under the
+  button (hold to fast-scroll, ↑/↓ arrows, click number to type), **Select Multiple Panels**
+  (M) = drag a box → OCR (`ocr_region`) lists the numbers found and drops them.
+- **Undo** (Ctrl+Z) — snapshots include the series counter, so undo rewinds the next number too.
+- **Duplicate handling:** adding an existing number opens a NON-blocking top-right panel (the
+  document stays usable) with a dashed-yellow "N?" ghost marker at the placement spot. Buttons
+  (hotkeys 1–4): **1** Show other instance (toggles back/forth to the ghost), **2** same panel
+  another sheet, **3** different panel same number, **4** cancel. The original is never deleted.
+- **Save Changes** shows a spinner + elapsed timer and a change summary toast.
+
+### Gotchas
+- Editor is a standalone template (own `<head>`, not `base.html`). PDF.js 3.11.174 from cdnjs.
+- "Panel Mapper" added to `CATEGORIES` in app.py so the Blueprint Viewer lists it; files served
+  via `/files/<job>/Panel Mapper/<file>`.
+- Map page indices line up with the source because the full-merge merges the marked pages back
+  into the *source document the user loaded* (original, or a prior Panel Mapper full doc).

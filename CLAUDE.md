@@ -42,7 +42,9 @@ Pacific Erectors installs metal deck and metal panel siding. The workflow:
 3. **Field Compass** (`/field-compass`) — iPad/mobile tool that overlays compass on blueprint PDFs so foremen can orient blueprints to the building
 4. **Blueprint Viewer** (`/blueprints`) — Browse all jobs and their files (blueprints, packing lists, fab sheets), create shareable links
 5. **Blueprint Hyperlinks** (`/blueprint/hyperlinks`) — Processes KPS blueprint PDFs to add clickable orange hyperlinks on callout circles (N/Dx symbols), linking to the correct detail page. Includes a full in-browser PDF editor.
-6. **Admin** (`/admin`) — Upload and manage files per job
+6. **Packing List Tracker** (`/packing-list-tracker`) — Parses KPS packing lists and highlights delivered panels on the blueprint by shipment color; interactive cross-reference editor.
+7. **Panel Print Mapper** (`/panel-print-mapper`) — Boxes every panel on a blueprint in red with its number labeled, so you can verify panel numbers are read correctly. Page selector → optional scan or hand-placement → interactive panel editor → publishes a full merged doc + a `panels_only` doc into the Blueprint Viewer's "Panel Mapper" folder. Step one toward making prints readable by the Packing List Tracker. (See PROJECT_NOTES.md for full detail.)
+8. **Admin** (`/admin`) — Upload and manage files per job
 
 ## Jobs Folder Structure
 
@@ -53,6 +55,9 @@ Blueprints/Old Versions/  <- Archived originals replaced by Publish Prints
 Packing Lists/        <- KPS packing list PDFs
 Fab Sheets/           <- Fab sheet PDFs
 DXF CAD FILE/         <- DXF and DWG CAD files
+Delivery Tracking/    <- Packing List Tracker state/output (auto-created)
+Panel Mapper/         <- Panel Print Mapper output: "<bp> - Panel Mapper.pdf" (full) + "<bp> - panels_only.pdf" (auto-created; shown as a Blueprint Viewer category)
+Panel Map/            <- Panel Print Mapper working files: session.json, locs cache, trimmed/map/full PDFs (auto-created, internal)
 ```
 
 ## Current Jobs on Server
@@ -72,3 +77,6 @@ DXF CAD FILE/         <- DXF and DWG CAD files
 - TEMPLATES_AUTO_RELOAD=True: template changes show on browser refresh without Flask restart
 - deploy_quick.bat uses `docker cp` to copy files directly into running container (no Docker rebuild)
 - All job files live on Docker volume `/var/www/pei-jobs` — persist across deploys, NOT in git
+- Panel Print Mapper engine reuses the Packing List Tracker's DXF→PDF panel locator (`scan_blueprint_panels` in `packing_list_engine.py`); `generate_panel_map_blueprint` draws the red boxes + number labels and now supports per-instance `label`/`rel` metadata for duplicate panels
+- "Panel Mapper" was added to `CATEGORIES` in app.py so the Blueprint Viewer shows that folder as a tab
+- `templates/panel_map_editor.html` is a standalone (non-base) PDF.js editor; it re-rasterizes pages at the zoom level for crisp detail and stores panel positions as `{key: {page, bbox, label?, rel?}}`

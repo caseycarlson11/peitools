@@ -699,6 +699,119 @@ def _shipment_color(shipment_index):
     return _SHIPMENT_COLORS[shipment_index % len(_SHIPMENT_COLORS)]
 
 
+def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, output_path):
+    """Delivery-status version of the Panel Mapper output.
+
+    Uses the Panel Mapper's pre-verified panel positions (``all_locs``) instead
+    of running OCR.  Every panel in the drawing is shown:
+
+    - **Delivered** panels → colored annotation in their shipment color + white
+      chip showing  "PANEL  skid"  so you can read it at a glance.
+    - **Undelivered** panels → faint gray annotation + gray chip (visible but
+      clearly not delivered).
+
+    The DELIVERED summary table is drawn in the top-right corner as usual.
+    ``scan_pdf`` is the Panel Mapper's trimmed scan PDF (pages already match the
+    0-based page indices stored in ``all_locs``).
+    """
+    doc = fitz.open(scan_pdf)
+
+    # Build shipment color index from delivery_state
+    shipment_order = {}
+    for info in delivery_state.values():
+        s = info.get("shipment", "")
+        if s not in shipment_order:
+            shipment_order[s] = len(shipment_order)
+
+    # Delivered panel lookup: panel_str → (skid, shipment)
+    delivered = {p: (info["skid"], info.get("shipment", ""))
+                 for p, info in delivery_state.items()}
+
+    # Group ALL panels by page
+    page_all = {}
+    for key, loc in all_locs.items():
+        try:
+            pg = int(loc["page"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        label = str(loc.get("label") or key)
+        page_all.setdefault(pg, []).append((key, label, loc["bbox"]))
+
+    GRAY_FILL   = (0.55, 0.55, 0.55)
+    GRAY_STROKE = (0.35, 0.35, 0.35)
+    WHITE       = (1.0, 1.0, 1.0)
+
+    # Collect delivered panels per page for the summary table (same format as
+    # generate_tracked_blueprint expects)
+    page_delivered = {}
+
+    for pg_idx, entries in page_all.items():
+        if pg_idx >= doc.page_count:
+            continue
+        page = doc[pg_idx]
+        pw, ph = page.rect.width, page.rect.height
+
+        for key, label, bbox in entries:
+            x0, y0, x1, y1 = bbox
+            pad = 2.0
+            rect = fitz.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
+
+            if label in delivered:
+                skid_num, shipment = delivered[label]
+                fill_c, stroke_c = _shipment_color(shipment_order.get(shipment, 0))
+                opacity = 0.45
+                chip_color = fill_c
+                chip_text_color = (0.05, 0.05, 0.05)
+                page_delivered.setdefault(pg_idx, []).append(
+                    (label, skid_num, shipment, bbox))
+            else:
+                fill_c, stroke_c = GRAY_FILL, GRAY_STROKE
+                opacity = 0.15
+                chip_color = GRAY_FILL
+                chip_text_color = (0.4, 0.4, 0.4)
+
+            # Panel highlight annotation (selectable/deletable in Acrobat etc.)
+            annot = page.add_rect_annot(rect)
+            annot.set_colors(fill=fill_c, stroke=stroke_c)
+            annot.set_opacity(opacity)
+            annot.set_border(width=1.0)
+            if label in delivered:
+                skid_num, shipment = delivered[label]
+                annot.set_info(title=f"Panel {label}",
+                               content=f"Skid {skid_num} — {shipment}")
+            else:
+                annot.set_info(title=f"Panel {label}", content="Not yet delivered")
+            annot.update()
+
+            # Number chip — small colored rectangle with the panel number,
+            # placed above-left so it doesn't cover the printed digits.
+            fs = 7.0
+            chip_w = fs * len(label) * 0.65 + 4
+            chip_h = fs + 3
+            cx0 = x0 - pad
+            cy1 = y0 - pad
+            cy0 = cy1 - chip_h
+            # Keep chip on page
+            if cy0 < 0:
+                cy0, cy1 = y1 + pad, y1 + pad + chip_h
+            page.draw_rect(fitz.Rect(cx0, cy0, cx0 + chip_w, cy1),
+                           color=stroke_c, fill=chip_color, width=0)
+            page.insert_text((cx0 + 2, cy1 - 2), label,
+                             fontsize=fs, color=chip_text_color,
+                             fontname="Helvetica-Bold")
+
+    # Draw the DELIVERED summary table on each page that has deliveries
+    for pg_idx, panels in page_delivered.items():
+        if pg_idx >= doc.page_count:
+            continue
+        page = doc[pg_idx]
+        pw, ph = page.rect.width, page.rect.height
+        _insert_delivery_table(page, panels, pw, ph, shipment_order)
+
+    doc.save(output_path, garbage=4, deflate=True)
+    doc.close()
+
+
 def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, output_path):
     doc = fitz.open(blueprint_path)
 

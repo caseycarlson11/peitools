@@ -973,7 +973,8 @@ def _find_blueprint(job_name):
 
 def _run_pl_job(job_name, packing_list_path, shipment_label):
     try:
-        from packing_list_engine import parse_packing_list, scan_blueprint_panels, generate_tracked_blueprint
+        from packing_list_engine import (parse_packing_list, scan_blueprint_panels,
+                                         generate_tracked_blueprint)
         os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
 
         delivery_state = {}
@@ -1003,47 +1004,75 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
         with open(_pl_state_path(job_name), "w") as f:
             _json.dump(delivery_state, f)
 
-        blueprint_path = _find_blueprint(job_name)
-        if not blueprint_path:
-            raise FileNotFoundError("No blueprint PDF found for this job.")
+        # ── Use Panel Mapper session if one exists ───────────────────────────
+        # The Panel Mapper has already located every panel precisely.  Prefer
+        # those positions over an OCR scan; use the mapper's scan PDF as the
+        # base so the output shows the clean panel-layout pages.
+        pm_sess      = _pm_load_session(job_name)
+        pm_locs_path = pm_sess.get("locs", "") if pm_sess else ""
+        pm_scan_pdf  = pm_sess.get("scan_pdf", "") if pm_sess else ""
+        use_panel_map = (pm_sess and
+                         pm_locs_path and os.path.isfile(pm_locs_path) and
+                         pm_scan_pdf  and os.path.isfile(pm_scan_pdf))
 
-        def progress_cb(pg, total):
+        if use_panel_map:
+            with open(pm_locs_path) as _f:
+                panel_locations = _json.load(_f)
             with _pl_jobs_lock:
                 _pl_jobs[job_name].update({
-                    "progress": 20 + int(60 * pg / max(total, 1)),
-                    "message": f"Scanning blueprint page {pg+1}/{total}..."
+                    "message": f"Using Panel Mapper positions ({len(panel_locations)} panels located)…",
+                    "progress": 50
                 })
-
-        dxf_dir = _pl_dxf_dir(job_name)
-        # Report DXF status before scanning
-        if dxf_dir:
-            try:
-                import ezdxf as _ezdxf_check
-                dxf_status = f"DXF validation active ({os.path.basename(dxf_dir)})"
-            except ImportError:
-                dxf_status = "⚠ DXF validation unavailable — ezdxf not installed (run deploy.bat)"
-                dxf_dir = None
         else:
-            dxf_status = "⚠ No DXF folder found — panel numbers not validated"
-        with _pl_jobs_lock:
-            _pl_jobs[job_name].update({"message": f"Scanning blueprint… {dxf_status}", "progress": 19})
+            # Fall back to OCR + optional DXF validation
+            blueprint_path = _find_blueprint(job_name)
+            if not blueprint_path:
+                raise FileNotFoundError("No blueprint PDF found for this job.")
 
-        panel_locations = scan_blueprint_panels(blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
+            def progress_cb(pg, total):
+                with _pl_jobs_lock:
+                    _pl_jobs[job_name].update({
+                        "progress": 20 + int(60 * pg / max(total, 1)),
+                        "message": f"Scanning blueprint page {pg+1}/{total}..."
+                    })
 
-        # Re-apply the user's saved manual corrections so re-processing never
-        # undoes their hand-fixes (deletions, renumbers, manual additions).
+            dxf_dir = _pl_dxf_dir(job_name)
+            if dxf_dir:
+                try:
+                    import ezdxf as _ezdxf_check
+                    dxf_status = f"DXF validation active"
+                except ImportError:
+                    dxf_status = "⚠ ezdxf not installed (run deploy.bat)"
+                    dxf_dir = None
+            else:
+                dxf_status = "⚠ No DXF folder — panel numbers not validated"
+            with _pl_jobs_lock:
+                _pl_jobs[job_name].update({"message": f"Scanning blueprint… {dxf_status}", "progress": 19})
+
+            panel_locations = scan_blueprint_panels(
+                blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
+
+        # Re-apply manual corrections
         corr = _pl_load_corrections(job_name)
         if any(corr.get(k) for k in ("deletions", "renames", "additions")):
             _apply_corrections(delivery_state, panel_locations, corr)
             with open(_pl_state_path(job_name), "w") as f:
                 _json.dump(delivery_state, f)
-            with open(_pl_cache_path(job_name), "w") as f:
-                _json.dump(panel_locations, f)
+            if not use_panel_map:
+                with open(_pl_cache_path(job_name), "w") as f:
+                    _json.dump(panel_locations, f)
 
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
 
-        table_cells = generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
+        if use_panel_map:
+            from packing_list_engine import generate_tracked_blueprint_panel_map
+            generate_tracked_blueprint_panel_map(
+                pm_scan_pdf, panel_locations, delivery_state, _pl_output_path(job_name))
+            table_cells = {}
+        else:
+            table_cells = generate_tracked_blueprint(
+                blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
         try:
             with open(_pl_cells_path(job_name), "w") as f:
                 _json.dump(table_cells or {}, f)
