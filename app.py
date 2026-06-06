@@ -276,11 +276,11 @@ def api_job_all_files(job):
 
 def _extract_page_drawing_numbers(pdf_path, page_indices):
     """
-    Extract KPS drawing numbers (e.g. "2.3") from the title block of each page.
-    Uses PyMuPDF direct text extraction — fast and reliable on vector PDFs.
-    Strategy: search bottom-right corner first (last 15% w × last 12% h),
-    then widen to full bottom strip if not found.
-    Returns dict: {page_index (int): drawing_number_string}
+    Extract KPS drawing numbers (dep. no. field, e.g. "2.3") from each page.
+    Strategy: pull all words from the right 20% of the page (KPS title block column),
+    find every word that is purely in X.Y / X.YY format, then pick the one
+    physically closest to the bottom-right corner — that is always dep. no.
+    Falls back to str(page_index + 1) if nothing is found.
     """
     import re as _re_dn
     result = {}
@@ -294,34 +294,29 @@ def _extract_page_drawing_numbers(pdf_path, page_indices):
             page = doc[page_num]
             w, h = page.rect.width, page.rect.height
 
-            found = None
-            # Pass 1: tight bottom-right crop (title block dep. no. area)
-            clip = fitz.Rect(w * 0.82, h * 0.88, w, h)
-            text = page.get_text("text", clip=clip)
-            # Prefer number right after "dep" or "no" label
-            m = _re_dn.search(r'dep[\s\S]{0,30}?(\d{1,3}\.\d{1,2})', text, _re_dn.IGNORECASE)
-            if m:
-                found = m.group(1)
+            # Right 20% of page = KPS title block column
+            clip = fitz.Rect(w * 0.80, 0, w, h)
+            # words: (x0, y0, x1, y1, text, block_no, line_no, word_no)
+            words = page.get_text("words", clip=clip)
+
+            candidates = []
+            for word in words:
+                text = word[4].strip()
+                # Must be exactly X.Y or X.YY — no extra chars (filters "2/3.4", dates, etc.)
+                if _re_dn.match(r'^\d{1,3}\.\d{1,2}$', text):
+                    cx = (word[0] + word[2]) / 2
+                    cy = (word[1] + word[3]) / 2
+                    dist = ((cx - w) ** 2 + (cy - h) ** 2) ** 0.5
+                    candidates.append((dist, text))
+
+            if candidates:
+                candidates.sort()                    # closest to bottom-right first
+                result[page_num] = candidates[0][1]
             else:
-                matches = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text)
-                if matches:
-                    found = matches[-1]
+                result[page_num] = str(page_num + 1)
 
-            # Pass 2: widen to full right strip if still nothing
-            if not found:
-                clip2 = fitz.Rect(w * 0.82, 0, w, h)
-                text2 = page.get_text("text", clip=clip2)
-                m2 = _re_dn.search(r'dep[\s\S]{0,30}?(\d{1,3}\.\d{1,2})', text2, _re_dn.IGNORECASE)
-                if m2:
-                    found = m2.group(1)
-                else:
-                    matches2 = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text2)
-                    if matches2:
-                        found = matches2[-1]
-
-            result[page_num] = found if found else str(page_num + 1)
         doc.close()
-    except Exception as _e:
+    except Exception:
         for p in page_indices:
             result.setdefault(p, str(p + 1))
     return result
