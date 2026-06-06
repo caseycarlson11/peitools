@@ -221,9 +221,20 @@ def api_jobs():
 
 @app.route("/api/jobs/<path:job>")
 def api_job_files(job):
+    import time
     job_path = safe_join(job)
     if not os.path.isdir(job_path):
         return jsonify({"error": "Job not found"}), 404
+
+    def file_entry(folder, fname):
+        fpath = os.path.join(folder, fname)
+        try:
+            mtime = os.path.getmtime(fpath)
+            modified = time.strftime("%-m/%-d/%y", time.localtime(mtime))
+        except Exception:
+            modified = ""
+        return {"name": fname, "modified": modified}
+
     result = {}
     for cat in CATEGORIES:
         cat_path = os.path.join(job_path, cat)
@@ -231,14 +242,14 @@ def api_job_files(job):
             files = sorted([f for f in os.listdir(cat_path)
                             if f.lower().endswith(".pdf")])
             if files:
-                result[cat] = files
+                result[cat] = [file_entry(cat_path, f) for f in files]
     # Include DXF CAD FILE so admin can verify uploads
     cad_path = os.path.join(job_path, CAD_FOLDER)
     if os.path.isdir(cad_path):
         cad_files = sorted([f for f in os.listdir(cad_path)
                             if os.path.splitext(f)[1].lower() in {".dxf", ".dwg"}])
         if cad_files:
-            result[CAD_FOLDER] = cad_files
+            result[CAD_FOLDER] = [file_entry(cad_path, f) for f in cad_files]
     return jsonify(result)
 
 @app.route("/api/jobs/<path:job>/all-files")

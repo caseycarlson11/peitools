@@ -318,7 +318,10 @@
     .file-item.active { background: var(--accent); border-color: rgba(96,180,240,0.25); }
     .file-item svg { width: 16px; height: 16px; stroke: var(--text2); fill: none; stroke-width: 2; flex-shrink: 0; }
     .file-item.active svg { stroke: var(--blue); }
+    .file-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
     .file-name { font-size: 0.8rem; font-weight: 600; color: var(--text); line-height: 1.3; word-break: break-word; }
+    .file-date { font-size: 0.68rem; color: var(--text2); }
+    .file-item.active .file-date { color: rgba(96,180,240,0.7); }
     .no-files { padding: 20px 12px; color: var(--text2); font-size: 0.8rem; text-align: center; line-height: 1.6; }
 
     /* PDF viewer */
@@ -543,12 +546,17 @@ function selectCategory(cat, tab) {
     return;
   }
 
-  files.forEach(fname => {
+  files.forEach(f => {
+    const fname    = f.name || f;
+    const modified = f.modified || '';
     const item = document.createElement('div');
     item.className = 'file-item';
     item.innerHTML = `
       <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-      <span class="file-name">${fname}</span>`;
+      <div class="file-item-info">
+        <span class="file-name">${fname}</span>
+        ${modified ? `<span class="file-date">Modified ${modified}</span>` : ''}
+      </div>`;
     item.onclick = () => openFile(fname, item);
     list.appendChild(item);
   });
