@@ -28,6 +28,10 @@
     .btn-blue{ background:var(--blue); border-color:var(--blue); color:#06210f; }
     .btn.active{ background:var(--blue); border-color:var(--blue); color:#06210f; }
     .btn:disabled{ opacity:.45; cursor:not-allowed; }
+    .spin{ display:inline-block; width:12px; height:12px; vertical-align:-2px;
+           border:2px solid rgba(0,0,0,.3); border-top-color:#06210f; border-radius:50%;
+           animation:spin .7s linear infinite; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
     @keyframes pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,.5);} 50%{box-shadow:0 0 0 6px rgba(63,185,80,0);} }
     .zoom{ display:flex; align-items:center; gap:6px; color:var(--text2); font-size:.8rem; }
     .zoom input{ width:120px; accent-color:var(--blue); }
@@ -153,15 +157,17 @@ function setDirty(v){
 function recomputeDirty(){ setDirty(JSON.stringify(locs) !== savedSnapshot); }
 
 function pushUndo(){
-  undoStack.push(JSON.stringify(locs));
+  undoStack.push({ locs: JSON.stringify(locs), series: seriesNext });   // also remember the series counter
   if(undoStack.length > 60) undoStack.shift();
   updateUndoBtn();
 }
 function updateUndoBtn(){ const b=$('undoBtn'); if(b) b.disabled = undoStack.length===0; }
 function undo(){
   if(!undoStack.length) return;
-  locs = JSON.parse(undoStack.pop());
-  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn();
+  const snap = undoStack.pop();
+  locs = JSON.parse(snap.locs);
+  seriesNext = snap.series;                 // rewind the Add-Panel-Series number too
+  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn(); updateSeriesBanner();
   toast('Undid last change.');
 }
 
@@ -504,13 +510,14 @@ function placeSeries(e, pi){
     if(v == null) return;
     const n = parseInt(String(v).trim(), 10);
     if(isNaN(n)){ toast('Enter a whole number to start the series.'); return; }
+    pushUndo();                 // snapshot BEFORE placing (series counter still null)
     num = n; seriesNext = n + 1;
   } else {
+    pushUndo();                 // snapshot BEFORE incrementing, so undo restores this number
     num = seriesNext; seriesNext++;
   }
   const nn = String(num);
   if(locs[nn]) toast('Panel ' + nn + ' moved here.');
-  pushUndo();
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
   setDirty(true); drawBoxes(); updateSeriesBanner();
 }
@@ -608,20 +615,27 @@ function changeSummary(before){
 
 async function saveChanges(){
   const before = JSON.parse(savedSnapshot || '{}');
-  $('saveBtn').disabled = true;
+  const btn = $('saveBtn'); btn.disabled = true;
+  const t0 = Date.now();
+  const fmt = ()=>{ const s = Math.floor((Date.now()-t0)/1000), m = Math.floor(s/60);
+                    return m > 0 ? (m + 'm ' + (s%60) + 's') : (s + 's'); };
+  btn.innerHTML = '<span class="spin"></span> Saving… <span id="saveElapsed">0s</span>';
+  const tick = setInterval(()=>{ const e = $('saveElapsed'); if(e) e.textContent = fmt(); }, 250);
   try{
     const r = await fetch('/api/panel-map/update/'+encodeURIComponent(JOB), {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({ locations: locs })
     });
     const d = await r.json();
-    if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }
+    clearInterval(tick);
+    if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }   // setDirty restores the button label
     const summary = changeSummary(before);
+    const elapsed = fmt();
     locs = d.panel_locations || locs;
     savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
     setDirty(false); drawBoxes(); refreshDownloadLinks();
-    toast('Saved ' + d.count + ' panels — ' + summary + '. Both documents regenerated.');
-  }catch(e){ toast('Save failed.'); setDirty(true); }
+    toast('Saved ' + d.count + ' panels — ' + summary + ' in ' + elapsed + '. Both documents regenerated.');
+  }catch(e){ clearInterval(tick); toast('Save failed.'); setDirty(true); }
 }
 
 /* Hand tool + scroll-to-zoom (the rest of the page is untouched) */
