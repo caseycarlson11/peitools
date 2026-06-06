@@ -399,7 +399,7 @@ def build_spreadsheet(job_name):
     ws = wb.active
     ws.title = "Panel Data"
 
-    headers = ["Panel Number", "Sheet Number", "Packing List", "Date Delivered"]
+    headers = ["Panel Number", "Sheet Number", "Order Number", "Packing List", "Date Delivered"]
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="1F4E79")
     for col_idx, h in enumerate(headers, 1):
@@ -422,8 +422,9 @@ def build_spreadsheet(job_name):
             sheet_num = drawing_nums.get(page_num, page_num + 1) if page_num is not None else ""
             info = delivery_state.get(display_name) or delivery_state.get(str(display_name)) or {}
             shipment = info.get("shipment", "")
+            order_num = info.get("order_num", "")
             date_del = shipment_dates.get(shipment, "")
-            rows.append((display_name, sheet_num, shipment, date_del))
+            rows.append((display_name, sheet_num, order_num, shipment, date_del))
         rows.sort(key=lambda r: _panel_sort_key(r[0]))
     else:
         # Fallback: use delivery_state keys
@@ -431,14 +432,16 @@ def build_spreadsheet(job_name):
         for panel in sorted(delivery_state.keys(), key=_panel_sort_key):
             info = delivery_state[panel]
             shipment = info.get("shipment", "")
+            order_num = info.get("order_num", "")
             date_del = shipment_dates.get(shipment, "")
-            rows.append((panel, "", shipment, date_del))
+            rows.append((panel, "", order_num, shipment, date_del))
 
-    for row_idx, (panel, sheet_num, shipment, date_del) in enumerate(rows, 2):
+    for row_idx, (panel, sheet_num, order_num, shipment, date_del) in enumerate(rows, 2):
         ws.cell(row=row_idx, column=1, value=panel)
         ws.cell(row=row_idx, column=2, value=sheet_num)
-        ws.cell(row=row_idx, column=3, value=shipment)
-        ws.cell(row=row_idx, column=4, value=date_del)
+        ws.cell(row=row_idx, column=3, value=order_num)
+        ws.cell(row=row_idx, column=4, value=shipment)
+        ws.cell(row=row_idx, column=5, value=date_del)
 
     for col in ws.columns:
         max_len = max((len(str(c.value)) for c in col if c.value is not None), default=10)
@@ -1183,10 +1186,11 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             raw_panels = sum(len(v) for v in parsed.values())
             _pl_jobs[job_name].update({"message": f"Parsed {raw_panels} panels across {skid_count} skids…", "progress": 15})
 
-        for skid_num, panels in parsed.items():
-            for p in panels:
+        for skid_num, panel_orders in parsed.items():
+            for p, order_num in panel_orders.items():
                 if p not in delivery_state:
-                    delivery_state[p] = {"skid": skid_num, "shipment": shipment_label}
+                    delivery_state[p] = {"skid": skid_num, "shipment": shipment_label,
+                                         "order_num": order_num}
                     panels_added += 1
 
         with _pl_jobs_lock:

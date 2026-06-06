@@ -100,24 +100,25 @@ def parse_packing_list(pdf_path):
                 continue
 
             # ── Step 2: hOCR for word positions within this quadrant ──────────
-            panels = _extract_panels_positional(tmp, skid_num)
+            # Returns {panel_str: order_num_str}
+            panel_orders = _extract_panels_positional(tmp, skid_num)
 
             # Fall back to text heuristic if positional extraction found nothing
-            if not panels:
-                panels = _extract_panels(text)
+            if not panel_orders:
+                panel_orders = {p: "" for p in _extract_panels(text)}
 
             # ── Step 3: validate ──────────────────────────────────────────────
-            if expected is not None and len(panels) < expected * 0.70:
+            if expected is not None and len(panel_orders) < expected * 0.70:
                 warnings.append(
-                    f"#{skid_num}: Only {len(panels)} of {expected} expected panels "
+                    f"#{skid_num}: Only {len(panel_orders)} of {expected} expected panels "
                     f"extracted — OCR may have missed some. Please verify."
                 )
 
-            if panels:
-                bucket = results.setdefault(skid_num, [])
-                for p in panels:
+            if panel_orders:
+                bucket = results.setdefault(skid_num, {})
+                for p, order_num in panel_orders.items():
                     if p not in bucket:
-                        bucket.append(p)
+                        bucket[p] = order_num
 
     doc.close()
     return results, warnings
@@ -176,8 +177,17 @@ def _extract_panels_positional(img_path, skid_num):
             break
     y_bot = footer_y if footer_y else img_w * 2   # generous fallback
 
+    # Collect ORDER # column words for matching to panel rows by y-position
+    order_words = []  # (order_num_str, y_center)
+    for t, x0, y0, x1, y1 in words:
+        tt = t.strip(".,:'\"")
+        if (re.fullmatch(r'\d{1,2}', tt) and int(tt) <= 99 and
+                x0 < panel_hx - 15 and panel_hy < y0 < y_bot):
+            order_words.append((tt, (y0 + y1) / 2))
+
     # Column region: x >= panel_hx - small_margin, y between header and footer
-    panels = []
+    # Returns dict {panel_str: order_num_str} instead of plain list
+    panel_orders = {}
     for t, x0, y0, x1, y1 in words:
         tt = t.strip(".,:'\"")
         if not _is_panel(tt):
@@ -186,10 +196,16 @@ def _extract_panels_positional(img_path, skid_num):
             continue    # left of panel column = order number territory
         if not (panel_hy < y0 < y_bot):
             continue
-        if tt not in panels:
-            panels.append(tt)
+        if tt not in panel_orders:
+            panel_cy = (y0 + y1) / 2
+            best_order, best_dist = "", float("inf")
+            for onum, oy in order_words:
+                d = abs(panel_cy - oy)
+                if d < best_dist:
+                    best_dist, best_order = d, onum
+            panel_orders[tt] = best_order if best_dist < 40 else ""
 
-    return panels
+    return panel_orders
 
 
 def _parse_skid_block(text, skid_num):
