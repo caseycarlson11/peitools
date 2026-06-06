@@ -115,7 +115,8 @@ PEItools.com/
 | `/logout` | Sign out | Public |
 | `/sheet_editor` | Fab Sheet PDF markup editor | Login required |
 | `/sheet_extractor` | DXF → panel/sheet mapping | Login required |
-| `/blueprints` | Blueprint viewer (jobs + files) | Login required |
+| `/blueprints` | Document Viewer (alias — redirects to `/documents`) | Login required |
+| `/documents` | Document Viewer (jobs + files) | Login required |
 | `/field-compass` | Field Compass with PDF viewer | Login required |
 | `/admin` | Upload/manage files (password: PEI2024) | Login required |
 | `/blueprint/hyperlinks` | Blueprint Hyperlinks tool | Login required |
@@ -149,6 +150,8 @@ PEItools.com/
 | `/api/jobs` | List all jobs | Public |
 | `/api/jobs/<job>` | List files for a job (by category) | Public |
 | `/api/jobs/<job>/build-spreadsheet` | Generate/update `Spreadsheets/<job>.xlsx` from delivery + panel data | Login required |
+| `/api/jobs/<job>/spreadsheet-edits` | Save manual cell overrides to `<job>_overrides.json` + apply to xlsx | Login required |
+| `/api/jobs/<job>/sheets-url` | GET/POST the linked Google Sheets URL for a job | Login required |
 | `/files/<path>` | Serve a job file | Login required |
 | `/cad-files/<path>` | Serve a DXF/CAD file | Login required |
 
@@ -216,8 +219,10 @@ PEItools.com/
     Panel Map/                <- Panel Print Mapper working files (internal, not in viewer)
       session.json                Saved editor session (blueprint, pages, panel locations)
       panel_locations_v2.json     Panel locations cache (shared with PL Tracker)
-    Spreadsheets/             <- Auto-created by Blueprint Viewer spreadsheet feature
-      <Job Name>.xlsx             Panel data spreadsheet (Panel #, Sheet #, Order #, Date Delivered)
+    Spreadsheets/             <- Auto-created by Document Viewer spreadsheet feature
+      <Job Name>.xlsx             Panel data spreadsheet (Panel #, Sheet #, Order #, Packing List, Date Delivered)
+      <Job Name>_overrides.json   Persistent manual cell edits keyed by {panel: {col_header: value}}
+      <Job Name>_sheets_url.json  Linked Google Sheets URL for this job ({"url": "https://..."})
   .shares.json
   .compass_shares.json
 ```
@@ -434,9 +439,9 @@ Adds clickable hyperlinks to callout circles on KPS blueprint PDFs.
 
 ---
 
-## Blueprint Viewer
+## Document Viewer
 
-`/blueprints` — browse all jobs and their files organized by category tab.
+`/documents` (also `/blueprints` as alias) — browse all jobs and their files organized by category tab.
 
 ### Categories
 `CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets", "Panel Mapper", "Spreadsheets"]`
@@ -447,26 +452,35 @@ Adds clickable hyperlinks to callout circles on KPS blueprint PDFs.
 
 ### Spreadsheets tab
 Clicking **"Pull Data into Spreadsheet"** calls `POST /api/jobs/<job>/build-spreadsheet`, which:
-1. Reads `Delivery Tracking/delivery_state.json` → `{panel: {skid, shipment}}` (from Packing List Tracker)
+1. Reads `Delivery Tracking/delivery_state.json` → `{panel: {skid, shipment, order_num}}` (from Packing List Tracker)
 2. Reads panel locations from `Panel Map/session.json` → `locs` JSON (preferred) or falls back to `Delivery Tracking/panel_locations_v2.json`
 3. Gets packing list file mtimes from `Packing Lists/` folder for "Date Delivered"
 4. Extracts drawing numbers (dep. no., e.g. "3.4") from the title block of each page in `scan_pdf` using PyMuPDF text extraction
-5. Writes `Spreadsheets/<job>.xlsx` with columns: **Panel Number**, **Sheet Number** (dep. no. from title block), **Order Number** (shipment label), **Date Delivered** (packing list file mtime)
-6. Creates/overwrites the file silently — no download prompt; file appears in the Spreadsheets tab
+5. Loads `Spreadsheets/<job>_overrides.json` and applies any manual edits over the generated rows
+6. Writes `Spreadsheets/<job>.xlsx` with columns: **Panel Number**, **Sheet Number**, **Order Number**, **Packing List**, **Date Delivered**
 
-**Panel Number source:** iterates all entries in Panel Mapper `locs` JSON (same source as `panels_only` PDF). Duplicate panels (same panel on multiple pages) each get their own row. Panel IDs may contain any characters (letters, numbers, symbols). Sorted numerically by leading digits, then alphabetically.
+**Columns:**
+- **Panel Number** — from Panel Mapper `locs` JSON. Duplicate panels get their own row. Sorted numerically then alphabetically.
+- **Sheet Number** — dep. no. (e.g. "3.4") extracted from the KPS title block (bottom-right of right 20% of page). Falls back to `page_index + 1`.
+- **Order Number** — the ORDER# from the KPS packing list, extracted via hOCR positional matching. ORDER# appears once per row group; continuation panel rows are assigned via "nearest preceding" logic (highest ORDER# y ≤ panel y + 20px).
+- **Packing List** — the shipment label (e.g. "Shipment #2"). Rendered as a hyperlink to the packing list PDF in the viewer.
+- **Date Delivered** — mtime of the packing list file.
 
-**Sheet Number extraction:**
-- Uses `scan_pdf` from `Panel Map/session.json` — this is the trimmed blueprint whose page indices match `panel_locs` exactly. Using `src_pdf` (full blueprint) instead would give wrong page indices.
-- Extracts words from the right 20% of each page (KPS title block column) using PyMuPDF `get_text("words")`
-- Filters for words matching exactly `X.Y` or `X.YY` format (e.g. "3.4", "2.10")
-- Picks the word closest to the bottom-right corner — that is always the dep. no. field in the KPS title block
-- Falls back to `page_index + 1` if no match found
+**Manual cell edits (overrides):**
+- Cells in the inline viewer are `contenteditable`. Editing any cell shows a **💾 Save Edits** button.
+- Saving POSTs `{edits: [{panel, col_header, value}]}` to `/api/jobs/<job>/spreadsheet-edits`.
+- Edits are stored in `Spreadsheets/<job>_overrides.json` keyed by `{panel_display_name: {col_header: value}}`.
+- On every **Pull Data**, overrides are re-applied after rows are generated — edits survive re-pulls.
+- Limitation: duplicate panel display names (same label on multiple sheets) share one override entry.
+
+**Google Sheets integration:**
+- **📊 Google Sheets** button: builds TSV from the rendered table, copies to clipboard, opens the linked sheet (or `sheets.new` if none linked). Toast: "Data copied — press Ctrl+V to paste."
+- **🔗 Link Sheet** button (to the right): paste a Google Sheets URL to link it to the job. Saved to `Spreadsheets/<job>_sheets_url.json`. Button turns green and shows "🔗 Linked" when active. Clear the URL to unlink.
 
 Clicking an xlsx file shows a popup with three options:
 - **View** — renders the spreadsheet inline using SheetJS (no download)
 - **Download / Open in Excel** — standard download; Excel opens via OS file association
-- **Open in Google Sheets** — downloads the file and opens `sheets.new` (use File → Import)
+- **Open in Google Sheets** — copies data to clipboard and opens the linked sheet (or `sheets.new`)
 
 ### Dependencies
 - `openpyxl` in `requirements.txt` (needs `deploy.bat` / Docker rebuild if not yet installed)

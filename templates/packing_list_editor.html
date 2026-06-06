@@ -575,24 +575,23 @@
     const p=selected.panel;
     const k=selected.kind;
     $('abTitle').textContent=`Panel ${p}`;
-    // Delete is always available — any highlight, missing or not, can be removed.
+    // Delete + Change # are always available for any panel.
     $('abDelBtn').style.display='';
+    $('abChangeBtn').style.display='';
     // Duplicate only makes sense for a missing panel (red) you want to copy.
     $('abDupBtn').style.display = (k==='delivered') ? 'none' : '';
     if(k==='delivered'){
       $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'}`;
-      $('abChangeBtn').style.display='';
-      $('abMoveBtn').style.display='';            // re-position an already-placed highlight
+      $('abMoveBtn').textContent='📍 Move highlight';
+      $('abMoveBtn').style.display='';
     } else if(k==='unlocated'){
-      // In the table (skid/shipment already known) but not placed — place mode is
-      // auto-armed; just click the blueprint to set it.
-      $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'} · click the blueprint to place it`;
-      $('abChangeBtn').style.display='';
-      $('abMoveBtn').style.display='none';
+      $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'} · click blueprint to place`;
+      $('abMoveBtn').textContent='📍 Place on Blueprint';
+      $('abMoveBtn').style.display='';
     } else {
-      $('abSub').textContent='Not in table — click the blueprint to place it';
-      $('abChangeBtn').style.display='none';
-      $('abMoveBtn').style.display='none';
+      $('abSub').textContent='Not in table — click blueprint to place it';
+      $('abMoveBtn').textContent='📍 Place on Blueprint';
+      $('abMoveBtn').style.display='';
     }
   }
   function clearSelection(silent){
@@ -647,6 +646,7 @@
     const newP=np.trim();
     if(!newP || newP===oldP) return;
     const loc=locations[oldP];
+    const wasInTable = delivery[oldP] !== undefined;
     const rec=delivery[oldP] || {skid:'', shipment:activeShip||'Manual'};
     if(loc){ locations[newP]={page:loc.page,bbox:loc.bbox}; delete locations[oldP]; }
     delivery[newP]={skid:rec.skid||'', shipment:rec.shipment||activeShip||'Manual'};
@@ -656,13 +656,19 @@
       // renaming an unsaved addition — just relabel it
       const a=pendingAdd[oldP]; delete pendingAdd[oldP];
       a.panel=newP; pendingAdd[newP]=a;
-    } else {
+    } else if(wasInTable){
       // a real renumber of a saved panel — record it so the table updates and
       // the correction is captured for re-processing / other projects
       pendingRenames.push({from:oldP, to:newP, skid:delivery[newP].skid, shipment:delivery[newP].shipment});
+    } else {
+      // panel was "missed" (on prints but not in any packing list table) — treat
+      // the rename as a new addition with the corrected number
+      if(loc) pendingAdd[newP]={panel:newP, skid:'', shipment:delivery[newP].shipment,
+                                page:loc.page, bbox:loc.bbox};
     }
     rebuildShipmentsLocal();
     renderPanelBoxes();
+    if(plDoc) renderPlMarks();
     clearSelection();
     toast(`Renumbered ${oldP} → ${newP} — Save to apply`);
   }
