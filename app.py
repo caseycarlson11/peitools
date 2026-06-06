@@ -274,6 +274,42 @@ def api_job_all_files(job):
                                   "type": "pdf" if ext == ".pdf" else "image"})
     return jsonify(files)
 
+def _extract_page_drawing_numbers(pdf_path, page_indices):
+    """
+    OCR the bottom-right corner of each specified page to extract the KPS drawing number
+    (e.g. "2.3" from the dep. no. field in the title block).
+    Returns dict: {page_index (int): drawing_number_string}
+    Falls back to str(page_index + 1) on any failure.
+    """
+    import re as _re_dn
+    result = {}
+    try:
+        import fitz
+        import pytesseract
+        from PIL import Image
+        doc = fitz.open(pdf_path)
+        for page_num in sorted(page_indices):
+            if page_num < 0 or page_num >= doc.page_count:
+                result[page_num] = str(page_num + 1)
+                continue
+            page = doc[page_num]
+            w, h = page.rect.width, page.rect.height
+            # Bottom-right corner: last 15% width, last 10% height — captures title block dep. no.
+            clip = fitz.Rect(w * 0.85, h * 0.90, w, h)
+            mat = fitz.Matrix(4, 4)   # 4× zoom for OCR clarity
+            pix = page.get_pixmap(matrix=mat, clip=clip, colorspace=fitz.csGRAY)
+            img = Image.frombytes("L", [pix.width, pix.height], pix.samples)
+            text = pytesseract.image_to_string(img, config='--psm 6 --oem 3')
+            # Drawing numbers are typically in X.Y or X.YY format (e.g. "2.3", "2.10", "10.2")
+            matches = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text)
+            result[page_num] = matches[-1] if matches else str(page_num + 1)
+        doc.close()
+    except Exception:
+        for p in page_indices:
+            result.setdefault(p, str(p + 1))
+    return result
+
+
 @app.route("/api/jobs/<path:job_name>/build-spreadsheet", methods=["POST"])
 @login_required
 def build_spreadsheet(job_name):
@@ -298,6 +334,7 @@ def build_spreadsheet(job_name):
 
     # ── Load panel locations (Panel Map preferred, fallback to PL cache) ──
     panel_locs = {}
+    pm_sess = None
     try:
         pm_sess = _pm_load_session(job_name)
         if pm_sess:
@@ -312,6 +349,18 @@ def build_spreadsheet(job_name):
         if os.path.exists(cache_path):
             with open(cache_path) as f:
                 panel_locs = _json_ss.load(f)
+
+    # ── Extract drawing numbers from title block of source blueprint ──
+    drawing_nums = {}
+    if panel_locs and pm_sess:
+        try:
+            src_pdf = pm_sess.get("src_pdf", "")
+            if src_pdf and os.path.isfile(src_pdf):
+                unique_pages = {loc["page"] for loc in panel_locs.values()
+                                if loc.get("page") is not None}
+                drawing_nums = _extract_page_drawing_numbers(src_pdf, unique_pages)
+        except Exception:
+            pass
 
     # ── Get packing list file dates for "Date Delivered" ──────
     pl_dir = safe_join(job_name, "Packing Lists")
@@ -355,7 +404,8 @@ def build_spreadsheet(job_name):
         rows = []
         for key, loc in panel_locs.items():
             display_name = loc.get("label") or _re_ss.sub(r'#\d+$', '', key)
-            sheet_num = (loc["page"] + 1) if loc.get("page") is not None else ""
+            page_num = loc.get("page")
+            sheet_num = drawing_nums.get(page_num, page_num + 1) if page_num is not None else ""
             info = delivery_state.get(display_name) or delivery_state.get(str(display_name)) or {}
             shipment = info.get("shipment", "")
             date_del = shipment_dates.get(shipment, "")

@@ -1,5 +1,19 @@
 # PEItools.com — Project Notes
 
+## ⚠️ Global Development Priority
+
+**This system is multi-project.** All code must be written with the assumption that many different jobs will be processed — each with their own blueprints, packing lists, fab sheets, and Panel Mapper data. Prints and packing lists follow the same format across jobs, but panel counts, sheet counts, panel numbering conventions, and file names will vary per job.
+
+**Requirements for all new code:**
+- Never hardcode job names, panel counts, page counts, or file paths
+- All logic must generalize across any job in `/app/jobs/`
+- When iterating panels or sheets, handle variable quantities gracefully
+- Panel identifiers may include numbers, letters, symbols, and duplicates (e.g. "9R", "211A", "T-1")
+- Avoid assumptions about how many shipments, skids, or packing list files a job has
+- File lookups should be case-insensitive and tolerant of naming variation where practical
+
+---
+
 ## Overview
 Internal web toolset for Pacific Erectors Inc. (metal panel siding installation).
 URL: **https://peitools.com**
