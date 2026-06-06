@@ -1151,19 +1151,22 @@ def _run_pm_job(job_name, bp_name, pages=None):
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({"progress": 85, "message": "Drawing panel map…"})
 
+        # Keep ALL loaded pages in the output (the user already chose which pages
+        # to include), even pages where no panels were detected.
         result = generate_panel_map_blueprint(
-            scan_path, panel_locations, _pm_output_path(job_name, bp_name))
-        drawn = result["drawn"]
-        kept  = result["kept_count"]
-        total = result["total_pages"]
+            scan_path, panel_locations, _pm_output_path(job_name, bp_name),
+            keep_only_panel_pages=False)
+        drawn   = result["drawn"]
+        out_pgs = result["output_pages"]
+        withp   = result["pages_with_panels"]
 
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({
                 "status": "done", "progress": 100, "blueprint": bp_name,
-                "message": f"Complete — {drawn} panels mapped across {kept} of "
-                           f"{total} pages (blank pages removed).",
-                "panels": drawn, "kept_pages": result["kept_pages"],
-                "kept_count": kept, "total_pages": total,
+                "message": f"Complete — {drawn} panels mapped over {out_pgs} pages "
+                           f"({withp} page(s) had panels).",
+                "panels": drawn, "output_pages": out_pgs,
+                "pages_with_panels": withp, "panel_pages": result["panel_pages"],
             })
     except Exception as e:
         with _pm_jobs_lock:

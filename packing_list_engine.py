@@ -768,18 +768,20 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
                              fontsize=fs, fontname="helv", color=RED)
             drawn += 1
 
-    kept_pages = sorted(page_panels.keys())
-    if keep_only_panel_pages and kept_pages:
+    pages_with_panels = sorted(page_panels.keys())
+    if keep_only_panel_pages and pages_with_panels:
         # Keep only the panel-bearing pages (annotations + labels travel with them).
-        doc.select(kept_pages)
+        doc.select(pages_with_panels)
 
+    output_pages = doc.page_count
     doc.save(output_path, garbage=4, deflate=True)
     doc.close()
     return {
         "drawn": drawn,
-        "total_pages": total_pages,
-        "kept_pages": [p + 1 for p in kept_pages],   # 1-based original page numbers
-        "kept_count": len(kept_pages),
+        "total_pages": total_pages,                       # pages scanned
+        "output_pages": output_pages,                     # pages in the saved PDF
+        "pages_with_panels": len(pages_with_panels),      # how many had panels
+        "panel_pages": [p + 1 for p in pages_with_panels],
     }
 
 
