@@ -2,7 +2,6 @@
 {% block title %}Panel Print Mapper{% endblock %}
 
 {% block extra_style %}
-    .pm-intro { color:var(--text2); font-size:.86rem; line-height:1.5; margin-bottom:16px; }
     .pm-field { margin-bottom:14px; }
     .pm-field label { display:block; color:var(--text2); font-size:.8rem; font-weight:600;
                       text-transform:uppercase; letter-spacing:.04em; margin-bottom:6px; }
@@ -21,7 +20,8 @@
     .pm-rescan { display:flex; align-items:center; gap:7px; color:var(--text2); font-size:.8rem;
                  margin-top:12px; cursor:pointer; }
     .pm-rescan input { width:15px; height:15px; accent-color:var(--blue); cursor:pointer; }
-    /* Result card breaks out of the centered 860px column to span the full page width */
+
+    /* Result card breaks out of the centered column to span the full page width */
     .pm-result-full {
       position:relative; width:100vw; left:50%; right:50%;
       margin-left:-50vw; margin-right:-50vw;
@@ -34,62 +34,6 @@
                  font-size:.82rem; margin-bottom:10px; }
     .pm-swatch { width:18px; height:12px; border:1.5px solid #d91a1a;
                  background:rgba(217,26,26,.22); border-radius:3px; flex-shrink:0; }
-    .pm-pagestatus { color:var(--text2); font-size:.82rem; margin-top:10px; }
-    .pm-pagestatus b { color:var(--blue); }
-
-    /* ── Page selector modal ── */
-    .pm-modal { display:none; position:fixed; inset:0; z-index:1000;
-                background:rgba(6,10,18,.82); backdrop-filter:blur(4px);
-                padding:24px; }
-    .pm-modal.open { display:flex; }
-    .pm-modal-box { background:rgba(22,27,34,.98); border:1px solid var(--border);
-                    border-radius:14px; width:100%; max-width:1400px; margin:auto;
-                    display:flex; flex-direction:column; max-height:calc(100vh - 48px); }
-    .pm-modal-head { display:flex; align-items:flex-start; gap:16px; justify-content:space-between;
-                     padding:18px 20px; border-bottom:1px solid var(--border); }
-    .pm-modal-title { font-size:1.05rem; font-weight:700; }
-    .pm-modal-sub { color:var(--text2); font-size:.8rem; margin-top:4px; max-width:760px; line-height:1.45; }
-    .pm-modal-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
-                    padding:12px 20px; border-bottom:1px solid var(--border); }
-    .pm-count { color:var(--text); font-size:.85rem; font-weight:600; }
-    /* Vertical scroll of full pages — read the document like it's open */
-    .pm-thumbs { display:flex; flex-direction:column; align-items:center;
-                 gap:18px; padding:18px 20px; overflow-y:auto; }
-    .pm-zoom { display:flex; align-items:center; gap:8px; color:var(--text2); font-size:.8rem; }
-    .pm-zoom input[type=range] { width:130px; accent-color:var(--blue); cursor:pointer; }
-    .pm-thumb { position:relative; width:var(--pm-tw, 1100px); max-width:100%;
-                border:2px solid var(--border); border-radius:8px;
-                background:#0d1117; cursor:pointer; overflow:hidden; user-select:none;
-                transition:border-color .12s, box-shadow .12s; }
-    .pm-thumb:hover { border-color:var(--blue); }
-    .pm-thumb.selected { border-color:var(--green); box-shadow:0 0 0 2px rgba(63,185,80,.4); }
-    .pm-thumb canvas { display:block; width:100%; height:auto; }
-    .pm-thumb .pm-pgnum { position:absolute; top:6px; left:6px;
-                          background:rgba(13,17,23,.85); color:#fff; font-size:.72rem;
-                          font-weight:700; padding:2px 7px; border-radius:6px; }
-    .pm-thumb .pm-check { position:absolute; top:6px; right:6px; width:18px; height:18px;
-                          border-radius:50%; background:var(--green); color:#fff;
-                          display:none; align-items:center; justify-content:center;
-                          font-size:.7rem; font-weight:800; }
-    .pm-thumb.selected .pm-check { display:flex; }
-    .pm-thumb .pm-zoombtn { position:absolute; bottom:6px; right:6px;
-                            background:rgba(13,17,23,.85); color:#fff; border:none;
-                            border-radius:6px; padding:3px 8px; font-size:.72rem; font-weight:700;
-                            cursor:zoom-in; opacity:0; transition:opacity .12s; }
-    .pm-thumb:hover .pm-zoombtn { opacity:1; }
-
-    /* Full-size single-page preview (over the selector modal) */
-    .pm-preview { display:none; position:fixed; inset:0; z-index:1100;
-                  background:rgba(6,10,18,.92); padding:20px;
-                  flex-direction:column; align-items:center; }
-    .pm-preview.open { display:flex; }
-    .pm-preview-bar { display:flex; align-items:center; gap:12px; width:100%;
-                      max-width:1200px; margin-bottom:10px; color:var(--text); }
-    .pm-preview-bar .ttl { font-weight:700; }
-    .pm-preview-canvaswrap { flex:1; width:100%; overflow:auto; display:flex;
-                             justify-content:center; align-items:flex-start; }
-    .pm-preview canvas { background:#fff; border-radius:6px; box-shadow:0 8px 40px rgba(0,0,0,.5);
-                         max-width:100%; height:auto; }
 {% endblock %}
 
 {% block content %}
@@ -121,10 +65,9 @@
   <div class="alert alert-error" id="errBox"></div>
 
   <div class="btn-row">
-    <button class="btn btn-subtle" id="selectPagesBtn" onclick="openPageSelector()" disabled>🗂 Select Pages</button>
-    <button class="btn btn-green"  id="processBtn"     onclick="doProcess()"        disabled>⚡ Map Panels</button>
+    <button class="btn btn-subtle" id="viewDocBtn" onclick="viewDocument()" disabled>👁 View Document</button>
+    <button class="btn btn-green"  id="processBtn" onclick="doProcess()"   disabled>⚡ Map Panels</button>
   </div>
-  <div class="pm-pagestatus" id="pageStatus"></div>
 
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
@@ -143,45 +86,6 @@
   </div>
   <iframe class="pm-viewer" id="pmViewer" title="Panel map"></iframe>
 </div>
-
-<!-- ── Page selector modal ───────────────────────────────────────────── -->
-<div class="pm-modal" id="pageModal">
-  <div class="pm-modal-box">
-    <div class="pm-modal-head">
-      <div>
-        <div class="pm-modal-title">Select Pages to Scan</div>
-        <div class="pm-modal-sub" id="modalSub">Scroll through the document. <b>Click a page to select it</b>, Shift-click for a range, Ctrl/Cmd-click to add or remove individual pages, then Delete the ones you don't want. Use the Size slider to zoom.</div>
-      </div>
-      <button class="btn btn-subtle" onclick="closePageSelector()">✕ Close</button>
-    </div>
-    <div class="pm-modal-bar">
-      <span class="pm-count" id="modalCount">—</span>
-      <label class="pm-zoom">Size
-        <input type="range" id="thumbZoom" min="500" max="1340" step="20" value="1100" oninput="onZoomChange(this.value)">
-      </label>
-      <span style="flex:1"></span>
-      <button class="btn btn-subtle"  id="selAllBtn"  onclick="selectAllPages()">Select all</button>
-      <button class="btn btn-subtle"  id="selNoneBtn" onclick="clearSelection()">Clear selection</button>
-      <button class="btn btn-danger"  id="delPagesBtn" onclick="deleteSelectedPages()" disabled>🗑 Delete selected</button>
-      <button class="btn btn-subtle"  id="resetPagesBtn" onclick="resetPages()">↺ Reset all pages</button>
-      <button class="btn btn-green"   onclick="confirmPageSelection()">✓ Done</button>
-    </div>
-    <div class="pm-thumbs" id="thumbGrid"><div class="pm-empty">Loading pages…</div></div>
-  </div>
-</div>
-
-<!-- ── Full-size page preview ────────────────────────────────────────── -->
-<div class="pm-preview" id="pagePreview">
-  <div class="pm-preview-bar">
-    <span class="ttl" id="previewTitle">Page</span>
-    <button class="btn btn-subtle" id="prevPrevBtn" onclick="previewStep(-1)">‹ Prev</button>
-    <button class="btn btn-subtle" id="prevNextBtn" onclick="previewStep(1)">Next ›</button>
-    <span style="flex:1"></span>
-    <button class="btn btn-green"  id="prevToggleSel" onclick="previewToggleSelect()">Select this page</button>
-    <button class="btn btn-subtle" onclick="closePreview()">✕ Close</button>
-  </div>
-  <div class="pm-preview-canvaswrap"><canvas id="previewCanvas"></canvas></div>
-</div>
 {% endblock %}
 
 {% block scripts %}
@@ -190,38 +94,7 @@ let selectedBp  = "";
 let pollTimer   = null;
 let startTime   = 0;
 
-// Page-selection state
-let totalPages  = 0;        // pages in the selected blueprint (0 = unknown yet)
-let keptPages   = null;     // sorted array of 1-based pages to scan, or null = all
-let pdfDoc      = null;     // pdf.js document for the selector
-let modalSel    = new Set();// page numbers currently highlighted in the modal
-let modalAnchor = null;     // last clicked page (anchor for shift-range)
-let gridPages   = [];       // page numbers currently shown in the modal grid
-
 const $ = id => document.getElementById(id);
-
-// Load pdf.js on demand (only when the page selector is first opened)
-let pdfjsReady = null;
-function ensurePdfjs(){
-  if(pdfjsReady) return pdfjsReady;
-  pdfjsReady = new Promise((resolve, reject)=>{
-    const s = document.createElement('script');
-    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-    s.onload = ()=>{
-      pdfjsLib.GlobalWorkerOptions.workerSrc =
-        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      resolve();
-    };
-    s.onerror = ()=>reject(new Error('Could not load the PDF renderer.'));
-    document.head.appendChild(s);
-  });
-  return pdfjsReady;
-}
-
-function blueprintUrl(){
-  return '/files/' + encodeURIComponent(selectedJob)
-       + '/Blueprints/' + encodeURIComponent(selectedBp);
-}
 
 function fmtElapsed(ms){
   const t = Math.floor(ms/1000);
@@ -231,6 +104,16 @@ function fmtElapsed(ms){
 
 function showErr(msg){ const e=$('errBox'); e.textContent=msg; e.classList.add('show'); }
 function clearErr(){ $('errBox').classList.remove('show'); }
+
+function blueprintUrl(){
+  return '/files/' + encodeURIComponent(selectedJob)
+       + '/Blueprints/' + encodeURIComponent(selectedBp);
+}
+
+function viewDocument(){
+  if(!selectedBp) return;
+  window.open(blueprintUrl(), '_blank');
+}
 
 fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
   const sel = $('jobSelect');
@@ -250,8 +133,7 @@ function onJobChange(){
   $('resultCard').style.display='none';
   $('successBox').classList.remove('show');
   $('processBtn').disabled = true;
-  $('selectPagesBtn').disabled = true;
-  resetPageState();
+  $('viewDocBtn').disabled = true;
   if(!selectedJob) return;
 
   const list = $('bpList');
@@ -298,27 +180,8 @@ function selectBp(name, item){
   document.querySelectorAll('.pm-item').forEach(el=>el.classList.remove('selected'));
   item.classList.add('selected');
   $('processBtn').disabled = false;
-  $('selectPagesBtn').disabled = false;
+  $('viewDocBtn').disabled = false;
   $('rescanRow').style.display = 'flex';
-  resetPageState();   // new blueprint -> scan all pages until the user trims
-}
-
-function resetPageState(){
-  totalPages = 0; keptPages = null; pdfDoc = null;
-  modalSel.clear(); modalAnchor = null;
-  updatePageStatus();
-}
-
-function updatePageStatus(){
-  const el = $('pageStatus');
-  if(keptPages && totalPages){
-    el.innerHTML = 'Scanning <b>' + keptPages.length + '</b> of ' + totalPages
-                 + ' pages. <a href="#" onclick="resetPages();return false;" style="color:var(--blue)">scan all</a>';
-  } else if(totalPages){
-    el.innerHTML = 'Scanning all <b>' + totalPages + '</b> pages.';
-  } else {
-    el.textContent = '';
-  }
 }
 
 function doProcess(){
@@ -334,8 +197,7 @@ function doProcess(){
 
   fetch('/api/panel-map/process/'+encodeURIComponent(selectedJob), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked,
-                           pages: keptPages })
+    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked })
   }).then(r=>r.json()).then(d=>{
     if(d.error){ failProcess(d.error); return; }
     pollTimer = setInterval(poll, 1200);
@@ -377,196 +239,4 @@ function failProcess(msg){
   $('progressWrap').classList.remove('visible');
   showErr(msg);
 }
-
-/* ── Page selector ─────────────────────────────────────────────────────── */
-async function openPageSelector(){
-  if(!selectedBp) return;
-  clearErr();
-  $('pageModal').classList.add('open');
-  const grid = $('thumbGrid');
-  grid.innerHTML = '<div class="pm-empty">Loading the PDF renderer…</div>';
-  try{
-    await ensurePdfjs();
-    if(!pdfDoc){
-      grid.innerHTML = '<div class="pm-empty">Opening the blueprint…</div>';
-      pdfDoc = await pdfjsLib.getDocument(blueprintUrl()).promise;
-      totalPages = pdfDoc.numPages;
-    }
-    // Restore the user's saved page size
-    let z = 1100;
-    try{ z = parseInt(localStorage.getItem('pm_thumb_w'),10) || 1100; }catch(_){}
-    $('thumbZoom').value = z;
-    onZoomChange(z);
-
-    gridPages = keptPages ? keptPages.slice() : Array.from({length:totalPages}, (_,i)=>i+1);
-    modalSel.clear(); modalAnchor = null;
-    await renderGrid();
-  }catch(err){
-    grid.innerHTML = '<div class="pm-empty">Could not open the PDF: ' + (err.message||err) + '</div>';
-  }
-}
-
-function closePageSelector(){ $('pageModal').classList.remove('open'); }
-
-const THUMB_RES = 1400;  // internal render width (px) — crisp detail at full width
-let thumbObserver = null;
-
-async function renderThumb(pg, canvas){
-  if(canvas.dataset.rendered) return;
-  const page  = await pdfDoc.getPage(pg);
-  const base  = page.getViewport({scale:1});
-  const vp    = page.getViewport({scale: THUMB_RES / base.width});
-  canvas.width = vp.width; canvas.height = vp.height;
-  await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
-  canvas.dataset.rendered = '1';
-}
-
-function renderGrid(){
-  const grid = $('thumbGrid');
-  grid.innerHTML = '';
-  if(thumbObserver) thumbObserver.disconnect();
-  // Lazy-render: only rasterize pages as they scroll near the viewport.
-  thumbObserver = new IntersectionObserver((entries)=>{
-    entries.forEach(en=>{
-      if(en.isIntersecting){
-        const cell = en.target;
-        thumbObserver.unobserve(cell);
-        renderThumb(parseInt(cell.dataset.pg,10), cell.querySelector('canvas')).catch(()=>{});
-      }
-    });
-  }, {root: grid, rootMargin: '600px 0px'});
-
-  for(const pg of gridPages){
-    const cell = document.createElement('div');
-    cell.className = 'pm-thumb'; cell.dataset.pg = pg;
-    cell.innerHTML = '<span class="pm-pgnum">p.' + pg + '</span>'
-                   + '<span class="pm-check">✓</span>'
-                   + '<button class="pm-zoombtn" title="View full size">⛶</button>';
-    const canvas = document.createElement('canvas');
-    cell.appendChild(canvas);
-    cell.onclick = (e)=>{
-      if(e.target.classList.contains('pm-zoombtn')){ openPreview(pg); return; }
-      onThumbClick(pg, e);
-    };
-    cell.ondblclick = ()=>openPreview(pg);
-    grid.appendChild(cell);
-    thumbObserver.observe(cell);
-  }
-  refreshSelection();
-}
-
-function onZoomChange(v){
-  $('thumbGrid').style.setProperty('--pm-tw', v + 'px');
-  try{ localStorage.setItem('pm_thumb_w', v); }catch(_){}
-}
-
-/* Full-size single-page preview */
-let previewPg = null;
-async function openPreview(pg){
-  previewPg = pg;
-  $('pagePreview').classList.add('open');
-  $('previewTitle').textContent = 'Page ' + pg + ' of ' + totalPages;
-  updatePreviewSelBtn();
-  try{
-    const page = await pdfDoc.getPage(pg);
-    const base = page.getViewport({scale:1});
-    const dpr  = Math.min(window.devicePixelRatio || 1, 2);
-    const maxW = Math.min(window.innerWidth - 48, 1600);
-    const vp   = page.getViewport({scale: (maxW / base.width) * dpr});
-    const canvas = $('previewCanvas');
-    canvas.width = vp.width; canvas.height = vp.height;
-    canvas.style.width = (vp.width / dpr) + 'px';
-    await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
-  }catch(_){}
-}
-function closePreview(){ $('pagePreview').classList.remove('open'); previewPg = null; }
-function previewStep(d){
-  if(previewPg == null) return;
-  const i = gridPages.indexOf(previewPg);
-  if(i < 0) return;
-  const ni = i + d;
-  if(ni >= 0 && ni < gridPages.length) openPreview(gridPages[ni]);
-}
-function updatePreviewSelBtn(){
-  $('prevToggleSel').textContent = modalSel.has(previewPg) ? 'Unselect this page' : 'Select this page';
-}
-function previewToggleSelect(){
-  if(previewPg == null) return;
-  if(modalSel.has(previewPg)) modalSel.delete(previewPg); else modalSel.add(previewPg);
-  modalAnchor = previewPg;
-  updatePreviewSelBtn();
-  refreshSelection();
-}
-
-function onThumbClick(pg, e){
-  if(e.shiftKey && modalAnchor!=null){
-    const a = gridPages.indexOf(modalAnchor), b = gridPages.indexOf(pg);
-    if(a>=0 && b>=0){
-      if(!(e.ctrlKey||e.metaKey)) modalSel.clear();
-      const lo = Math.min(a,b), hi = Math.max(a,b);
-      for(let i=lo;i<=hi;i++) modalSel.add(gridPages[i]);
-    }
-  } else if(e.ctrlKey || e.metaKey){
-    if(modalSel.has(pg)) modalSel.delete(pg); else modalSel.add(pg);
-    modalAnchor = pg;
-  } else {
-    modalSel.clear(); modalSel.add(pg); modalAnchor = pg;
-  }
-  refreshSelection();
-}
-
-function refreshSelection(){
-  document.querySelectorAll('#thumbGrid .pm-thumb').forEach(c=>{
-    c.classList.toggle('selected', modalSel.has(parseInt(c.dataset.pg,10)));
-  });
-  $('modalCount').textContent = gridPages.length + ' pages kept · ' + modalSel.size + ' selected';
-  $('delPagesBtn').disabled = modalSel.size === 0;
-}
-
-function selectAllPages(){ modalSel = new Set(gridPages); modalAnchor = gridPages[0] ?? null; refreshSelection(); }
-function clearSelection(){ modalSel.clear(); modalAnchor = null; refreshSelection(); }
-
-function deleteSelectedPages(){
-  if(modalSel.size === 0) return;
-  if(modalSel.size >= gridPages.length){
-    alert("You can't delete every page — keep at least one.");
-    return;
-  }
-  document.querySelectorAll('#thumbGrid .pm-thumb').forEach(c=>{
-    if(modalSel.has(parseInt(c.dataset.pg,10))) c.remove();
-  });
-  gridPages = gridPages.filter(p=>!modalSel.has(p));
-  modalSel.clear(); modalAnchor = null;
-  refreshSelection();
-}
-
-function resetPages(){
-  keptPages = null;
-  if($('pageModal').classList.contains('open') && totalPages){
-    gridPages = Array.from({length:totalPages}, (_,i)=>i+1);
-    modalSel.clear(); modalAnchor = null;
-    renderGrid();
-  }
-  updatePageStatus();
-}
-
-function confirmPageSelection(){
-  keptPages = (gridPages.length === totalPages) ? null : gridPages.slice().sort((a,b)=>a-b);
-  closePageSelector();
-  updatePageStatus();
-}
-
-// Close on backdrop click or Escape
-document.getElementById('pageModal').addEventListener('click', (e)=>{
-  if(e.target.id === 'pageModal') closePageSelector();
-});
-document.addEventListener('keydown', (e)=>{
-  if(e.key === 'Escape'){
-    if($('pagePreview').classList.contains('open')) closePreview();
-    else if($('pageModal').classList.contains('open')) closePageSelector();
-  } else if($('pagePreview').classList.contains('open')){
-    if(e.key === 'ArrowLeft')  previewStep(-1);
-    if(e.key === 'ArrowRight') previewStep(1);
-  }
-});
 {% endblock %}
