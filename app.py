@@ -1260,6 +1260,59 @@ def panel_map_process(job_name):
     return jsonify({"ok": True})
 
 
+@app.route("/api/panel-map/load-only/<path:job_name>", methods=["POST"])
+@login_required
+def panel_map_load_only(job_name):
+    """Load the selected pages into the editor WITHOUT detecting panels — the user
+    will place every panel by hand. Sets up an empty session and opens the editor."""
+    from packing_list_engine import generate_panel_map_blueprint
+    data    = request.get_json(silent=True) or {}
+    bp_name = (data.get("blueprint") or "").strip()
+    if not bp_name or not bp_name.lower().endswith(".pdf"):
+        return jsonify({"error": "Choose a blueprint PDF"}), 400
+    bp_path = safe_join(job_name, "Blueprints", bp_name)
+    if not os.path.isfile(bp_path):
+        return jsonify({"error": f"Blueprint not found: {bp_name}"}), 404
+
+    pages = data.get("pages")
+    if pages:
+        try:
+            pages = sorted({int(p) for p in pages if int(p) >= 1})
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid page selection"}), 400
+        if not pages:
+            return jsonify({"error": "Select at least one page"}), 400
+    else:
+        pages = None
+
+    os.makedirs(_pm_dir(job_name), exist_ok=True)
+
+    # Trim to the selected pages (or use the whole blueprint).
+    scan_path = bp_path
+    if pages:
+        scan_path = os.path.join(_pm_dir(job_name),
+                                 f"trimmed_{_pm_safe(bp_name)}{_pm_sig(pages)}.pdf")
+        _pm_make_trimmed(bp_path, pages, scan_path)
+
+    # Empty panel set — the editor starts with a clean sheet to add panels onto.
+    locs_path = _pm_cache_path(job_name, bp_name, pages)
+    with open(locs_path, "w") as f:
+        _json.dump({}, f)
+
+    with open(_pm_session_path(job_name), "w") as f:
+        _json.dump({"bp_name": bp_name, "scan_pdf": scan_path,
+                    "locs": locs_path, "pages": pages or []}, f)
+
+    # Produce an (un-annotated) output so Download/Open still work before any edits.
+    try:
+        generate_panel_map_blueprint(scan_path, {}, _pm_output_path(job_name, bp_name),
+                                     keep_only_panel_pages=False)
+    except Exception:
+        pass
+
+    return jsonify({"ok": True})
+
+
 @app.route("/api/panel-map/status/<path:job_name>")
 @login_required
 def panel_map_status(job_name):

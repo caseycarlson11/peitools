@@ -140,6 +140,7 @@
       <button class="btn btn-subtle" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
       <button class="btn btn-subtle" onclick="selectAllPages()">Select all</button>
       <button class="btn btn-subtle" onclick="clearSelection()">Clear</button>
+      <button class="btn btn-subtle" id="loadOnlyBtn" onclick="loadWithoutMapping()">📄 Load Prints Without Mapping</button>
       <button class="btn btn-green"  id="mapBtn" onclick="mapPanels()">⚡ Map Panels</button>
       <button class="btn btn-subtle" onclick="closePageSelector()">✕ Cancel</button>
     </div>
@@ -432,6 +433,20 @@ function mapPanels(){
   closePageSelector();
   updatePageStatus();
   doProcess();   // load the selected pages into the mapper and run the scan
+}
+
+function loadWithoutMapping(){
+  if(included.size === 0){ alert('Pick at least one page to include.'); return; }
+  const pages = (included.size === totalPages) ? null : Array.from(included).sort((a,b)=>a-b);
+  const btn = $('loadOnlyBtn'); const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Loading…';
+  fetch('/api/panel-map/load-only/'+encodeURIComponent(selectedJob), {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ blueprint: selectedBp, pages })
+  }).then(r=>r.json()).then(d=>{
+    if(d.error){ alert(d.error); btn.disabled=false; btn.textContent=orig; return; }
+    window.location.href = '/panel-map/editor/' + encodeURIComponent(selectedJob);
+  }).catch(()=>{ alert('Could not load the prints.'); btn.disabled=false; btn.textContent=orig; });
 }
 
 /* Drag the divider to resize the page column */
