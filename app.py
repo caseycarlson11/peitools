@@ -1079,13 +1079,33 @@ def _pm_safe(name):
     base = os.path.splitext(os.path.basename(name))[0]
     return re.sub(r"[^A-Za-z0-9._-]+", "_", base)[:80]
 
-def _pm_cache_path(job_name, bp_name):
-    return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(bp_name)}.json")
+def _pm_sig(pages):
+    """Short signature for a kept-pages selection (None/empty = whole doc)."""
+    if not pages:
+        return ""
+    import hashlib
+    key = ",".join(str(p) for p in sorted(pages))
+    return "_p" + hashlib.md5(key.encode()).hexdigest()[:8]
+
+def _pm_cache_path(job_name, bp_name, pages=None):
+    return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(bp_name)}{_pm_sig(pages)}.json")
 
 def _pm_output_path(job_name, bp_name):
     return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")
 
-def _run_pm_job(job_name, bp_name):
+def _pm_make_trimmed(bp_path, pages, dest):
+    """Write a new PDF containing only `pages` (1-based) from bp_path, in order."""
+    import fitz
+    src = fitz.open(bp_path)
+    keep = sorted({p - 1 for p in pages if 1 <= p <= src.page_count})
+    if not keep:
+        keep = list(range(src.page_count))
+    src.select(keep)
+    src.save(dest, garbage=4, deflate=True)
+    src.close()
+    return len(keep)
+
+def _run_pm_job(job_name, bp_name, pages=None):
     try:
         from packing_list_engine import scan_blueprint_panels, generate_panel_map_blueprint
         os.makedirs(_pm_dir(job_name), exist_ok=True)
@@ -1093,6 +1113,16 @@ def _run_pm_job(job_name, bp_name):
         bp_path = safe_join(job_name, "Blueprints", bp_name)
         if not os.path.isfile(bp_path):
             raise FileNotFoundError(f"Blueprint not found: {bp_name}")
+
+        # If the user pre-selected pages, scan a trimmed copy so blank pages are
+        # never even OCR'd (much faster). Otherwise scan the whole blueprint.
+        scan_path = bp_path
+        if pages:
+            trimmed = os.path.join(_pm_dir(job_name), f"trimmed_{_pm_safe(bp_name)}{_pm_sig(pages)}.pdf")
+            kept_n = _pm_make_trimmed(bp_path, pages, trimmed)
+            scan_path = trimmed
+            with _pm_jobs_lock:
+                _pm_jobs[job_name].update({"message": f"Scanning {kept_n} selected pages…"})
 
         dxf_dir = _pl_dxf_dir(job_name)
         if dxf_dir:
@@ -1116,13 +1146,13 @@ def _run_pm_job(job_name, bp_name):
                 })
 
         panel_locations = scan_blueprint_panels(
-            bp_path, _pm_cache_path(job_name, bp_name), progress_cb, dxf_dir=dxf_dir)
+            scan_path, _pm_cache_path(job_name, bp_name, pages), progress_cb, dxf_dir=dxf_dir)
 
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({"progress": 85, "message": "Drawing panel map…"})
 
         result = generate_panel_map_blueprint(
-            bp_path, panel_locations, _pm_output_path(job_name, bp_name))
+            scan_path, panel_locations, _pm_output_path(job_name, bp_name))
         drawn = result["drawn"]
         kept  = result["kept_count"]
         total = result["total_pages"]
@@ -1174,14 +1204,27 @@ def panel_map_process(job_name):
         return jsonify({"error": "Choose a blueprint PDF"}), 400
     if not os.path.isfile(safe_join(job_name, "Blueprints", bp_name)):
         return jsonify({"error": f"Blueprint not found: {bp_name}"}), 404
+
+    # Optional manual page selection (1-based page numbers to keep / scan).
+    pages = data.get("pages")
+    if pages:
+        try:
+            pages = sorted({int(p) for p in pages if int(p) >= 1})
+        except (TypeError, ValueError):
+            return jsonify({"error": "Invalid page selection"}), 400
+        if not pages:
+            return jsonify({"error": "Select at least one page"}), 400
+    else:
+        pages = None
+
     if data.get("rescan"):
-        cp = _pm_cache_path(job_name, bp_name)
+        cp = _pm_cache_path(job_name, bp_name, pages)
         if os.path.exists(cp):
             os.unlink(cp)
     with _pm_jobs_lock:
         _pm_jobs[job_name] = {"status": "processing", "progress": 0,
                               "message": "Starting…", "blueprint": bp_name}
-    _threading.Thread(target=_run_pm_job, args=(job_name, bp_name), daemon=True).start()
+    _threading.Thread(target=_run_pm_job, args=(job_name, bp_name, pages), daemon=True).start()
     return jsonify({"ok": True})
 
 
