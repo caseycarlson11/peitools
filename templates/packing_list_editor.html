@@ -844,13 +844,13 @@
     const cy=(e.clientY-obr.top)/overlay.offsetHeight*dims.h;
     const hw=11, hh=6;
     const bbox=[cx-hw, cy-hh, cx+hw, cy+hh];
-    // Duplicate → drop a blank red marker on the blueprint (no number/skid yet)
+    // Duplicate → drop a blank red marker on the blueprint (no number/skid yet).
+    // STAYS armed so you can drop several in a row; Esc stops.
     if(placeMode.bpDup){
       bpMarkers.push({id:++markerSeq, page:pi, bbox, panel:'', skid:''});
-      placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
       renderPanelBoxes();
-      toast('Blank marker placed — click it to set its panel #');
-      return;
+      toast('Blank highlight placed — keep clicking, or Esc to stop');
+      return;   // keep placeMode active
     }
     const {panel, skid, shipment}=placeMode;
     locations[panel]={page:pi, bbox};
@@ -1062,14 +1062,13 @@
   }
   // Duplicate → drop a blank red marker on the BLUEPRINT (panel + skid blank).
   function duplicatePanel(){
-    if(!selected || !selected.panel) return;
-    const panel=selected.panel;
-    clearSelection();
-    if(!plDoc){ toast('Open a packing list first'); return; }
-    placeMode={plDup:true, panel};
+    // Sticky mode: each click on the BLUEPRINT drops a blank highlight (no panel #,
+    // no skid). Stays armed until Esc (assign numbers later by clicking each marker).
+    clearSelection(true);
+    placeMode={bpDup:true};
     document.body.style.cursor='crosshair';
-    showPlaceBanner('pl',`Click the PACKING LIST to place a duplicate of panel ${panel}`);
-    toast('Click the packing list to place the duplicate');
+    showPlaceBanner('bp','Click the BLUEPRINT to drop blank highlights — press Esc to stop');
+    toast('Dropping blank highlights — Esc to stop');
   }
   // Click a blueprint marker → assign its panel number (skid stays blank).
   function onBpMarkerClick(m){
