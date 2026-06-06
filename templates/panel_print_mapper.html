@@ -52,11 +52,13 @@
     .pm-modal-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
                     padding:12px 20px; border-bottom:1px solid var(--border); }
     .pm-count { color:var(--text); font-size:.85rem; font-weight:600; }
-    .pm-thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(var(--pm-tw,420px), 1fr));
-                 gap:16px; padding:18px 20px; overflow-y:auto; }
+    /* Vertical scroll of full pages — read the document like it's open */
+    .pm-thumbs { display:flex; flex-direction:column; align-items:center;
+                 gap:18px; padding:18px 20px; overflow-y:auto; }
     .pm-zoom { display:flex; align-items:center; gap:8px; color:var(--text2); font-size:.8rem; }
     .pm-zoom input[type=range] { width:130px; accent-color:var(--blue); cursor:pointer; }
-    .pm-thumb { position:relative; border:2px solid var(--border); border-radius:8px;
+    .pm-thumb { position:relative; width:var(--pm-tw, 1100px); max-width:100%;
+                border:2px solid var(--border); border-radius:8px;
                 background:#0d1117; cursor:pointer; overflow:hidden; user-select:none;
                 transition:border-color .12s, box-shadow .12s; }
     .pm-thumb:hover { border-color:var(--blue); }
@@ -148,14 +150,14 @@
     <div class="pm-modal-head">
       <div>
         <div class="pm-modal-title">Select Pages to Scan</div>
-        <div class="pm-modal-sub" id="modalSub">Click a page to select it. Shift-click for a range, Ctrl/Cmd-click to add or remove individual pages, then Delete the ones you don't want. <b>Double-click (or the ⛶ button) to view a page full size.</b></div>
+        <div class="pm-modal-sub" id="modalSub">Scroll through the document. <b>Click a page to select it</b>, Shift-click for a range, Ctrl/Cmd-click to add or remove individual pages, then Delete the ones you don't want. Use the Size slider to zoom.</div>
       </div>
       <button class="btn btn-subtle" onclick="closePageSelector()">✕ Close</button>
     </div>
     <div class="pm-modal-bar">
       <span class="pm-count" id="modalCount">—</span>
       <label class="pm-zoom">Size
-        <input type="range" id="thumbZoom" min="240" max="780" step="20" value="420" oninput="onZoomChange(this.value)">
+        <input type="range" id="thumbZoom" min="500" max="1340" step="20" value="1100" oninput="onZoomChange(this.value)">
       </label>
       <span style="flex:1"></span>
       <button class="btn btn-subtle"  id="selAllBtn"  onclick="selectAllPages()">Select all</button>
@@ -390,9 +392,9 @@ async function openPageSelector(){
       pdfDoc = await pdfjsLib.getDocument(blueprintUrl()).promise;
       totalPages = pdfDoc.numPages;
     }
-    // Restore the user's saved thumbnail size
-    let z = 420;
-    try{ z = parseInt(localStorage.getItem('pm_thumb_w'),10) || 420; }catch(_){}
+    // Restore the user's saved page size
+    let z = 1100;
+    try{ z = parseInt(localStorage.getItem('pm_thumb_w'),10) || 1100; }catch(_){}
     $('thumbZoom').value = z;
     onZoomChange(z);
 
@@ -406,7 +408,7 @@ async function openPageSelector(){
 
 function closePageSelector(){ $('pageModal').classList.remove('open'); }
 
-const THUMB_RES = 760;   // internal render width (px) — crisp detail when enlarged
+const THUMB_RES = 1400;  // internal render width (px) — crisp detail at full width
 let thumbObserver = null;
 
 async function renderThumb(pg, canvas){
