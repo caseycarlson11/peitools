@@ -1018,6 +1018,14 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
         if use_panel_map:
             with open(pm_locs_path) as _f:
                 panel_locations = _json.load(_f)
+            # Write to the tracker's cache so the editor right-pane also uses
+            # these positions (coloring packing-list marks by panel presence).
+            try:
+                os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+                with open(_pl_cache_path(job_name), "w") as _f:
+                    _json.dump(panel_locations, _f)
+            except Exception:
+                pass
             with _pl_jobs_lock:
                 _pl_jobs[job_name].update({
                     "message": f"Using Panel Mapper positions ({len(panel_locations)} panels located)…",
