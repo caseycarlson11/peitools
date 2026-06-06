@@ -75,6 +75,7 @@
     <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each">🔢 Add Panel Series</button>
     <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
+    <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
@@ -86,6 +87,8 @@
   <div class="ed-actionbar" id="actionBar">
     <span class="lbl" id="selLabel">Panel</span>
     <button class="btn btn-blue" onclick="renameSelected()">✎ Change #</button>
+    <button class="btn" id="moveBtn" onclick="armMove()">✥ Move</button>
+    <button class="btn" id="resizeBtn" onclick="armResize()">⤡ Resize</button>
     <button class="btn" onclick="deleteSelected()">🗑 Delete</button>
     <button class="btn" onclick="clearSel()">Done</button>
   </div>
@@ -106,6 +109,9 @@ let selPanel = null;
 let seriesMode = false;     // "Add Panel Series" active
 let seriesNext = null;      // next number to drop in the series
 let selBoxEl   = null;      // the box element of the selected panel (for popup placement)
+let armedMode  = null;      // 'move' | 'resize' | null
+let undoStack  = [];        // JSON snapshots of locs for Undo
+let savedSnapshot = '{}';   // locs at last load/save (to compute dirty)
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
@@ -114,6 +120,20 @@ function setDirty(v){
   dirty = v;
   const b=$('saveBtn'); b.disabled=!v; b.classList.toggle('dirty', v);
   b.textContent = v ? '💾 Save Changes *' : '💾 Save Changes';
+}
+function recomputeDirty(){ setDirty(JSON.stringify(locs) !== savedSnapshot); }
+
+function pushUndo(){
+  undoStack.push(JSON.stringify(locs));
+  if(undoStack.length > 60) undoStack.shift();
+  updateUndoBtn();
+}
+function updateUndoBtn(){ const b=$('undoBtn'); if(b) b.disabled = undoStack.length===0; }
+function undo(){
+  if(!undoStack.length) return;
+  locs = JSON.parse(undoStack.pop());
+  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn();
+  toast('Undid last change.');
 }
 
 function setZoom(v){ document.documentElement.style.setProperty('--pw', v+'px'); scheduleRerender(); }
@@ -128,6 +148,7 @@ async function load(){
 
   dims = data.pages || [];
   locs = data.panel_locations || {};
+  savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
   $('bpName').textContent = data.blueprint || '';
 
   pdfDoc = await pdfjsLib.getDocument('/api/panel-map/base/'+encodeURIComponent(JOB)).promise;
@@ -210,32 +231,79 @@ function scheduleRerender(){
 
 function ovlOf(pi){ return document.querySelector('.ovl[data-pi="'+pi+'"]'); }
 
+function setBoxRect(box, bbox, d){
+  const [x0,y0,x1,y1] = bbox; const pad=2;
+  box.style.left   = ((x0-pad)/d.w*100)+'%';
+  box.style.top    = ((y0-pad)/d.h*100)+'%';
+  box.style.width  = ((x1-x0+pad*2)/d.w*100)+'%';
+  box.style.height = ((y1-y0+pad*2)/d.h*100)+'%';
+}
+
 function drawBoxes(){
   document.querySelectorAll('.ovl').forEach(o=>o.querySelectorAll('.pbox').forEach(b=>b.remove()));
   for(const panel in locs){
     const loc = locs[panel]; const d = dims[loc.page]; const ovl = ovlOf(loc.page);
     if(!d || !ovl) continue;
-    const [x0,y0,x1,y1] = loc.bbox; const pad=2;
     const box = document.createElement('div');
     box.className='pbox' + (panel===selPanel ? ' sel' : '');
     box.dataset.panel = panel;
-    box.style.left   = ((x0-pad)/d.w*100)+'%';
-    box.style.top    = ((y0-pad)/d.h*100)+'%';
-    box.style.width  = ((x1-x0+pad*2)/d.w*100)+'%';
-    box.style.height = ((y1-y0+pad*2)/d.h*100)+'%';
+    setBoxRect(box, loc.bbox, d);
     const lab = document.createElement('div'); lab.className='plabel'; lab.textContent=panel;
     box.appendChild(lab);
     box.onclick = (e)=>{ if(addMode || seriesMode) return; e.stopPropagation(); selectPanel(panel, box); };
+    box.addEventListener('pointerdown', (e)=>onBoxPointerDown(e, panel, box));
     ovl.appendChild(box);
   }
 }
 
+// Drag to move or resize the selected highlight (armed via the Move/Resize buttons).
+function onBoxPointerDown(e, panel, box){
+  if((armedMode!=='move' && armedMode!=='resize') || panel!==selPanel) return;
+  e.preventDefault(); e.stopPropagation();
+  const pi = locs[panel].page, d = dims[pi];
+  const ovlRect = ovlOf(pi).getBoundingClientRect();
+  const sx = e.clientX, sy = e.clientY, orig = locs[panel].bbox.slice(), mode = armedMode;
+  let nb = orig.slice(), moved = false;
+  try{ box.setPointerCapture(e.pointerId); }catch(_){}
+  const mv = (ev)=>{
+    moved = true;
+    const dxp = (ev.clientX-sx)/ovlRect.width*d.w, dyp = (ev.clientY-sy)/ovlRect.height*d.h;
+    if(mode==='move') nb = [orig[0]+dxp, orig[1]+dyp, orig[2]+dxp, orig[3]+dyp];
+    else nb = [orig[0], orig[1], Math.max(orig[0]+3, orig[2]+dxp), Math.max(orig[1]+3, orig[3]+dyp)];
+    setBoxRect(box, nb, d);
+  };
+  const up = ()=>{
+    box.removeEventListener('pointermove', mv);
+    box.removeEventListener('pointerup', up);
+    box.removeEventListener('pointercancel', up);
+    if(moved){ pushUndo(); locs[panel].bbox = nb; recomputeDirty(); drawBoxes(); selectPanel(panel); }
+  };
+  box.addEventListener('pointermove', mv);
+  box.addEventListener('pointerup', up);
+  box.addEventListener('pointercancel', up);
+}
+
+function armMove(){   if(selPanel==null) return; armedMode = (armedMode==='move')   ? null : 'move';
+  toast(armedMode==='move'   ? 'Drag the panel to move it.'   : ''); updateManipUI(); }
+function armResize(){ if(selPanel==null) return; armedMode = (armedMode==='resize') ? null : 'resize';
+  toast(armedMode==='resize' ? 'Drag the panel to resize it.' : ''); updateManipUI(); }
+
+function updateManipUI(){
+  const mb=$('moveBtn'), rb=$('resizeBtn');
+  if(mb) mb.classList.toggle('active', armedMode==='move');
+  if(rb) rb.classList.toggle('active', armedMode==='resize');
+  if(selBoxEl) selBoxEl.style.cursor = armedMode==='move' ? 'move'
+                                     : armedMode==='resize' ? 'nwse-resize' : 'pointer';
+}
+
 function selectPanel(panel, boxEl){
+  if(panel !== selPanel) armedMode = null;
   selPanel = panel;
   selBoxEl = boxEl || document.querySelector('.pbox[data-panel="'+CSS.escape(panel)+'"]');
   document.querySelectorAll('.pbox').forEach(b=>b.classList.toggle('sel', b.dataset.panel===panel));
   $('selLabel').textContent = 'Panel ' + panel;
   $('actionBar').classList.add('show');
+  updateManipUI();
   positionActionBar();
 }
 
@@ -255,9 +323,9 @@ function positionActionBar(){
   bar.style.transform = 'none';
 }
 
-function clearSel(){ selPanel=null; selBoxEl=null;
+function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null;
   document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
-  $('actionBar').classList.remove('show'); }
+  $('actionBar').classList.remove('show'); updateManipUI(); }
 
 function renameSelected(){
   if(selPanel==null) return;
@@ -266,12 +334,14 @@ function renameSelected(){
   const nn = String(v).trim();
   if(!nn || nn===selPanel) return;
   if(locs[nn] && !confirm('Panel "'+nn+'" already exists — overwrite it?')) return;
+  pushUndo();
   locs[nn] = locs[selPanel]; delete locs[selPanel];
   selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
 }
 
 function deleteSelected(){
   if(selPanel==null) return;
+  pushUndo();
   delete locs[selPanel]; setDirty(true); clearSel(); drawBoxes();
 }
 
@@ -320,6 +390,7 @@ function onOverlayClick(e, pi){
   if(v==null) return;
   const nn = String(v).trim(); if(!nn) return;
   if(locs[nn] && !confirm('Panel "'+nn+'" already exists — move it here?')) return;
+  pushUndo();
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
   setDirty(true); drawBoxes(); toast('Added panel ' + nn);   // stays red (not selected)
 }
@@ -338,6 +409,7 @@ function placeSeries(e, pi){
   }
   const nn = String(num);
   if(locs[nn]) toast('Panel ' + nn + ' moved here.');
+  pushUndo();
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
   setDirty(true); drawBoxes(); updateSeriesBanner();
 }
@@ -352,6 +424,7 @@ async function saveChanges(){
     const d = await r.json();
     if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }
     locs = d.panel_locations || locs;
+    savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
     setDirty(false); drawBoxes();
     toast('Saved — ' + d.count + ' panels. Map regenerated.');
   }catch(e){ toast('Save failed.'); setDirty(true); }
@@ -395,6 +468,7 @@ function toggleHand(){
 })();
 
 document.addEventListener('keydown', (e)=>{
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); return; }
   if(e.key === 'Escape'){
     if(seriesMode) toggleSeries();
     else if(addMode) toggleAdd();
