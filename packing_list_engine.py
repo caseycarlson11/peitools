@@ -187,6 +187,15 @@ def _extract_panels_positional(img_path, skid_num):
 
     # Column region: x >= panel_hx - small_margin, y between header and footer
     # Returns dict {panel_str: order_num_str} instead of plain list
+    #
+    # ORDER# matching uses "nearest preceding" logic: for each panel, find the
+    # ORDER# word with the HIGHEST y that is still at-or-above the panel (y ≤
+    # panel_cy + 20px OCR tolerance).  This correctly handles multi-line panel
+    # groups — the ORDER# appears once on the first line; continuation lines
+    # have no ORDER# at all, so they keep inheriting the same preceding number
+    # no matter how far below they fall.
+    order_words_sorted_desc = sorted(order_words, key=lambda x: x[1], reverse=True)
+
     panel_orders = {}
     for t, x0, y0, x1, y1 in words:
         tt = t.strip(".,:'\"")
@@ -198,12 +207,16 @@ def _extract_panels_positional(img_path, skid_num):
             continue
         if tt not in panel_orders:
             panel_cy = (y0 + y1) / 2
-            best_order, best_dist = "", float("inf")
-            for onum, oy in order_words:
-                d = abs(panel_cy - oy)
-                if d < best_dist:
-                    best_dist, best_order = d, onum
-            panel_orders[tt] = best_order if best_dist < 40 else ""
+            assigned = ""
+            # Walk from bottom to top; first match is the nearest preceding ORDER#
+            for onum, oy in order_words_sorted_desc:
+                if oy <= panel_cy + 20:   # at or just below panel (20px OCR tolerance)
+                    assigned = onum
+                    break
+            if not assigned and order_words:
+                # Panel is above all order words — fall back to nearest by distance
+                assigned = min(order_words, key=lambda x: abs(x[1] - panel_cy))[0]
+            panel_orders[tt] = assigned
 
     return panel_orders
 

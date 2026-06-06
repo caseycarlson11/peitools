@@ -270,9 +270,17 @@ Processes KPS packing list PDFs and annotates the job blueprint with colored hig
 
 ### KPS Packing List / Skid Sheet Format
 
-> **Reference image:** `pictures for context/PackingListLayout.png` — the canonical
-> layout of a KPS packing list page. Consult it before changing any packing-list
-> parsing/scanning logic.
+> **Reference images (consult before changing packing-list parsing logic):**
+> - `pictures for context/PackingListLayout.png` — canonical full-page layout with
+>   color-coded annotation boxes (green = skid block, blue = SKID#, red = PANEL# column,
+>   yellow = special-condition skid).
+> - `pictures for context/OrderNumberDetail.png` — close-up of SKID #10 showing ORDER#
+>   and PANEL# column structure. Key detail: ORDER# 4 spans two rows of panel numbers
+>   (18 panels total: 20,21,23,24,25,26 on row 1 and 28,27,546,17,19,16,18,22,14,10,15,
+>   12,13,11,532,534,533,535 on rows 2–3). The ORDER# digit appears only once, aligned
+>   with the FIRST line of its panel group. Continuation lines have NO ORDER# — the
+>   parser must use "nearest preceding" logic (highest ORDER# y ≤ panel y) to assign
+>   them correctly. A simple nearest-distance match fails for continuation rows.
 >
 > **Annotation colors on that image (what each colored box marks):**
 > - 🟩 **Green box** = one **skid block** (a quadrant of the 2×2 grid). Each green box is a full skid.
