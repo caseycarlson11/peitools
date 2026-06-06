@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel Editor — {{ job_name }}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{ --blue:#60b4f0; --green:#3fb950; --red:#f85149; --bg:#0d1117;
+           --surface:#161b22; --border:#30363d; --text:#e6edf3; --text2:#8b949e; }
+    body{ font-family:'Inter',system-ui,sans-serif; background:#525659; color:var(--text);
+          height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+    .ed-head{ display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+              padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--border); }
+    .ed-head a.home{ color:var(--text2); text-decoration:none; font-weight:600; font-size:.85rem; }
+    .ed-head a.home:hover{ color:var(--text); }
+    .ed-title{ font-weight:700; font-size:.95rem; }
+    .ed-title span{ color:var(--text2); font-weight:400; margin-left:6px; }
+    .ed-head .sp{ flex:1; }
+    .ed-hint{ color:var(--text2); font-size:.78rem; width:100%; }
+    .btn{ display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px;
+          border:1px solid var(--border); background:var(--surface); color:var(--text);
+          font:inherit; font-size:.85rem; font-weight:600; cursor:pointer; text-decoration:none; }
+    .btn:hover{ border-color:var(--blue); }
+    .btn-green{ background:var(--green); border-color:var(--green); color:#06210f; }
+    .btn-green.dirty{ animation:pulse 1.4s infinite; }
+    .btn-blue{ background:var(--blue); border-color:var(--blue); color:#06210f; }
+    .btn.active{ background:var(--blue); border-color:var(--blue); color:#06210f; }
+    .btn:disabled{ opacity:.45; cursor:not-allowed; }
+    @keyframes pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,.5);} 50%{box-shadow:0 0 0 6px rgba(63,185,80,0);} }
+    .zoom{ display:flex; align-items:center; gap:6px; color:var(--text2); font-size:.8rem; }
+    .zoom input{ width:120px; accent-color:var(--blue); }
+
+    .ed-body{ flex:1; overflow:auto; padding:20px 0; }
+    .ed-page{ position:relative; margin:0 auto 18px; width:var(--pw,1000px); max-width:96%;
+              background:#fff; box-shadow:0 4px 18px rgba(0,0,0,.45); }
+    .ed-page canvas{ display:block; width:100%; height:auto; }
+    .ovl{ position:absolute; inset:0; }
+    .ovl.adding{ cursor:crosshair; }
+    .pbox{ position:absolute; border:1.6px solid var(--red); background:rgba(248,81,73,.18);
+           border-radius:2px; cursor:pointer; }
+    .pbox:hover{ background:rgba(248,81,73,.32); }
+    .pbox.sel{ border-color:var(--blue); background:rgba(96,180,240,.35); box-shadow:0 0 0 2px var(--blue); }
+    .plabel{ position:absolute; bottom:100%; right:100%; white-space:nowrap;
+             background:#fff; color:var(--red); border:1px solid var(--red); border-radius:3px;
+             font-size:10px; font-weight:800; padding:0 3px; line-height:1.3; transform:translate(2px,2px); }
+
+    .ed-actionbar{ position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
+                   display:none; align-items:center; gap:10px; z-index:50;
+                   background:var(--surface); border:1px solid var(--border); border-radius:10px;
+                   padding:10px 14px; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+    .ed-actionbar.show{ display:flex; }
+    .ed-actionbar .lbl{ font-weight:700; }
+    .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:60;
+            background:var(--surface); border:1px solid var(--border); border-radius:8px;
+            padding:8px 16px; font-size:.85rem; display:none; }
+    .toast.show{ display:block; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div class="ed-head">
+    <a class="home" href="/panel-print-mapper">‹ Panel Print Mapper</a>
+    <div class="ed-title">Panel Editor <span id="bpName"></span></div>
+    <div class="sp"></div>
+    <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Panel</button>
+    <div class="zoom">Size <input type="range" id="zoom" min="600" max="1700" step="50" value="1000" oninput="setZoom(this.value)"></div>
+    <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
+    <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
+  </div>
+
+  <div class="ed-body" id="body"><div style="padding:40px;text-align:center;color:#ccc">Loading…</div></div>
+
+  <div class="ed-actionbar" id="actionBar">
+    <span class="lbl" id="selLabel">Panel</span>
+    <button class="btn btn-blue" onclick="renameSelected()">✎ Change #</button>
+    <button class="btn" onclick="deleteSelected()">🗑 Delete</button>
+    <button class="btn" onclick="clearSel()">Done</button>
+  </div>
+  <div class="toast" id="toast"></div>
+
+<script>
+const JOB = {{ job_name|tojson }};
+const $ = id => document.getElementById(id);
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfDoc = null;
+let dims   = [];            // [{w,h}] per page
+let locs   = {};            // panel -> {page, bbox}  (working copy)
+let dirty  = false;
+let addMode = false;
+let selPanel = null;
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
+
+function setDirty(v){
+  dirty = v;
+  const b=$('saveBtn'); b.disabled=!v; b.classList.toggle('dirty', v);
+  b.textContent = v ? '💾 Save Changes *' : '💾 Save Changes';
+}
+
+function setZoom(v){ document.documentElement.style.setProperty('--pw', v+'px'); }
+
+async function load(){
+  let data;
+  try{
+    const r = await fetch('/api/panel-map/editor-data/'+encodeURIComponent(JOB));
+    data = await r.json();
+    if(data.error){ $('body').innerHTML='<div style="padding:40px;text-align:center">'+data.error+'</div>'; return; }
+  }catch(e){ $('body').innerHTML='<div style="padding:40px;text-align:center">Could not load.</div>'; return; }
+
+  dims = data.pages || [];
+  locs = data.panel_locations || {};
+  $('bpName').textContent = data.blueprint || '';
+
+  pdfDoc = await pdfjsLib.getDocument('/api/panel-map/base/'+encodeURIComponent(JOB)).promise;
+  buildPages();
+}
+
+const RES = 1300;
+let obs = null;
+function buildPages(){
+  const body = $('body'); body.innerHTML='';
+  if(obs) obs.disconnect();
+  obs = new IntersectionObserver((ents)=>{
+    ents.forEach(en=>{ if(en.isIntersecting){ const c=en.target.querySelector('canvas');
+      obs.unobserve(en.target); renderPageCanvas(parseInt(en.target.dataset.pi,10), c); } });
+  }, {root: body, rootMargin:'800px 0px'});
+
+  for(let pi=0; pi<dims.length; pi++){
+    const wrap = document.createElement('div');
+    wrap.className='ed-page'; wrap.dataset.pi=pi;
+    const d = dims[pi];
+    wrap.style.aspectRatio = (d.w && d.h) ? (d.w+' / '+d.h) : 'auto';
+    const ovl = document.createElement('div'); ovl.className='ovl'; ovl.dataset.pi=pi;
+    ovl.addEventListener('click', (e)=>onOverlayClick(e, pi));
+    wrap.innerHTML = '<canvas></canvas>';
+    wrap.appendChild(ovl);
+    body.appendChild(wrap);
+    obs.observe(wrap);
+  }
+  drawBoxes();
+}
+
+async function renderPageCanvas(pi, canvas){
+  if(canvas.dataset.done) return;
+  const page = await pdfDoc.getPage(pi+1);
+  const base = page.getViewport({scale:1});
+  const vp   = page.getViewport({scale: RES/base.width});
+  canvas.width=vp.width; canvas.height=vp.height;
+  await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+  canvas.dataset.done='1';
+}
+
+function ovlOf(pi){ return document.querySelector('.ovl[data-pi="'+pi+'"]'); }
+
+function drawBoxes(){
+  document.querySelectorAll('.ovl').forEach(o=>o.querySelectorAll('.pbox').forEach(b=>b.remove()));
+  for(const panel in locs){
+    const loc = locs[panel]; const d = dims[loc.page]; const ovl = ovlOf(loc.page);
+    if(!d || !ovl) continue;
+    const [x0,y0,x1,y1] = loc.bbox; const pad=2;
+    const box = document.createElement('div');
+    box.className='pbox' + (panel===selPanel ? ' sel' : '');
+    box.dataset.panel = panel;
+    box.style.left   = ((x0-pad)/d.w*100)+'%';
+    box.style.top    = ((y0-pad)/d.h*100)+'%';
+    box.style.width  = ((x1-x0+pad*2)/d.w*100)+'%';
+    box.style.height = ((y1-y0+pad*2)/d.h*100)+'%';
+    const lab = document.createElement('div'); lab.className='plabel'; lab.textContent=panel;
+    box.appendChild(lab);
+    box.onclick = (e)=>{ if(addMode) return; e.stopPropagation(); selectPanel(panel); };
+    ovl.appendChild(box);
+  }
+}
+
+function selectPanel(panel){
+  selPanel = panel;
+  document.querySelectorAll('.pbox').forEach(b=>b.classList.toggle('sel', b.dataset.panel===panel));
+  $('selLabel').textContent = 'Panel ' + panel;
+  $('actionBar').classList.add('show');
+}
+function clearSel(){ selPanel=null; document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
+  $('actionBar').classList.remove('show'); }
+
+function renameSelected(){
+  if(selPanel==null) return;
+  const v = prompt('New panel number for "'+selPanel+'":', selPanel);
+  if(v==null) return;
+  const nn = String(v).trim();
+  if(!nn || nn===selPanel) return;
+  if(locs[nn] && !confirm('Panel "'+nn+'" already exists — overwrite it?')) return;
+  locs[nn] = locs[selPanel]; delete locs[selPanel];
+  selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
+}
+
+function deleteSelected(){
+  if(selPanel==null) return;
+  delete locs[selPanel]; setDirty(true); clearSel(); drawBoxes();
+}
+
+function toggleAdd(){
+  addMode = !addMode;
+  $('addBtn').classList.toggle('active', addMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode));
+  $('hint').textContent = addMode
+    ? 'ADD MODE: click anywhere on a sheet to drop a new panel, then type its number.'
+    : 'Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.';
+}
+
+function onOverlayClick(e, pi){
+  if(!addMode) return;
+  const ovl = ovlOf(pi); const rect = ovl.getBoundingClientRect(); const d = dims[pi];
+  const xf = (e.clientX-rect.left)/rect.width, yf = (e.clientY-rect.top)/rect.height;
+  const x = xf*d.w, y = yf*d.h;
+  const v = prompt('Panel number to add here:');
+  if(v==null) return;
+  const nn = String(v).trim(); if(!nn) return;
+  if(locs[nn] && !confirm('Panel "'+nn+'" already exists — move it here?')) return;
+  locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
+  setDirty(true); drawBoxes(); selectPanel(nn);
+}
+
+async function saveChanges(){
+  $('saveBtn').disabled = true;
+  try{
+    const r = await fetch('/api/panel-map/update/'+encodeURIComponent(JOB), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ locations: locs })
+    });
+    const d = await r.json();
+    if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }
+    locs = d.panel_locations || locs;
+    setDirty(false); drawBoxes();
+    toast('Saved — ' + d.count + ' panels. Map regenerated.');
+  }catch(e){ toast('Save failed.'); setDirty(true); }
+}
+
+window.addEventListener('beforeunload', (e)=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+load();
+</script>
+</body>
+</html>

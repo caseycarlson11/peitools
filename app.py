@@ -1093,6 +1093,26 @@ def _pm_cache_path(job_name, bp_name, pages=None):
 def _pm_output_path(job_name, bp_name):
     return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")
 
+def _pm_session_path(job_name):
+    return os.path.join(_pm_dir(job_name), "session.json")
+
+def _pm_load_session(job_name):
+    p = _pm_session_path(job_name)
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return None
+
+def _pm_page_dims(pdf_path):
+    import fitz
+    doc = fitz.open(pdf_path)
+    dims = [{"w": pg.rect.width, "h": pg.rect.height} for pg in doc]
+    doc.close()
+    return dims
+
 def _pm_make_trimmed(bp_path, pages, dest):
     """Write a new PDF containing only `pages` (1-based) from bp_path, in order."""
     import fitz
@@ -1159,6 +1179,15 @@ def _run_pm_job(job_name, bp_name, pages=None):
         drawn   = result["drawn"]
         out_pgs = result["output_pages"]
         withp   = result["pages_with_panels"]
+
+        # Save a session so the editor can reload the base prints + panel positions.
+        try:
+            with open(_pm_session_path(job_name), "w") as f:
+                _json.dump({"bp_name": bp_name, "scan_pdf": scan_path,
+                            "locs": _pm_cache_path(job_name, bp_name, pages),
+                            "pages": pages or []}, f)
+        except Exception:
+            pass
 
         with _pm_jobs_lock:
             _pm_jobs[job_name].update({
@@ -1253,6 +1282,101 @@ def panel_map_download(job_name):
         return jsonify({"error": "No panel map yet"}), 404
     return send_file(out, mimetype="application/pdf", as_attachment=False,
                      download_name=f"{job_name} - Panel Map.pdf")
+
+
+# ── Panel map editor (select / renumber / delete / add panels) ───────────────
+@app.route("/panel-map/editor/<path:job_name>")
+@login_required
+def panel_map_editor(job_name):
+    return render_template("panel_map_editor.html", job_name=job_name)
+
+
+@app.route("/api/panel-map/editor-data/<path:job_name>")
+@login_required
+def panel_map_editor_data(job_name):
+    sess = _pm_load_session(job_name)
+    if not sess or not os.path.isfile(sess.get("scan_pdf", "")):
+        return jsonify({"error": "Run the panel mapper first."}), 404
+    locs = {}
+    if os.path.isfile(sess.get("locs", "")):
+        with open(sess["locs"]) as f:
+            locs = _json.load(f)
+    return jsonify({
+        "job": job_name,
+        "blueprint": sess.get("bp_name", ""),
+        "pages": _pm_page_dims(sess["scan_pdf"]),
+        "panel_locations": locs,
+    })
+
+
+@app.route("/api/panel-map/base/<path:job_name>")
+@login_required
+def panel_map_base(job_name):
+    sess = _pm_load_session(job_name)
+    if not sess or not os.path.isfile(sess.get("scan_pdf", "")):
+        return jsonify({"error": "No base PDF"}), 404
+    return send_file(sess["scan_pdf"], mimetype="application/pdf")
+
+
+@app.route("/api/panel-map/update/<path:job_name>", methods=["POST"])
+@login_required
+def panel_map_update(job_name):
+    from packing_list_engine import generate_panel_map_blueprint
+    sess = _pm_load_session(job_name)
+    if not sess or not os.path.isfile(sess.get("scan_pdf", "")):
+        return jsonify({"error": "Run the panel mapper first."}), 404
+    locs = {}
+    if os.path.isfile(sess.get("locs", "")):
+        with open(sess["locs"]) as f:
+            locs = _json.load(f)
+
+    data = request.get_json(silent=True) or {}
+    new_locs = data.get("locations")
+    if not isinstance(new_locs, dict):
+        return jsonify({"error": "Missing locations"}), 400
+
+    clean = {}
+    for panel, v in new_locs.items():
+        p = str(panel).strip()
+        if not p or not isinstance(v, dict):
+            continue
+        try:
+            bbox = [float(x) for x in v.get("bbox", [])][:4]
+            if len(bbox) != 4:
+                continue
+            clean[p] = {"page": int(v.get("page")), "bbox": bbox}
+        except (TypeError, ValueError):
+            continue
+
+    old_keys = set(locs.keys())
+    new_keys = set(clean.keys())
+
+    os.makedirs(_pm_dir(job_name), exist_ok=True)
+    with open(sess["locs"], "w") as f:
+        _json.dump(clean, f)
+
+    # Regenerate the map PDF with the corrected panels.
+    bp_name = sess.get("bp_name", "")
+    result = generate_panel_map_blueprint(
+        sess["scan_pdf"], clean, _pm_output_path(job_name, bp_name),
+        keep_only_panel_pages=False)
+
+    # Log the human corrections to the shared cross-project record so the
+    # packing-list tracker can benefit from how panels were dialed in.
+    try:
+        ts = datetime.utcnow().isoformat()
+        with open(_GLOBAL_CORRECTIONS, "a") as gf:
+            for p in (old_keys - new_keys):
+                gf.write(_json.dumps({"type": "pm_remove", "panel": p, "job": job_name, "ts": ts}) + "\n")
+            for p in (new_keys - old_keys):
+                gf.write(_json.dumps({"type": "pm_add", "panel": p,
+                                      "page": clean[p]["page"], "bbox": clean[p]["bbox"],
+                                      "job": job_name, "ts": ts}) + "\n")
+    except Exception:
+        pass
+
+    return jsonify({"ok": True, "panel_locations": clean,
+                    "count": len(clean), "output_pages": result["output_pages"]})
 
 
 @app.route("/packing-list-tracker")

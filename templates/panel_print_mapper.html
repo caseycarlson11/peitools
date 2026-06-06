@@ -118,6 +118,7 @@
 <div class="card pm-result-full" id="resultCard" style="display:none">
   <div class="pm-legend"><span class="pm-swatch"></span> Red box = panel found · number above = how it was read</div>
   <div class="btn-row" style="margin-top:0;margin-bottom:12px">
+    <a class="btn btn-green"   id="editBtn" href="#" target="_blank">✏️ Edit / Add Panels</a>
     <a class="btn btn-primary" id="openBtn" href="#" target="_blank">👁 Open in new tab</a>
     <a class="btn btn-subtle"  id="dlBtn"   href="#" download>⬇ Download</a>
   </div>
@@ -493,6 +494,7 @@ function finishProcess(d){
             + '?blueprint='+encodeURIComponent(selectedBp)+'&t='+Date.now();
   $('openBtn').href = url;
   $('dlBtn').href   = url;
+  $('editBtn').href = '/panel-map/editor/' + encodeURIComponent(selectedJob);
   $('pmViewer').src = url + '#pagemode=none&zoom=page-width';
   $('resultCard').style.display='block';
 }

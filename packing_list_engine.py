@@ -746,22 +746,24 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
             annot.set_info(title=f"Panel {panel_str}")
             annot.update()
 
-            # Number label above the box, on a white chip for legibility.
+            # Confirmation number on a white chip, placed ABOVE and to the LEFT
+            # of the panel number so it doesn't cover the printed digits.
             fs    = 7.0
             label = str(panel_str)
             try:
                 tw = fitz.get_text_length(label, fontname="helv", fontsize=fs)
             except Exception:
                 tw = len(label) * fs * 0.55
-            cx   = (x0 + x1) / 2.0
-            lx0  = cx - tw / 2.0 - 1.5
-            lx1  = lx0 + tw + 3.0
+            lw   = tw + 3.0
             lh   = fs + 3.0
-            ly1  = rect.y0 - 1.0          # label bottom sits just above the box
+            lx1  = rect.x0               # label's right edge meets the panel's left edge
+            lx0  = lx1 - lw
+            ly1  = rect.y0              # label's bottom meets the panel's top edge
             ly0  = ly1 - lh
-            if ly0 < 2:                   # no room above -> drop label below box
-                ly0 = rect.y1 + 1.0
-                ly1 = ly0 + lh
+            if lx0 < 2:                  # clamp at the page's left margin
+                lx0 = 2.0; lx1 = lx0 + lw
+            if ly0 < 2:                  # clamp at the page's top margin
+                ly0 = 2.0; ly1 = ly0 + lh
             page.draw_rect(fitz.Rect(lx0, ly0, lx1, ly1),
                            color=RED, fill=WHITE, width=0.5)
             page.insert_text((lx0 + 1.5, ly1 - 2.5), label,
