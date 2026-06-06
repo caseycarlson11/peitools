@@ -56,13 +56,14 @@
     .pbox.dup{ border-style:double; border-width:3px; }       /* a tracked duplicate instance */
     .pbox.flash{ border-color:#ffd400 !important; box-shadow:0 0 0 3px rgba(255,212,0,.8) !important; }
     /* duplicate choice dialog */
-    .ed-dialog{ display:none; position:fixed; inset:0; z-index:1200; background:rgba(6,10,18,.85); }
-    .ed-dialog.open{ display:flex; }
-    .ed-dialog-box{ margin:auto; background:var(--surface); border:1px solid var(--border);
-                    border-radius:12px; padding:20px; width:min(460px,92%); display:flex;
-                    flex-direction:column; gap:9px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
-    .ed-dialog-title{ font-weight:700; font-size:1rem; }
-    .ed-dialog-msg{ color:var(--text2); font-size:.85rem; margin-bottom:6px; }
+    /* non-blocking panel pinned to the top-right so the document stays usable */
+    .ed-dialog{ display:none; position:fixed; top:62px; right:16px; z-index:1200; }
+    .ed-dialog.open{ display:block; }
+    .ed-dialog-box{ background:var(--surface); border:1px solid var(--green); border-radius:12px;
+                    padding:15px; width:330px; max-width:92vw; display:flex; flex-direction:column;
+                    gap:8px; box-shadow:0 12px 40px rgba(0,0,0,.65); }
+    .ed-dialog-title{ font-weight:700; font-size:.95rem; }
+    .ed-dialog-msg{ color:var(--text2); font-size:.82rem; margin-bottom:4px; }
     .ed-dialog-box .btn{ justify-content:flex-start; }
     .plabel{ position:absolute; bottom:100%; right:100%; white-space:nowrap;
              background:#fff; color:var(--red); border:1px solid var(--red); border-radius:2px;
@@ -130,7 +131,8 @@
   <div class="ed-dialog" id="dupDialog">
     <div class="ed-dialog-box">
       <div class="ed-dialog-title" id="dupTitle">Panel already exists</div>
-      <div class="ed-dialog-msg">This panel number is already placed. What is this one?</div>
+      <div class="ed-dialog-msg">This panel number is already placed. Look around the document, then choose.</div>
+      <button class="btn" onclick="dupShowOther()">🔎 Show the other instance (jump &amp; highlight)</button>
       <button class="btn btn-blue" onclick="dupChoose('sheet')">📄 Same panel — shown on another sheet</button>
       <button class="btn btn-blue" onclick="dupChoose('dup')">🔁 A different panel with the same number</button>
       <button class="btn" onclick="dupChoose(null)">✕ Cancel — added by mistake</button>
@@ -301,15 +303,34 @@ function freeKey(n){
 }
 
 let _dupResolve = null;
+let _dupNumber  = null;
+let _dupOtherIdx = 0;
 function askDuplicate(n){
+  _dupNumber = n; _dupOtherIdx = 0;
   $('dupTitle').textContent = 'Panel ' + n + ' is already placed';
   $('dupDialog').classList.add('open');
   return new Promise(res => { _dupResolve = res; });
 }
 function dupChoose(val){
   $('dupDialog').classList.remove('open');
+  _dupNumber = null;
   const r = _dupResolve; _dupResolve = null;
   if(r) r(val);
+}
+// Jump to (and yellow-highlight) an existing instance of the number being decided.
+function dupShowOther(){
+  if(_dupNumber == null) return;
+  const keys = instancesOf(_dupNumber);
+  if(!keys.length){ toast('No existing instance found.'); return; }
+  const key = keys[_dupOtherIdx % keys.length]; _dupOtherIdx++;
+  const box = document.querySelector('.pbox[data-panel="' + CSS.escape(key) + '"]');
+  if(!box){ toast('Could not locate it.'); return; }
+  clearFlash();
+  box.classList.add('flash'); _flashKey = key;
+  centerOnBox(box);
+  const pg = locs[key] && locs[key].page;
+  toast('Showing ' + _dupNumber + (pg != null ? (' on page ' + (pg+1)) : '') +
+        (keys.length > 1 ? ' (' + ((_dupOtherIdx-1)%keys.length + 1) + ' of ' + keys.length + ')' : ''));
 }
 
 let _flashKey = null;
