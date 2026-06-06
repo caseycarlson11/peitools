@@ -67,10 +67,11 @@
     .ed-dialog-title{ font-weight:700; font-size:.95rem; }
     .ed-dialog-msg{ color:var(--text2); font-size:.82rem; margin-bottom:4px; }
     .ed-dialog-box .btn{ justify-content:flex-start; }
-    .plabel{ position:absolute; bottom:100%; right:100%; white-space:nowrap;
+    /* chip sits above-and-to-the-right of the box — matches the generated PDF/document viewer */
+    .plabel{ position:absolute; bottom:100%; left:100%; white-space:nowrap;
              background:#fff; color:var(--red); border:1px solid var(--red); border-radius:2px;
              font-size:var(--lblpx,7px); font-weight:800; padding:0 1px; line-height:1.25;
-             transform:translate(1px,1px); }
+             transform:translate(2px,1px); }
 
     .ed-actionbar{ position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
                    display:none; align-items:center; gap:5px; z-index:50;

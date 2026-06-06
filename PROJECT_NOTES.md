@@ -389,15 +389,16 @@ Routes: edits flow through `/api/packing-list/update-panels` (now accepts a
 The **View** button on the tracker opens `/packing-list/editor/<job>` — a split-screen
 cross-reference tool. Template: `templates/packing_list_editor.html`.
 
-- **Left pane = the tracked blueprint PDF** (the exact publishable doc, table + highlights baked in), rendered with PDF.js. Panel positions are invisible click targets on top.
+- **Left pane = `panels_only.pdf`** (the Panel Mapper published file, showing only annotated pages). Falls back to `tracked_blueprint.pdf` if no panels_only exists. Rendered with PDF.js. Panel positions are invisible click targets on top. Delivered panel colors are drawn programmatically by JS since panels_only has no baked-in highlights.
 - **Right pane = a packing list PDF**; selecting one lazily OCRs it for panel-number positions (`scan_packing_list_positions`, cached as `pl_pos_v2_<file>.json` in Delivery Tracking). Each mark is colored by whether that panel is in the blueprint table.
 - **Cross-reference / selecting:** click a panel on either side → it flashes **yellow** on both, and the OTHER pane scrolls to center it (the pane you clicked never moves). Centering is zoom-aware.
-- **Action-bar pop-up** (bottom) for a selected panel: **Delete highlight**, **Change #**, **Duplicate**, **Move highlight** (re-place a located one). Delete whites-out the color immediately and drops it from the table on Save.
+- **Action-bar pop-up** (bottom) for ALL panel kinds (delivered, missed, and unlocated): **✎ Change #** and **📍 Place on Blueprint** (label changes to "Move highlight" for already-located panels). Delete whites-out the color immediately and drops it from the table on Save.
 - **Place a missing panel:** clicking a missing panel auto-arms placement — a green banner appears on the BLUEPRINT, then a single click sets its highlight there (skid/shipment inherited from the table).
+- **Skid number prompt:** whenever a panel number is entered (double-click on blueprint or clicking a blueprint marker), a second prompt also asks for a skid number (optional).
 - **＋ Add missing panel** (packing-list header): no prompts → click the packing list → drops a red marker → click it to assign its value & skid.
 - **⧉ Duplicate** (pop-up): click the packing list → drops a marker that is **active** (white outline + corner handle): drag the body to move, drag the corner to resize. **Click off** to set it (handles disappear). Click the set marker once to assign value + skid; after that, clicking it opens the normal pop-up.
 - **Hide blank pages**, anchored zoom (buttons + Ctrl/pinch on the hovered pane only), **Print** (opens the PDF's print/save dialog), **Share** (SMS/Email/Copy link via a **public** `/p/<token>` link; "New link" rotates and revokes the old one).
-- **Save Changes** POSTs pending add/remove/rename to `/update-panels`, which rewrites `delivery_state.json` + `panel_locations_v2.json`, records corrections, and regenerates `tracked_blueprint.pdf`; the viewer reloads it.
+- **Save Changes** POSTs pending add/remove/rename to `/update-panels`, which rewrites `delivery_state.json` + `panel_locations_v2.json`, records corrections, and regenerates `tracked_blueprint.pdf`; the viewer reloads it. **Regeneration path:** if a Panel Mapper session exists and `scan_pdf` is on disk, uses `generate_tracked_blueprint_panel_map(scan_pdf, ...)` so panel locations (which are in scan_pdf page space) align correctly. Falls back to `generate_tracked_blueprint(full_blueprint, ...)` when no session exists.
 
 **Color key (what every colored box in the editor means):**
 
@@ -565,7 +566,7 @@ and `templates/panel_map_editor.html` (standalone PDF.js editor).
   `rel` = `"sheet"` (same panel on multiple sheets) or `"dup"` (different panel, same number).
   This duplicate metadata is saved for the Packing List Tracker to use later.
 - `generate_panel_map_blueprint(..., keep_only_panel_pages=False)` draws a red box + the
-  number (white chip, above-and-left of the printed digits) using `loc.label or key`.
+  number (white chip) using `loc.label or key`. **Chip position:** left edge of chip aligns with right edge of highlight box, bottom of chip aligns with top of highlight box — chip sits above and to the right of the printed panel number. Same geometry applies to `generate_tracked_blueprint_panel_map`.
 - Per-job `Panel Map/session.json` = `{bp_name, folder, src_pdf, scan_pdf, locs, pages}` so the
   editor can reload. Output/cache/full paths are keyed by a canonical base name (`_pm_base`
   strips a trailing " - Panel Mapper"); `panels_only` stays its own set so editing it can't
