@@ -324,6 +324,20 @@
     .file-item.active .file-date { color: rgba(96,180,240,0.7); }
     .no-files { padding: 20px 12px; color: var(--text2); font-size: 0.8rem; text-align: center; line-height: 1.6; }
 
+    /* ── Spreadsheets category ── */
+    .pull-data-btn {
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: calc(100% - 16px); margin: 8px; padding: 10px 14px;
+      border-radius: 8px; border: 1px solid rgba(96,180,240,0.4);
+      background: rgba(96,180,240,0.1); color: var(--blue);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .pull-data-btn:hover { background: rgba(96,180,240,0.2); border-color: var(--blue); }
+    .pull-data-btn:disabled { opacity: 0.5; cursor: default; }
+    .file-item.xlsx svg { stroke: #3fb950; }
+    .file-item.xlsx.active svg { stroke: #3fb950; }
+
     /* PDF viewer */
     .pdf-pane {
       flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -509,14 +523,9 @@ async function selectJob(job, btn) {
   // Build category tabs
   const tabs = document.getElementById('catTabs');
   tabs.innerHTML = '';
+  // Always include Spreadsheets tab even if folder doesn't exist yet
   const cats = Object.keys(jobFiles);
-
-  if (!cats.length) {
-    tabs.innerHTML = '<span style="color:var(--text2);font-size:0.82rem;padding:6px 0;">No documents uploaded yet.</span>';
-    document.getElementById('fileList').innerHTML = '';
-    clearPDF();
-    return;
-  }
+  if (!cats.includes('Spreadsheets')) cats.push('Spreadsheets');
 
   cats.forEach((cat, i) => {
     const tab = document.createElement('button');
@@ -540,6 +549,46 @@ function selectCategory(cat, tab) {
   const list  = document.getElementById('fileList');
   list.innerHTML = '';
 
+  // ── Spreadsheets: show Pull Data button + xlsx file list ──
+  if (cat === 'Spreadsheets') {
+    const btn = document.createElement('button');
+    btn.className = 'pull-data-btn';
+    btn.id = 'pullDataBtn';
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/>
+      </svg>
+      Pull Data into Spreadsheet`;
+    btn.onclick = pullDataIntoSpreadsheet;
+    list.appendChild(btn);
+
+    if (!files.length) {
+      const msg = document.createElement('div');
+      msg.className = 'no-files';
+      msg.textContent = 'No spreadsheets yet. Click the button above to generate one.';
+      list.appendChild(msg);
+    } else {
+      files.forEach(f => {
+        const fname    = f.name || f;
+        const modified = f.modified || '';
+        const item = document.createElement('div');
+        item.className = 'file-item xlsx';
+        item.innerHTML = `
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+          <div class="file-item-info">
+            <span class="file-name">${fname}</span>
+            ${modified ? `<span class="file-date">Modified ${modified}</span>` : ''}
+          </div>`;
+        item.onclick = () => downloadFile(fname, item);
+        list.appendChild(item);
+      });
+    }
+    clearPDF();
+    return;
+  }
+
   if (!files.length) {
     list.innerHTML = '<div class="no-files">No files in this category.</div>';
     clearPDF();
@@ -561,6 +610,45 @@ function selectCategory(cat, tab) {
     list.appendChild(item);
   });
 
+}
+
+// ── Download an xlsx file ──────────────────────────────────
+function downloadFile(fname, item) {
+  document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+  if (item) item.classList.add('active');
+  const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
+  const a = document.createElement('a');
+  a.href = url; a.download = fname; a.click();
+}
+
+// ── Pull Data into Spreadsheet ────────────────────────────
+async function pullDataIntoSpreadsheet() {
+  const btn = document.getElementById('pullDataBtn');
+  if (!btn || !currentJob) return;
+  btn.disabled = true;
+  btn.innerHTML = `<span>⏳ Building…</span>`;
+  try {
+    const res  = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/build-spreadsheet`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      alert(data.error || 'Error building spreadsheet.');
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/></svg> Pull Data into Spreadsheet`;
+      return;
+    }
+    // Reload job files to show the new/updated xlsx, then auto-download it
+    const r2 = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}`);
+    jobFiles  = await r2.json();
+    const tab = document.querySelector('.cat-tab.active');
+    selectCategory('Spreadsheets', tab);
+    // Auto-download the file
+    const url = `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(data.file)}`;
+    const a = document.createElement('a'); a.href = url; a.download = data.file; a.click();
+  } catch(e) {
+    alert('Network error: ' + e.message);
+    btn.disabled = false;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/></svg> Pull Data into Spreadsheet`;
+  }
 }
 
 // ── Open a PDF ─────────────────────────────────────────────

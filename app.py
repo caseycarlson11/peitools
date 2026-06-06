@@ -82,7 +82,7 @@ def logout():
     session.pop("user", None)
     return redirect(url_for("login"))
 
-CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets", "Panel Mapper"]
+CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets", "Panel Mapper", "Spreadsheets"]
 CAD_FOLDER = "DXF CAD FILE"
 ALL_FOLDERS = CATEGORIES + [CAD_FOLDER]
 IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
@@ -239,8 +239,12 @@ def api_job_files(job):
     for cat in CATEGORIES:
         cat_path = os.path.join(job_path, cat)
         if os.path.isdir(cat_path):
+            if cat == "Spreadsheets":
+                exts = {".xlsx", ".xls"}
+            else:
+                exts = {".pdf"}
             files = sorted([f for f in os.listdir(cat_path)
-                            if f.lower().endswith(".pdf")])
+                            if os.path.splitext(f)[1].lower() in exts])
             if files:
                 result[cat] = [file_entry(cat_path, f) for f in files]
     # Include DXF CAD FILE so admin can verify uploads
@@ -269,6 +273,100 @@ def api_job_all_files(job):
                                   "url": f"/files/{job}/{cat}/{f}",
                                   "type": "pdf" if ext == ".pdf" else "image"})
     return jsonify(files)
+
+@app.route("/api/jobs/<path:job_name>/build-spreadsheet", methods=["POST"])
+@login_required
+def build_spreadsheet(job_name):
+    import json as _json_ss, time as _time_ss, re as _re_ss
+    try:
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment
+    except ImportError:
+        return jsonify({"error": "openpyxl not installed — run deploy.bat to rebuild Docker image"}), 500
+
+    job_path = safe_join(job_name)
+    if not os.path.isdir(job_path):
+        return jsonify({"error": "Job not found"}), 404
+
+    # ── Load delivery state ───────────────────────────────────
+    state_path = _pl_state_path(job_name)
+    if not os.path.exists(state_path):
+        return jsonify({"error": "No packing list data found. Process a packing list in the Packing List Tracker first."}), 400
+
+    with open(state_path) as f:
+        delivery_state = _json_ss.load(f)
+
+    # ── Load panel locations (Panel Map preferred, fallback to PL cache) ──
+    panel_locs = {}
+    try:
+        pm_sess = _pm_load_session(job_name)
+        if pm_sess:
+            locs_path = pm_sess.get("locs", "")
+            if locs_path and os.path.isfile(locs_path):
+                with open(locs_path) as f:
+                    panel_locs = _json_ss.load(f)
+    except Exception:
+        pass
+    if not panel_locs:
+        cache_path = _pl_cache_path(job_name)
+        if os.path.exists(cache_path):
+            with open(cache_path) as f:
+                panel_locs = _json_ss.load(f)
+
+    # ── Get packing list file dates for "Date Delivered" ──────
+    pl_dir = safe_join(job_name, "Packing Lists")
+    shipment_dates = {}
+    if os.path.isdir(pl_dir):
+        for fname in os.listdir(pl_dir):
+            if fname.lower().endswith(".pdf"):
+                label = fname[:-4]  # strip .pdf
+                fpath = os.path.join(pl_dir, fname)
+                try:
+                    mtime = os.path.getmtime(fpath)
+                    shipment_dates[label] = _time_ss.strftime("%-m/%-d/%Y", _time_ss.localtime(mtime))
+                except Exception:
+                    shipment_dates[label] = ""
+
+    # ── Build spreadsheet ──────────────────────────────────────
+    ss_dir = safe_join(job_name, "Spreadsheets")
+    os.makedirs(ss_dir, exist_ok=True)
+    out_path = os.path.join(ss_dir, f"{job_name}.xlsx")
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Panel Data"
+
+    headers = ["Panel Number", "Sheet Number", "Order Number", "Date Delivered"]
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    for col_idx, h in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center")
+
+    def _panel_sort_key(p):
+        m = _re_ss.match(r"(\d+)", str(p))
+        return (int(m.group(1)) if m else 9999, str(p))
+
+    for row_idx, panel in enumerate(sorted(delivery_state.keys(), key=_panel_sort_key), 2):
+        info = delivery_state[panel]
+        shipment = info.get("shipment", "")
+        loc = panel_locs.get(panel) or panel_locs.get(str(panel))
+        sheet_num = (loc["page"] + 1) if loc else ""
+        date_del = shipment_dates.get(shipment, "")
+        ws.cell(row=row_idx, column=1, value=panel)
+        ws.cell(row=row_idx, column=2, value=sheet_num)
+        ws.cell(row=row_idx, column=3, value=shipment)
+        ws.cell(row=row_idx, column=4, value=date_del)
+
+    for col in ws.columns:
+        max_len = max((len(str(c.value)) for c in col if c.value is not None), default=10)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 4
+
+    wb.save(out_path)
+    return jsonify({"ok": True, "panels": len(delivery_state), "file": f"{job_name}.xlsx"})
+
 
 @app.route("/admin", methods=["GET"])
 @login_required

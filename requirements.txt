@@ -4,3 +4,4 @@ pymupdf
 pytesseract
 Pillow
 ezdxf
+openpyxl
