@@ -306,6 +306,7 @@
   let markerSeq = 0;
   let activeMarkerId = null;     // the marker currently being sized/moved
   let markerJustActivated = false;
+  let selMarker = null;          // packing-list marker selected for the options popup
 
   // PL pane
   let plDoc = null, plPages = [], plPositions = [], plFile = '';
@@ -598,7 +599,7 @@
     $('abTitle').textContent=`Panel ${p}`;
     // Delete + Change # are always available for any panel.
     $('abDelBtn').style.display='';
-    $('abChangeBtn').style.display='';
+    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Change #';
     // Duplicate only makes sense for a missing panel (red) you want to copy.
     $('abDupBtn').style.display = (k==='delivered') ? 'none' : '';
     if(k==='delivered'){
@@ -623,6 +624,7 @@
   function clearSelection(silent){
     cancelPlaceMode();
     removeEditBox();
+    selMarker=null;
     document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
     // drop any un-confirmed "new panel" temp box
     document.querySelectorAll('#bpViewer .pbox[data-temp="1"]').forEach(b=>b.remove());
@@ -646,6 +648,14 @@
 
   // ── Delete a panel / false-positive highlight (color + table entry) ──
   function deleteSelected(){
+    if(selMarker){
+      markers=markers.filter(x=>x.id!==selMarker.id);
+      activeMarkerId=null; selMarker=null;
+      renderPlMarks();
+      $('actionBar').classList.remove('show');
+      toast('Marker removed');
+      return;
+    }
     if(!selected) return;
     const p=selected.panel;
     const loc=locations[p];            // capture before removing
@@ -666,6 +676,19 @@
 
   // ── Change a panel's number (keeps its position + shipment/skid) ──
   function changeNumber(){
+    if(selMarker){
+      const np=prompt('Panel number for this marker:', selMarker.panel||''); if(np===null) return;
+      const panel=np.trim(); if(!panel) return;
+      selMarker.panel=panel; selMarker.assigned=true;
+      const shipment=plShipmentLabel()||activeShip||'Manual';
+      delivery[panel]={skid:selMarker.skid||'', shipment};
+      pendingAdd[panel]={panel, skid:selMarker.skid||'', shipment};
+      pendingRemove.delete(panel); dismissed.delete(panel);
+      rebuildShipmentsLocal(); renderPanelBoxes(); renderPlMarks();
+      $('abTitle').textContent=`Marker ${panel}`;
+      toast(`Panel ${panel} set — Save to apply`);
+      return;
+    }
     if(!selected) return;
     const oldP=selected.panel;
     const np=prompt('New panel number for this highlight:', oldP);
@@ -708,8 +731,8 @@
     Object.assign(el.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
       width:((x1-x0+pad*2)/dims.w*100)+'%',height:((y1-y0+pad*2)/dims.h*100)+'%'});
   }
-  function armMove(){ armEdit('move'); }
-  function armResize(){ armEdit('resize'); }
+  function armMove(){ if(selMarker){ activateMarker(); return; } armEdit('move'); }
+  function armResize(){ if(selMarker){ activateMarker(); return; } armEdit('resize'); }
   function armEdit(mode){
     if(!selected) return;
     if(!locations[selected.panel]){ toast('Place the panel on the blueprint first.'); return; }
@@ -757,6 +780,18 @@
     el.addEventListener('pointermove',mv); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
   }
   function changeSkid(){
+    if(selMarker){
+      const sk=prompt('Skid # for this marker:', selMarker.skid||''); if(sk===null) return;
+      selMarker.skid=sk.trim();
+      if(selMarker.assigned && delivery[selMarker.panel]){
+        delivery[selMarker.panel].skid=selMarker.skid;
+        pendingAdd[selMarker.panel]={panel:selMarker.panel, skid:selMarker.skid, shipment:delivery[selMarker.panel].shipment};
+        rebuildShipmentsLocal(); renderPanelBoxes();
+      }
+      renderPlMarks();
+      toast('Skid set to '+(selMarker.skid||'?')+' — Save to apply');
+      return;
+    }
     if(!selected) return;
     const p=selected.panel, rec=delivery[p];
     if(!rec){ toast('This panel is not in the table.'); return; }
@@ -1062,10 +1097,9 @@
     const dup = placeMode.plDup;
     const panel = dup ? placeMode.panel : null;   // duplicate keeps the original number
     markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid:'', assigned:false});
-    activeMarkerId=id; markerJustActivated=true;   // new marker is editable until you click off
     placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
     renderPlMarks();
-    toast('Size & move it, then click off to set it');
+    toast('Marker placed — click it for options');   // just set it; edit later by clicking
   }
   // Duplicate → drop a blank red marker on the BLUEPRINT (panel + skid blank).
   function duplicatePanel(){
@@ -1099,21 +1133,28 @@
   // Click a packing-list marker: assign its number (first click), then it behaves
   // like any missing panel — click it again to place it on the blueprint.
   function onPlMarkerClick(m){
-    // Already has a value → behave like a normal missing-panel mark: open the pop-up.
-    if(m.assigned){ selectPanel(m.panel, 'pl'); return; }
-    // First time → assign its value (panel number) and skid.
-    const np=prompt('Panel number:', m.panel||''); if(np===null) return;
-    const panel=np.trim(); if(!panel) return;
-    const sk=prompt('Skid # (optional):', m.skid||''); if(sk===null) return;
-    const skid=sk.trim();
-    m.panel=panel; m.skid=skid; m.assigned=true;
-    const shipment=plShipmentLabel()||activeShip||'Manual';
-    delivery[panel]={skid, shipment};
-    pendingAdd[panel]={panel, skid, shipment};
-    pendingRemove.delete(panel); dismissed.delete(panel);
-    rebuildShipmentsLocal();
-    renderPanelBoxes(); renderPlMarks();
-    toast(`Panel ${panel} (skid ${skid||'?'}) set — click it again for options`);
+    // Open the options popup for this marker (move / resize / set # / set skid / delete).
+    showMarkerBar(m);
+  }
+  function showMarkerBar(m){
+    clearSelection(true);
+    selMarker = m;
+    const bar=$('actionBar'); bar.classList.add('show');
+    $('abTitle').textContent = m.panel ? `Marker ${m.panel}` : 'Blank marker';
+    $('abSub').textContent   = 'Move, resize, or set its panel # and skid';
+    $('abMoveBtn').style.display='none';
+    $('abDupBtn').style.display='none';
+    $('abDragBtn').style.display='';
+    $('abResizeBtn').style.display='';
+    $('abSkidBtn').style.display='';
+    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Set #';
+    $('abDelBtn').style.display='';
+  }
+  function activateMarker(){
+    if(!selMarker) return;
+    activeMarkerId = selMarker.id; markerJustActivated = false;
+    renderPlMarks();
+    toast('Drag the marker to move it, drag the corner to resize');
   }
 
   // Pane header: show the packing list's shipment colour + mark count.
