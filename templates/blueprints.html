@@ -359,6 +359,44 @@
     .xlsx-menu-item:hover { background: var(--card); }
     .xlsx-menu-item .mi-icon { font-size: 1rem; flex-shrink: 0; }
 
+    /* Spreadsheet inline viewer */
+    .sheet-pane {
+      display: none; flex: 1; flex-direction: column; overflow: hidden;
+      background: var(--bg);
+    }
+    .sheet-pane.visible { display: flex; }
+    .sheet-toolbar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sheet-name {
+      font-size: 0.8rem; font-weight: 700; color: var(--text2); flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sheet-action-btn {
+      padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--text2); font-size: 0.75rem;
+      font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.12s;
+    }
+    .sheet-action-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .sheet-scroll { flex: 1; overflow: auto; padding: 12px; }
+    .sheet-scroll table {
+      border-collapse: collapse; font-size: 0.8rem; color: var(--text);
+      font-family: 'Inter', sans-serif; white-space: nowrap;
+    }
+    .sheet-scroll th {
+      background: #1f4e79; color: #fff; font-weight: 700;
+      padding: 7px 14px; text-align: center;
+      border: 1px solid #2d6ca0; position: sticky; top: 0; z-index: 2;
+    }
+    .sheet-scroll td {
+      padding: 6px 14px; border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .sheet-scroll tr:nth-child(even) td { background: var(--surface); }
+    .sheet-scroll tr:hover td { background: var(--accent); }
+
     /* PDF viewer */
     .pdf-pane {
       flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -468,6 +506,14 @@
           <div class="pdf-placeholder" id="pdfPlaceholder">
             <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
             <p>Tap a file to open it</p>
+          </div>
+          <div class="sheet-pane" id="sheetPane">
+            <div class="sheet-toolbar">
+              <span class="sheet-name" id="sheetName"></span>
+              <button class="sheet-action-btn" id="sheetDownloadBtn" onclick="xlsxDirectDownload()">📥 Download</button>
+              <button class="sheet-action-btn" onclick="xlsxGoogleSheets()">📊 Google Sheets</button>
+            </div>
+            <div class="sheet-scroll" id="sheetScroll"></div>
           </div>
         </div>
       </div>
@@ -635,6 +681,7 @@ function selectCategory(cat, tab) {
 
 // ── xlsx action menu ──────────────────────────────────────
 let _xlsxMenuFile = null;
+let _currentSheetFile = null;
 
 function downloadFile(fname, item, e) {
   e && e.stopPropagation();
@@ -645,9 +692,8 @@ function downloadFile(fname, item, e) {
   const menu = document.getElementById('xlsxMenu');
   menu.classList.add('open');
 
-  // Position near the item
   const rect = item.getBoundingClientRect();
-  const mw = 220, mh = 130;
+  const mw = 230, mh = 130;
   let left = rect.right + 8;
   let top  = rect.top;
   if (left + mw > window.innerWidth)  left = Math.max(8, rect.left - mw - 8);
@@ -664,19 +710,83 @@ function closeXlsxMenu() {
 function xlsxAction(action) {
   if (!_xlsxMenuFile || !currentJob) return;
   const fname = _xlsxMenuFile;
-  const url   = `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(fname)}`;
   closeXlsxMenu();
 
-  if (action === 'download') {
-    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
-  } else if (action === 'excel') {
-    // Open the file URL directly — browser will prompt to open in Excel (xlsx association)
-    window.open(url, '_blank');
+  if (action === 'view') {
+    viewSpreadsheet(fname);
+  } else if (action === 'download') {
+    xlsxDirectDownload(fname);
   } else if (action === 'sheets') {
-    // Download the file, then open Google Sheets import page
-    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
-    setTimeout(() => window.open('https://sheets.new', '_blank'), 400);
+    xlsxGoogleSheets(fname);
   }
+}
+
+function xlsxFileUrl(fname) {
+  return `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(fname || _currentSheetFile)}`;
+}
+
+function xlsxDirectDownload(fname) {
+  const f = fname || _currentSheetFile;
+  if (!f) return;
+  const a = document.createElement('a'); a.href = xlsxFileUrl(f); a.download = f; a.click();
+}
+
+function xlsxGoogleSheets(fname) {
+  const f = fname || _currentSheetFile;
+  if (!f) return;
+  xlsxDirectDownload(f);
+  setTimeout(() => window.open('https://sheets.new', '_blank'), 400);
+}
+
+// ── Inline spreadsheet viewer (SheetJS) ───────────────────
+async function viewSpreadsheet(fname) {
+  _currentSheetFile = fname;
+  const url = xlsxFileUrl(fname);
+
+  document.getElementById('pdfPlaceholder').style.display = 'none';
+  const pane = document.getElementById('sheetPane');
+  const scroll = document.getElementById('sheetScroll');
+  pane.classList.add('visible');
+  document.getElementById('sheetName').textContent = fname;
+  scroll.innerHTML = '<p style="color:var(--text2);padding:20px;font-size:0.85rem;">Loading…</p>';
+
+  try {
+    if (!window.XLSX) await loadSheetJS();
+    const res = await fetch(url);
+    const ab  = await res.arrayBuffer();
+    const wb  = XLSX.read(ab, { type: 'array' });
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    // Build table manually for clean dark-mode styling
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (!data.length) { scroll.innerHTML = '<p style="color:var(--text2);padding:20px;">No data.</p>'; return; }
+    let html = '<table><thead><tr>';
+    data[0].forEach(h => { html += `<th>${h ?? ''}</th>`; });
+    html += '</tr></thead><tbody>';
+    for (let r = 1; r < data.length; r++) {
+      html += '<tr>';
+      data[r].forEach(c => { html += `<td>${c ?? ''}</td>`; });
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    scroll.innerHTML = html;
+  } catch(e) {
+    scroll.innerHTML = `<p style="color:#ff6b6b;padding:20px;">Error loading spreadsheet: ${e.message}</p>`;
+  }
+}
+
+function loadSheetJS() {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function hideSheetPane() {
+  document.getElementById('sheetPane').classList.remove('visible');
+  document.getElementById('pdfPlaceholder').style.display = '';
+  _currentSheetFile = null;
 }
 
 // Close menu when clicking outside
@@ -743,7 +853,9 @@ function closeFullscreen() {
 
 function clearPDF() {
   document.getElementById('pdfPlaceholder').style.display = 'flex';
+  document.getElementById('sheetPane').classList.remove('visible');
   currentFile = null; currentFileUrl = null;
+  _currentSheetFile = null;
   document.getElementById('compassBtn').classList.remove('visible');
 }
 
@@ -984,11 +1096,11 @@ loadJobs();
 
 <!-- ── xlsx Action Menu ── -->
 <div id="xlsxMenu" class="xlsx-menu" role="menu">
-  <button class="xlsx-menu-item" onclick="xlsxAction('download')">
-    <span class="mi-icon">📥</span> Download
+  <button class="xlsx-menu-item" onclick="xlsxAction('view')">
+    <span class="mi-icon">👁</span> View
   </button>
-  <button class="xlsx-menu-item" onclick="xlsxAction('excel')">
-    <span class="mi-icon">📊</span> Open in Excel
+  <button class="xlsx-menu-item" onclick="xlsxAction('download')">
+    <span class="mi-icon">📥</span> Download / Open in Excel
   </button>
   <button class="xlsx-menu-item" onclick="xlsxAction('sheets')">
     <span class="mi-icon" style="color:#34a853;">▶</span> Open in Google Sheets
