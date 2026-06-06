@@ -526,7 +526,8 @@ function toggleHand(){
 (function setupPaneZoomPan(){
   const pane = $('mainPane');
   pane.addEventListener('wheel', (e)=>{
-    e.preventDefault();   // zoom the document, never scroll the page behind
+    if(!(e.ctrlKey || e.metaKey)) return;   // plain scroll = navigate; Ctrl+scroll = zoom
+    e.preventDefault();
     const cur = parseInt(document.documentElement.style.getPropertyValue('--pm-pagew')) || 1000;
     const w = Math.max(400, Math.min(2600, cur + (e.deltaY < 0 ? 80 : -80)));
     document.documentElement.style.setProperty('--pm-pagew', w + 'px');

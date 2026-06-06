@@ -55,6 +55,9 @@
                    padding:10px 14px; box-shadow:0 8px 30px rgba(0,0,0,.5); }
     .ed-actionbar.show{ display:flex; }
     .ed-actionbar .lbl{ font-weight:700; }
+    .ed-banner{ display:none; background:var(--green); color:#06210f; font-weight:700;
+                font-size:.85rem; text-align:center; padding:8px 12px; }
+    .ed-banner.show{ display:block; }
     .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:60;
             background:var(--surface); border:1px solid var(--border); border-radius:8px;
             padding:8px 16px; font-size:.85rem; display:none; }
@@ -67,13 +70,14 @@
     <a class="home" href="/panel-print-mapper">‹ Panel Print Mapper</a>
     <div class="ed-title">Panel Editor <span id="bpName"></span></div>
     <div class="sp"></div>
-    <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Panel</button>
+    <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Missing Panel</button>
     <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="2200" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
 
+  <div class="ed-banner" id="addBanner">📍 Click on the print where the panel belongs, then type its number. Click “Add Missing Panel” again to stop.</div>
   <div class="ed-body" id="body"><div style="padding:40px;text-align:center;color:#ccc">Loading…</div></div>
 
   <div class="ed-actionbar" id="actionBar">
@@ -208,11 +212,13 @@ function deleteSelected(){
 
 function toggleAdd(){
   addMode = !addMode;
+  if(addMode && handMode) toggleHand();   // add and hand are mutually exclusive
   $('addBtn').classList.toggle('active', addMode);
+  $('addBanner').classList.toggle('show', addMode);
   document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode));
   $('hint').textContent = addMode
     ? 'ADD MODE: click anywhere on a sheet to drop a new panel, then type its number.'
-    : 'Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.';
+    : 'Click a panel to rename or delete it. Click “Add Missing Panel”, then click on a sheet to add a missing one.';
 }
 
 function onOverlayClick(e, pi){
@@ -253,6 +259,7 @@ function toggleHand(){
 (function setupZoomPan(){
   const pane = $('body');
   pane.addEventListener('wheel', (e)=>{
+    if(!(e.ctrlKey || e.metaKey)) return;   // plain scroll = navigate; Ctrl+scroll = zoom
     e.preventDefault();
     const cur = parseInt(document.documentElement.style.getPropertyValue('--pw')) || 1000;
     const w = Math.max(500, Math.min(2600, cur + (e.deltaY < 0 ? 80 : -80)));
