@@ -20,6 +20,8 @@
     .pm-rescan { display:flex; align-items:center; gap:7px; color:var(--text2); font-size:.8rem;
                  margin-top:12px; cursor:pointer; }
     .pm-rescan input { width:15px; height:15px; accent-color:var(--blue); cursor:pointer; }
+    .pm-pagestatus { color:var(--text2); font-size:.82rem; margin-top:10px; }
+    .pm-pagestatus b { color:var(--blue); }
 
     /* Result card breaks out of the centered column to span the full page width */
     .pm-result-full {
@@ -34,6 +36,34 @@
                  font-size:.82rem; margin-bottom:10px; }
     .pm-swatch { width:18px; height:12px; border:1.5px solid #d91a1a;
                  background:rgba(217,26,26,.22); border-radius:3px; flex-shrink:0; }
+
+    /* ── Page-selector viewer (looks like a PDF reader) ── */
+    .pm-modal { display:none; position:fixed; inset:0; z-index:1000; background:rgba(6,10,18,.9); }
+    .pm-modal.open { display:flex; }
+    .pm-vwrap { margin:auto; width:100%; height:100%; display:flex; flex-direction:column;
+                background:#1b1f27; }
+    .pm-vhead { display:flex; align-items:center; gap:12px; padding:12px 18px;
+                border-bottom:1px solid var(--border); }
+    .pm-vtitle { font-weight:700; font-size:.95rem; }
+    .pm-vtitle span { color:var(--text2); font-weight:400; margin-left:8px; }
+    .pm-vhead .sp { flex:1; }
+    .pm-vbody { flex:1; display:flex; min-height:0; }
+    .pm-sidebar { width:220px; flex-shrink:0; overflow-y:auto; background:#23272f;
+                  border-right:1px solid var(--border); padding:12px 10px; }
+    .pm-docview { flex:1; border:none; background:#525659; }
+
+    .pm-thumb { position:relative; margin:0 auto 14px; cursor:pointer; }
+    .pm-thumb-pic { border:2px solid #3a3f4a; border-radius:4px; overflow:hidden; background:#fff; }
+    .pm-thumb.current .pm-thumb-pic { border-color:var(--blue); box-shadow:0 0 0 2px rgba(96,180,240,.5); }
+    .pm-thumb.excluded .pm-thumb-pic { opacity:.32; }
+    .pm-thumb canvas { display:block; width:100%; height:auto; }
+    .pm-thumb-foot { display:flex; align-items:center; gap:7px; justify-content:center;
+                     margin-top:5px; color:var(--text2); font-size:.78rem; font-weight:600; }
+    .pm-thumb.excluded .pm-thumb-foot { color:#f85149; }
+    .pm-thumb-foot input { width:15px; height:15px; accent-color:var(--green); cursor:pointer; }
+    .pm-thumb-x { position:absolute; top:5px; right:5px; background:#f85149; color:#fff;
+                  border-radius:4px; font-size:.66rem; font-weight:800; padding:1px 5px; display:none; }
+    .pm-thumb.excluded .pm-thumb-x { display:block; }
 {% endblock %}
 
 {% block content %}
@@ -65,9 +95,10 @@
   <div class="alert alert-error" id="errBox"></div>
 
   <div class="btn-row">
-    <button class="btn btn-subtle" id="viewDocBtn" onclick="viewDocument()" disabled>👁 View Document</button>
-    <button class="btn btn-green"  id="processBtn" onclick="doProcess()"   disabled>⚡ Map Panels</button>
+    <button class="btn btn-subtle" id="selectPagesBtn" onclick="openPageSelector()" disabled>🗂 Select Pages</button>
+    <button class="btn btn-green"  id="processBtn"     onclick="doProcess()"        disabled>⚡ Map Panels</button>
   </div>
+  <div class="pm-pagestatus" id="pageStatus"></div>
 
   <div class="progress-wrap" id="progressWrap">
     <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
@@ -86,6 +117,24 @@
   </div>
   <iframe class="pm-viewer" id="pmViewer" title="Panel map"></iframe>
 </div>
+
+<!-- ── Page selector ───────────────────────────────────────────────────── -->
+<div class="pm-modal" id="pageModal">
+  <div class="pm-vwrap">
+    <div class="pm-vhead">
+      <div class="pm-vtitle">Select Pages <span id="selCount"></span></div>
+      <div class="sp"></div>
+      <button class="btn btn-subtle" onclick="selectAllPages()">Select all</button>
+      <button class="btn btn-subtle" onclick="unselectAllPages()">Unselect all</button>
+      <button class="btn btn-green"  onclick="confirmPageSelection()">✓ Done</button>
+      <button class="btn btn-subtle" onclick="closePageSelector()">✕ Close</button>
+    </div>
+    <div class="pm-vbody">
+      <div class="pm-sidebar" id="thumbSidebar"><div class="pm-empty">Loading…</div></div>
+      <iframe class="pm-docview" id="docFrame" title="Blueprint"></iframe>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -94,6 +143,12 @@ let selectedBp  = "";
 let pollTimer   = null;
 let startTime   = 0;
 
+let totalPages  = 0;          // pages in the selected blueprint
+let included    = new Set();  // page numbers (1-based) to include in the scan
+let keptPages   = null;       // computed on Done: sorted array, or null = all
+let pdfDoc      = null;       // pdf.js doc for the thumbnails
+let currentPg   = 1;          // page shown in the right document pane
+
 const $ = id => document.getElementById(id);
 
 function fmtElapsed(ms){
@@ -101,7 +156,6 @@ function fmtElapsed(ms){
   const m = Math.floor(t/60), s = t % 60;
   return m > 0 ? (m + 'm ' + s + 's') : (s + 's');
 }
-
 function showErr(msg){ const e=$('errBox'); e.textContent=msg; e.classList.add('show'); }
 function clearErr(){ $('errBox').classList.remove('show'); }
 
@@ -110,9 +164,22 @@ function blueprintUrl(){
        + '/Blueprints/' + encodeURIComponent(selectedBp);
 }
 
-function viewDocument(){
-  if(!selectedBp) return;
-  window.open(blueprintUrl(), '_blank');
+// Load pdf.js on demand (only for rendering the sidebar thumbnails)
+let pdfjsReady = null;
+function ensurePdfjs(){
+  if(pdfjsReady) return pdfjsReady;
+  pdfjsReady = new Promise((resolve, reject)=>{
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload = ()=>{
+      pdfjsLib.GlobalWorkerOptions.workerSrc =
+        'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      resolve();
+    };
+    s.onerror = ()=>reject(new Error('Could not load the PDF renderer.'));
+    document.head.appendChild(s);
+  });
+  return pdfjsReady;
 }
 
 fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
@@ -133,7 +200,8 @@ function onJobChange(){
   $('resultCard').style.display='none';
   $('successBox').classList.remove('show');
   $('processBtn').disabled = true;
-  $('viewDocBtn').disabled = true;
+  $('selectPagesBtn').disabled = true;
+  resetPageState();
   if(!selectedJob) return;
 
   const list = $('bpList');
@@ -180,10 +248,144 @@ function selectBp(name, item){
   document.querySelectorAll('.pm-item').forEach(el=>el.classList.remove('selected'));
   item.classList.add('selected');
   $('processBtn').disabled = false;
-  $('viewDocBtn').disabled = false;
+  $('selectPagesBtn').disabled = false;
   $('rescanRow').style.display = 'flex';
+  resetPageState();   // new blueprint -> include all pages until the user trims
 }
 
+function resetPageState(){
+  totalPages = 0; included.clear(); keptPages = null; pdfDoc = null; currentPg = 1;
+  updatePageStatus();
+}
+
+function updatePageStatus(){
+  const el = $('pageStatus');
+  if(keptPages && totalPages){
+    el.innerHTML = 'Scanning <b>' + keptPages.length + '</b> of ' + totalPages
+                 + ' pages. <a href="#" onclick="includeAllPages();return false;" style="color:var(--blue)">scan all</a>';
+  } else if(totalPages){
+    el.innerHTML = 'Scanning all <b>' + totalPages + '</b> pages.';
+  } else {
+    el.textContent = '';
+  }
+}
+function includeAllPages(){ keptPages = null; updatePageStatus(); }
+
+/* ── Page selector viewer ──────────────────────────────────────────────── */
+async function openPageSelector(){
+  if(!selectedBp) return;
+  clearErr();
+  $('pageModal').classList.add('open');
+  const bar = $('thumbSidebar');
+  bar.innerHTML = '<div class="pm-empty">Loading the PDF…</div>';
+  $('docFrame').src = blueprintUrl() + '#pagemode=none&page=1';
+  try{
+    await ensurePdfjs();
+    if(!pdfDoc){
+      pdfDoc = await pdfjsLib.getDocument(blueprintUrl()).promise;
+      totalPages = pdfDoc.numPages;
+    }
+    if(included.size === 0){ for(let i=1;i<=totalPages;i++) included.add(i); }  // default: all
+    currentPg = 1;
+    await buildSidebar();
+    updateSelCount();
+  }catch(err){
+    bar.innerHTML = '<div class="pm-empty">Could not load: ' + (err.message||err) + '</div>';
+  }
+}
+function closePageSelector(){ $('pageModal').classList.remove('open'); }
+
+let thumbObserver = null;
+async function renderThumbCanvas(pg, canvas){
+  if(canvas.dataset.rendered) return;
+  const page = await pdfDoc.getPage(pg);
+  const base = page.getViewport({scale:1});
+  const vp   = page.getViewport({scale: 190 / base.width});
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+  canvas.dataset.rendered = '1';
+}
+
+async function buildSidebar(){
+  const bar = $('thumbSidebar');
+  bar.innerHTML = '';
+  if(thumbObserver) thumbObserver.disconnect();
+  thumbObserver = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting){
+        const c = en.target.querySelector('canvas');
+        thumbObserver.unobserve(en.target);
+        renderThumbCanvas(parseInt(en.target.dataset.pg,10), c).catch(()=>{});
+      }
+    });
+  }, {root: bar, rootMargin: '500px 0px'});
+
+  for(let pg=1; pg<=totalPages; pg++){
+    const cell = document.createElement('div');
+    cell.className = 'pm-thumb' + (included.has(pg) ? '' : ' excluded') + (pg===currentPg ? ' current' : '');
+    cell.dataset.pg = pg;
+    cell.innerHTML =
+        '<div class="pm-thumb-x">EXCLUDED</div>'
+      + '<div class="pm-thumb-pic"><canvas></canvas></div>'
+      + '<div class="pm-thumb-foot">'
+      +   '<input type="checkbox" ' + (included.has(pg) ? 'checked' : '') + '> p.' + pg
+      + '</div>';
+    // checkbox toggles inclusion
+    cell.querySelector('input').onclick = (e)=>{ e.stopPropagation(); togglePage(pg); };
+    // clicking the page image shows it in the right pane
+    cell.querySelector('.pm-thumb-pic').onclick = ()=>gotoPage(pg);
+    bar.appendChild(cell);
+    thumbObserver.observe(cell);
+  }
+}
+
+function cellOf(pg){ return $('thumbSidebar').querySelector('.pm-thumb[data-pg="'+pg+'"]'); }
+
+function togglePage(pg){
+  if(included.has(pg)) included.delete(pg); else included.add(pg);
+  const cell = cellOf(pg);
+  if(cell){
+    cell.classList.toggle('excluded', !included.has(pg));
+    const cb = cell.querySelector('input'); if(cb) cb.checked = included.has(pg);
+  }
+  updateSelCount();
+}
+
+function gotoPage(pg){
+  currentPg = pg;
+  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
+    c.classList.toggle('current', parseInt(c.dataset.pg,10)===pg);
+  });
+  $('docFrame').src = blueprintUrl() + '#pagemode=none&page=' + pg;
+}
+
+function selectAllPages(){
+  included = new Set(); for(let i=1;i<=totalPages;i++) included.add(i);
+  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
+    c.classList.remove('excluded'); const cb=c.querySelector('input'); if(cb) cb.checked=true;
+  });
+  updateSelCount();
+}
+function unselectAllPages(){
+  included.clear();
+  document.querySelectorAll('#thumbSidebar .pm-thumb').forEach(c=>{
+    c.classList.add('excluded'); const cb=c.querySelector('input'); if(cb) cb.checked=false;
+  });
+  updateSelCount();
+}
+
+function updateSelCount(){
+  $('selCount').textContent = included.size + ' of ' + totalPages + ' pages selected';
+}
+
+function confirmPageSelection(){
+  if(included.size === 0){ alert('Select at least one page.'); return; }
+  keptPages = (included.size === totalPages) ? null : Array.from(included).sort((a,b)=>a-b);
+  closePageSelector();
+  updatePageStatus();
+}
+
+/* ── Processing ────────────────────────────────────────────────────────── */
 function doProcess(){
   if(!selectedJob || !selectedBp) return;
   clearErr();
@@ -197,7 +399,7 @@ function doProcess(){
 
   fetch('/api/panel-map/process/'+encodeURIComponent(selectedJob), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked })
+    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked, pages: keptPages })
   }).then(r=>r.json()).then(d=>{
     if(d.error){ failProcess(d.error); return; }
     pollTimer = setInterval(poll, 1200);
@@ -228,7 +430,6 @@ function finishProcess(d){
             + '?blueprint='+encodeURIComponent(selectedBp)+'&t='+Date.now();
   $('openBtn').href = url;
   $('dlBtn').href   = url;
-  // #pagemode=none hides the PDF viewer's left thumbnail/page panel — show only the document
   $('pmViewer').src = url + '#pagemode=none&zoom=page-width';
   $('resultCard').style.display='block';
 }
@@ -239,4 +440,8 @@ function failProcess(msg){
   $('progressWrap').classList.remove('visible');
   showErr(msg);
 }
+
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && $('pageModal').classList.contains('open')) closePageSelector();
+});
 {% endblock %}
