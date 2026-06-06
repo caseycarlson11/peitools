@@ -77,6 +77,8 @@
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
+    <a class="btn" id="dlMarkedBtn" href="#" target="_blank" title="Only the marked-up pages">⬇ Marked Pages</a>
+    <a class="btn" id="dlFullBtn" href="#" target="_blank" title="Whole blueprint with edits merged in">⬇ Full Document</a>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
 
@@ -112,6 +114,7 @@ let selBoxEl   = null;      // the box element of the selected panel (for popup 
 let armedMode  = null;      // 'move' | 'resize' | null
 let undoStack  = [];        // JSON snapshots of locs for Undo
 let savedSnapshot = '{}';   // locs at last load/save (to compute dirty)
+let curBp      = '';        // blueprint filename (for download URLs)
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
@@ -149,7 +152,9 @@ async function load(){
   dims = data.pages || [];
   locs = data.panel_locations || {};
   savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
-  $('bpName').textContent = data.blueprint || '';
+  curBp = data.blueprint || '';
+  $('bpName').textContent = curBp;
+  refreshDownloadLinks();
 
   pdfDoc = await pdfjsLib.getDocument('/api/panel-map/base/'+encodeURIComponent(JOB)).promise;
   buildPages();
@@ -414,7 +419,31 @@ function placeSeries(e, pi){
   setDirty(true); drawBoxes(); updateSeriesBanner();
 }
 
+function refreshDownloadLinks(){
+  const t = '&t=' + Date.now();
+  const bp = encodeURIComponent(curBp);
+  const j = encodeURIComponent(JOB);
+  const m = $('dlMarkedBtn'), f = $('dlFullBtn');
+  if(m) m.href = '/api/panel-map/download/' + j + '?blueprint=' + bp + t;
+  if(f) f.href = '/api/panel-map/download-full/' + j + '?blueprint=' + bp + t;
+}
+
+function changeSummary(before){
+  let added=0, removed=0, moved=0;
+  for(const k in locs){
+    if(!(k in before)) added++;
+    else if(JSON.stringify(locs[k].bbox) !== JSON.stringify(before[k].bbox)) moved++;
+  }
+  for(const k in before){ if(!(k in locs)) removed++; }
+  const parts = [];
+  if(added)   parts.push('+' + added + ' added');
+  if(removed) parts.push(removed + ' deleted');
+  if(moved)   parts.push(moved + ' moved/resized');
+  return parts.length ? parts.join(', ') : 'no changes';
+}
+
 async function saveChanges(){
+  const before = JSON.parse(savedSnapshot || '{}');
   $('saveBtn').disabled = true;
   try{
     const r = await fetch('/api/panel-map/update/'+encodeURIComponent(JOB), {
@@ -423,10 +452,11 @@ async function saveChanges(){
     });
     const d = await r.json();
     if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }
+    const summary = changeSummary(before);
     locs = d.panel_locations || locs;
     savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
-    setDirty(false); drawBoxes();
-    toast('Saved — ' + d.count + ' panels. Map regenerated.');
+    setDirty(false); drawBoxes(); refreshDownloadLinks();
+    toast('Saved ' + d.count + ' panels — ' + summary + '. Both documents regenerated.');
   }catch(e){ toast('Save failed.'); setDirty(true); }
 }
 

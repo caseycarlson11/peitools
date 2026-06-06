@@ -1091,7 +1091,42 @@ def _pm_cache_path(job_name, bp_name, pages=None):
     return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(bp_name)}{_pm_sig(pages)}.json")
 
 def _pm_output_path(job_name, bp_name):
-    return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")
+    return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")   # marked-up pages only
+
+def _pm_full_path(job_name, bp_name):
+    return os.path.join(_pm_dir(job_name), f"full_{_pm_safe(bp_name)}.pdf")   # whole blueprint w/ edits merged
+
+def _pm_merge_full(original_path, map_path, pages, dest):
+    """Write `dest` = the complete original blueprint with the marked-up pages
+    merged back in at their original positions. `pages` = 1-based originals."""
+    import fitz, shutil
+    if not pages:
+        shutil.copy2(map_path, dest)   # whole doc was mapped already
+        return
+    full = fitz.open(original_path)
+    mapped = fitz.open(map_path)
+    try:
+        n = full.page_count
+        for i, op in enumerate(sorted(pages)):
+            idx = op - 1
+            if idx < 0 or idx >= n or i >= mapped.page_count:
+                continue
+            full.delete_page(idx)                                  # drop original page
+            full.insert_pdf(mapped, from_page=i, to_page=i, start_at=idx)  # put marked-up one back
+        full.save(dest, garbage=4, deflate=True)
+    finally:
+        full.close(); mapped.close()
+
+def _pm_build_full(job_name, bp_name, pages):
+    """Regenerate the full merged document from the current map output."""
+    original = safe_join(job_name, "Blueprints", bp_name)
+    map_out  = _pm_output_path(job_name, bp_name)
+    if not os.path.isfile(original) or not os.path.isfile(map_out):
+        return
+    try:
+        _pm_merge_full(original, map_out, pages, _pm_full_path(job_name, bp_name))
+    except Exception:
+        pass
 
 def _pm_session_path(job_name):
     return os.path.join(_pm_dir(job_name), "session.json")
@@ -1176,6 +1211,7 @@ def _run_pm_job(job_name, bp_name, pages=None):
         result = generate_panel_map_blueprint(
             scan_path, panel_locations, _pm_output_path(job_name, bp_name),
             keep_only_panel_pages=False)
+        _pm_build_full(job_name, bp_name, pages)   # also build the full merged document
         drawn   = result["drawn"]
         out_pgs = result["output_pages"]
         withp   = result["pages_with_panels"]
@@ -1307,6 +1343,7 @@ def panel_map_load_only(job_name):
     try:
         generate_panel_map_blueprint(scan_path, {}, _pm_output_path(job_name, bp_name),
                                      keep_only_panel_pages=False)
+        _pm_build_full(job_name, bp_name, pages)
     except Exception:
         pass
 
@@ -1408,11 +1445,12 @@ def panel_map_update(job_name):
     with open(sess["locs"], "w") as f:
         _json.dump(clean, f)
 
-    # Regenerate the map PDF with the corrected panels.
+    # Regenerate the map PDF (marked-up pages only) + the full merged document.
     bp_name = sess.get("bp_name", "")
     result = generate_panel_map_blueprint(
         sess["scan_pdf"], clean, _pm_output_path(job_name, bp_name),
         keep_only_panel_pages=False)
+    _pm_build_full(job_name, bp_name, sess.get("pages"))
 
     # Log the human corrections to the shared cross-project record so the
     # packing-list tracker can benefit from how panels were dialed in.
@@ -1429,7 +1467,25 @@ def panel_map_update(job_name):
         pass
 
     return jsonify({"ok": True, "panel_locations": clean,
-                    "count": len(clean), "output_pages": result["output_pages"]})
+                    "count": len(clean), "output_pages": result["output_pages"],
+                    "added": len(new_keys - old_keys),
+                    "removed": len(old_keys - new_keys),
+                    "has_full": os.path.isfile(_pm_full_path(job_name, bp_name))})
+
+
+@app.route("/api/panel-map/download-full/<path:job_name>")
+@login_required
+def panel_map_download_full(job_name):
+    """Serve the full blueprint with the marked-up pages merged back in."""
+    bp_name = (request.args.get("blueprint") or "").strip()
+    if not bp_name:
+        sess = _pm_load_session(job_name)
+        bp_name = (sess or {}).get("bp_name", "")
+    out = _pm_full_path(job_name, bp_name) if bp_name else None
+    if not out or not os.path.exists(out):
+        return jsonify({"error": "No full document yet"}), 404
+    return send_file(out, mimetype="application/pdf", as_attachment=False,
+                     download_name=f"{job_name} - Panel Map (Full).pdf")
 
 
 @app.route("/packing-list-tracker")
