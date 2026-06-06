@@ -1079,6 +1079,15 @@ def _pm_safe(name):
     base = os.path.splitext(os.path.basename(name))[0]
     return re.sub(r"[^A-Za-z0-9._-]+", "_", base)[:80]
 
+def _pm_base(bp_name):
+    """Canonical blueprint name. Re-loading the full 'Panel Mapper' version maps
+    back to the same working set as the original (continues progress); the
+    'panels_only' subset stays its own set so saving it can't overwrite the full."""
+    b = os.path.splitext(os.path.basename(bp_name))[0]
+    if b.endswith(" - Panel Mapper"):
+        b = b[:-len(" - Panel Mapper")]
+    return b.strip()
+
 def _pm_sig(pages):
     """Short signature for a kept-pages selection (None/empty = whole doc)."""
     if not pages:
@@ -1088,13 +1097,13 @@ def _pm_sig(pages):
     return "_p" + hashlib.md5(key.encode()).hexdigest()[:8]
 
 def _pm_cache_path(job_name, bp_name, pages=None):
-    return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(bp_name)}{_pm_sig(pages)}.json")
+    return os.path.join(_pm_dir(job_name), f"locs_{_pm_safe(_pm_base(bp_name))}{_pm_sig(pages)}.json")
 
 def _pm_output_path(job_name, bp_name):
-    return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(bp_name)}.pdf")   # marked-up pages only
+    return os.path.join(_pm_dir(job_name), f"map_{_pm_safe(_pm_base(bp_name))}.pdf")   # marked-up pages only
 
 def _pm_full_path(job_name, bp_name):
-    return os.path.join(_pm_dir(job_name), f"full_{_pm_safe(bp_name)}.pdf")   # whole blueprint w/ edits merged
+    return os.path.join(_pm_dir(job_name), f"full_{_pm_safe(_pm_base(bp_name))}.pdf")  # whole doc w/ edits merged
 
 def _pm_merge_full(original_path, map_path, pages, dest):
     """Write `dest` = the complete original blueprint with the marked-up pages
@@ -1117,14 +1126,14 @@ def _pm_merge_full(original_path, map_path, pages, dest):
     finally:
         full.close(); mapped.close()
 
-def _pm_build_full(job_name, bp_name, pages):
-    """Regenerate the full merged document from the current map output."""
-    original = safe_join(job_name, "Blueprints", bp_name)
-    map_out  = _pm_output_path(job_name, bp_name)
-    if not os.path.isfile(original) or not os.path.isfile(map_out):
+def _pm_build_full(job_name, bp_name, pages, src_pdf):
+    """Regenerate the full document by merging the marked-up pages back into the
+    source document the user is working on (original blueprint or a saved one)."""
+    map_out = _pm_output_path(job_name, bp_name)
+    if not src_pdf or not os.path.isfile(src_pdf) or not os.path.isfile(map_out):
         return
     try:
-        _pm_merge_full(original, map_out, pages, _pm_full_path(job_name, bp_name))
+        _pm_merge_full(src_pdf, map_out, pages, _pm_full_path(job_name, bp_name))
     except Exception:
         pass
 
@@ -1135,7 +1144,7 @@ def _pm_publish_to_viewer(job_name, bp_name):
     try:
         dest_dir = safe_join(job_name, "Panel Mapper")
         os.makedirs(dest_dir, exist_ok=True)
-        base   = os.path.splitext(bp_name)[0]
+        base   = _pm_base(bp_name)
         full   = _pm_full_path(job_name, bp_name)
         mapped = _pm_output_path(job_name, bp_name)
         if os.path.isfile(full):
@@ -1177,20 +1186,22 @@ def _pm_make_trimmed(bp_path, pages, dest):
     src.close()
     return len(keep)
 
-def _run_pm_job(job_name, bp_name, pages=None):
+def _run_pm_job(job_name, bp_name, pages=None, folder="Blueprints"):
     try:
         from packing_list_engine import scan_blueprint_panels, generate_panel_map_blueprint
         os.makedirs(_pm_dir(job_name), exist_ok=True)
 
-        bp_path = safe_join(job_name, "Blueprints", bp_name)
+        if folder not in _PM_SRC_FOLDERS:
+            folder = "Blueprints"
+        bp_path = safe_join(job_name, folder, bp_name)
         if not os.path.isfile(bp_path):
-            raise FileNotFoundError(f"Blueprint not found: {bp_name}")
+            raise FileNotFoundError(f"Document not found: {bp_name}")
 
         # If the user pre-selected pages, scan a trimmed copy so blank pages are
         # never even OCR'd (much faster). Otherwise scan the whole blueprint.
         scan_path = bp_path
         if pages:
-            trimmed = os.path.join(_pm_dir(job_name), f"trimmed_{_pm_safe(bp_name)}{_pm_sig(pages)}.pdf")
+            trimmed = os.path.join(_pm_dir(job_name), f"trimmed_{_pm_safe(_pm_base(bp_name))}{_pm_sig(pages)}.pdf")
             kept_n = _pm_make_trimmed(bp_path, pages, trimmed)
             scan_path = trimmed
             with _pm_jobs_lock:
@@ -1228,7 +1239,7 @@ def _run_pm_job(job_name, bp_name, pages=None):
         result = generate_panel_map_blueprint(
             scan_path, panel_locations, _pm_output_path(job_name, bp_name),
             keep_only_panel_pages=False)
-        _pm_build_full(job_name, bp_name, pages)   # also build the full merged document
+        _pm_build_full(job_name, bp_name, pages, bp_path)   # merge edits back into the source
         _pm_publish_to_viewer(job_name, bp_name)
         drawn   = result["drawn"]
         out_pgs = result["output_pages"]
@@ -1237,7 +1248,8 @@ def _run_pm_job(job_name, bp_name, pages=None):
         # Save a session so the editor can reload the base prints + panel positions.
         try:
             with open(_pm_session_path(job_name), "w") as f:
-                _json.dump({"bp_name": bp_name, "scan_pdf": scan_path,
+                _json.dump({"bp_name": bp_name, "folder": folder, "src_pdf": bp_path,
+                            "scan_pdf": scan_path,
                             "locs": _pm_cache_path(job_name, bp_name, pages),
                             "pages": pages or []}, f)
         except Exception:
@@ -1265,20 +1277,31 @@ def panel_print_mapper():
 @app.route("/api/panel-map/blueprints/<path:job_name>")
 @login_required
 def panel_map_blueprints(job_name):
-    """List blueprint PDFs for a job, plus whether the job has DXF validation."""
-    bp_dir = safe_join(job_name, "Blueprints")
-    files = []
-    if os.path.isdir(bp_dir):
-        for f in sorted(os.listdir(bp_dir)):
-            if not f.lower().endswith(".pdf") or "Delivery Tracked" in f:
-                continue
-            try:
-                d = datetime.fromtimestamp(os.path.getmtime(os.path.join(bp_dir, f)))
-                date = f"{d.strftime('%b')} {d.day}, {d.year}"
-            except Exception:
-                date = ""
-            files.append({"name": f, "date": date})
+    """List source PDFs: the original blueprints plus any saved Panel Mapper
+    documents (so prior progress can be re-loaded). If there's no Panel Mapper
+    folder, only the originals are returned."""
+    def _list(folder, skip_tracked=False):
+        out = []
+        d0 = safe_join(job_name, folder)
+        if os.path.isdir(d0):
+            for f in sorted(os.listdir(d0)):
+                if not f.lower().endswith(".pdf"):
+                    continue
+                if skip_tracked and "Delivery Tracked" in f:
+                    continue
+                try:
+                    dt = datetime.fromtimestamp(os.path.getmtime(os.path.join(d0, f)))
+                    date = f"{dt.strftime('%b')} {dt.day}, {dt.year}"
+                except Exception:
+                    date = ""
+                out.append({"name": f, "date": date, "folder": folder})
+        return out
+    files = _list("Blueprints", skip_tracked=True) + _list("Panel Mapper")
     return jsonify({"blueprints": files, "has_dxf": _pl_dxf_dir(job_name) is not None})
+
+
+# Folders the panel mapper is allowed to read source documents from.
+_PM_SRC_FOLDERS = ("Blueprints", "Panel Mapper")
 
 
 @app.route("/api/panel-map/process/<path:job_name>", methods=["POST"])
@@ -1286,10 +1309,11 @@ def panel_map_blueprints(job_name):
 def panel_map_process(job_name):
     data    = request.get_json(silent=True) or {}
     bp_name = (data.get("blueprint") or "").strip()
+    folder  = data.get("folder") if data.get("folder") in _PM_SRC_FOLDERS else "Blueprints"
     if not bp_name or not bp_name.lower().endswith(".pdf"):
         return jsonify({"error": "Choose a blueprint PDF"}), 400
-    if not os.path.isfile(safe_join(job_name, "Blueprints", bp_name)):
-        return jsonify({"error": f"Blueprint not found: {bp_name}"}), 404
+    if not os.path.isfile(safe_join(job_name, folder, bp_name)):
+        return jsonify({"error": f"Document not found: {bp_name}"}), 404
 
     # Optional manual page selection (1-based page numbers to keep / scan).
     pages = data.get("pages")
@@ -1310,7 +1334,7 @@ def panel_map_process(job_name):
     with _pm_jobs_lock:
         _pm_jobs[job_name] = {"status": "processing", "progress": 0,
                               "message": "Starting…", "blueprint": bp_name}
-    _threading.Thread(target=_run_pm_job, args=(job_name, bp_name, pages), daemon=True).start()
+    _threading.Thread(target=_run_pm_job, args=(job_name, bp_name, pages, folder), daemon=True).start()
     return jsonify({"ok": True})
 
 
@@ -1322,11 +1346,12 @@ def panel_map_load_only(job_name):
     from packing_list_engine import generate_panel_map_blueprint
     data    = request.get_json(silent=True) or {}
     bp_name = (data.get("blueprint") or "").strip()
+    folder  = data.get("folder") if data.get("folder") in _PM_SRC_FOLDERS else "Blueprints"
     if not bp_name or not bp_name.lower().endswith(".pdf"):
         return jsonify({"error": "Choose a blueprint PDF"}), 400
-    bp_path = safe_join(job_name, "Blueprints", bp_name)
+    bp_path = safe_join(job_name, folder, bp_name)
     if not os.path.isfile(bp_path):
-        return jsonify({"error": f"Blueprint not found: {bp_name}"}), 404
+        return jsonify({"error": f"Document not found: {bp_name}"}), 404
 
     pages = data.get("pages")
     if pages:
@@ -1341,11 +1366,11 @@ def panel_map_load_only(job_name):
 
     os.makedirs(_pm_dir(job_name), exist_ok=True)
 
-    # Trim to the selected pages (or use the whole blueprint).
+    # Trim to the selected pages (or use the whole document).
     scan_path = bp_path
     if pages:
         scan_path = os.path.join(_pm_dir(job_name),
-                                 f"trimmed_{_pm_safe(bp_name)}{_pm_sig(pages)}.pdf")
+                                 f"trimmed_{_pm_safe(_pm_base(bp_name))}{_pm_sig(pages)}.pdf")
         _pm_make_trimmed(bp_path, pages, scan_path)
 
     # Empty panel set — the editor starts with a clean sheet to add panels onto.
@@ -1354,14 +1379,14 @@ def panel_map_load_only(job_name):
         _json.dump({}, f)
 
     with open(_pm_session_path(job_name), "w") as f:
-        _json.dump({"bp_name": bp_name, "scan_pdf": scan_path,
-                    "locs": locs_path, "pages": pages or []}, f)
+        _json.dump({"bp_name": bp_name, "folder": folder, "src_pdf": bp_path,
+                    "scan_pdf": scan_path, "locs": locs_path, "pages": pages or []}, f)
 
     # Produce an (un-annotated) output so Download/Open still work before any edits.
     try:
         generate_panel_map_blueprint(scan_path, {}, _pm_output_path(job_name, bp_name),
                                      keep_only_panel_pages=False)
-        _pm_build_full(job_name, bp_name, pages)
+        _pm_build_full(job_name, bp_name, pages, bp_path)
         _pm_publish_to_viewer(job_name, bp_name)
     except Exception:
         pass
@@ -1469,7 +1494,7 @@ def panel_map_update(job_name):
     result = generate_panel_map_blueprint(
         sess["scan_pdf"], clean, _pm_output_path(job_name, bp_name),
         keep_only_panel_pages=False)
-    _pm_build_full(job_name, bp_name, sess.get("pages"))
+    _pm_build_full(job_name, bp_name, sess.get("pages"), sess.get("src_pdf") or sess.get("scan_pdf"))
     _pm_publish_to_viewer(job_name, bp_name)
 
     # Log the human corrections to the shared cross-project record so the

@@ -156,6 +156,7 @@
 {% block scripts %}
 let selectedJob = "";
 let selectedBp  = "";
+let selectedFolder = "Blueprints";
 let pollTimer   = null;
 let startTime   = 0;
 let jobDone     = false;   // guard so finishProcess runs only once
@@ -182,7 +183,8 @@ function clearErr(){ $('errBox').classList.remove('show'); }
 
 function blueprintUrl(){
   return '/files/' + encodeURIComponent(selectedJob)
-       + '/Blueprints/' + encodeURIComponent(selectedBp);
+       + '/' + encodeURIComponent(selectedFolder)
+       + '/' + encodeURIComponent(selectedBp);
 }
 
 let pdfjsReady = null;
@@ -213,6 +215,7 @@ fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
 function onJobChange(){
   selectedJob = $('jobSelect').value;
   selectedBp  = "";
+  selectedFolder = "Blueprints";
   clearErr();
   $('dxfNotice').classList.remove('show');
   $('bpField').style.display='none';
@@ -247,20 +250,25 @@ function onJobChange(){
       files.forEach(f=>{
         const name = (typeof f === 'string') ? f : f.name;
         const date = (typeof f === 'string') ? '' : (f.date || '');
+        const folder = (typeof f === 'string') ? 'Blueprints' : (f.folder || 'Blueprints');
         const item = document.createElement('div');
         item.className = 'pm-item';
+        const tag = folder === 'Panel Mapper'
+          ? '<span style="background:rgba(63,185,80,.18);color:var(--green);font-size:.68rem;font-weight:700;padding:1px 6px;border-radius:5px;margin-left:6px">Panel Mapper</span>'
+          : '';
         item.innerHTML =
           '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
-          + '<span style="flex:1">' + name + '</span>'
+          + '<span style="flex:1">' + name + tag + '</span>'
           + (date ? '<span style="color:var(--text2);font-weight:400;font-size:.8rem">' + date + '</span>' : '');
-        item.onclick = ()=>selectBp(name, item);
+        item.onclick = ()=>selectBp(name, folder, item);
         list.appendChild(item);
       });
     }).catch(()=>showErr('Could not load blueprints.'));
 }
 
-function selectBp(name, item){
+function selectBp(name, folder, item){
   selectedBp = name;
+  selectedFolder = folder || "Blueprints";
   clearErr();
   $('resultCard').style.display='none';
   $('successBox').classList.remove('show');
@@ -442,7 +450,7 @@ function loadWithoutMapping(){
   btn.disabled = true; btn.textContent = 'Loading…';
   fetch('/api/panel-map/load-only/'+encodeURIComponent(selectedJob), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ blueprint: selectedBp, pages })
+    body: JSON.stringify({ blueprint: selectedBp, folder: selectedFolder, pages })
   }).then(r=>r.json()).then(d=>{
     if(d.error){ alert(d.error); btn.disabled=false; btn.textContent=orig; return; }
     window.location.href = '/panel-map/editor/' + encodeURIComponent(selectedJob);
@@ -489,7 +497,7 @@ function doProcess(){
 
   fetch('/api/panel-map/process/'+encodeURIComponent(selectedJob), {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ blueprint: selectedBp, rescan: $('rescanChk').checked, pages: keptPages })
+    body: JSON.stringify({ blueprint: selectedBp, folder: selectedFolder, rescan: $('rescanChk').checked, pages: keptPages })
   }).then(r=>r.json()).then(d=>{
     if(d.error){ failProcess(d.error); return; }
     pollTimer = setInterval(poll, 1200);
