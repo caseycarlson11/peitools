@@ -213,6 +213,29 @@ async function load(){
 
   pdfDoc = await pdfjsLib.getDocument('/api/panel-map/base/'+encodeURIComponent(JOB)).promise;
   buildPages();
+
+  // If opened with ?panel=<number> (e.g. from Spreadsheet viewer), scroll to and select that panel
+  const urlPanel = new URLSearchParams(location.search).get('panel');
+  if(urlPanel){
+    const keys = instancesOf(urlPanel);
+    if(keys.length){
+      // Small delay lets the browser compute layout for all page divs
+      setTimeout(()=>{
+        const key = keys[0];
+        const box = document.querySelector('.pbox[data-panel="'+CSS.escape(key)+'"]');
+        if(box){
+          selectPanel(key, box);
+          box.classList.add('flash'); _flashKey = key;
+          centerOnBox(box);
+          toast('Panel ' + urlPanel + ' — click to edit or delete.');
+        } else {
+          toast('Panel ' + urlPanel + ' not visible yet — try scrolling.');
+        }
+      }, 200);
+    } else {
+      setTimeout(()=>toast('Panel ' + urlPanel + ' not found in this job.'), 500);
+    }
+  }
 }
 
 const DPR = Math.min(window.devicePixelRatio || 1, 2);   // crispness multiplier

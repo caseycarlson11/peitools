@@ -440,10 +440,20 @@ Adds clickable hyperlinks to callout circles on KPS blueprint PDFs.
 ### Spreadsheets tab
 Clicking **"Pull Data into Spreadsheet"** calls `POST /api/jobs/<job>/build-spreadsheet`, which:
 1. Reads `Delivery Tracking/delivery_state.json` → `{panel: {skid, shipment}}` (from Packing List Tracker)
-2. Reads panel locations from Panel Map session locs or `Delivery Tracking/panel_locations_v2.json` → `{panel: {page, bbox}}`
+2. Reads panel locations from `Panel Map/session.json` → `locs` JSON (preferred) or falls back to `Delivery Tracking/panel_locations_v2.json`
 3. Gets packing list file mtimes from `Packing Lists/` folder for "Date Delivered"
-4. Writes `Spreadsheets/<job>.xlsx` with columns: **Panel Number**, **Sheet Number** (1-indexed page), **Order Number** (shipment label), **Date Delivered** (packing list file mtime)
-5. Creates/overwrites the file silently — no download prompt; file appears in the Spreadsheets tab
+4. Extracts drawing numbers (dep. no., e.g. "3.4") from the title block of each page in `scan_pdf` using PyMuPDF text extraction
+5. Writes `Spreadsheets/<job>.xlsx` with columns: **Panel Number**, **Sheet Number** (dep. no. from title block), **Order Number** (shipment label), **Date Delivered** (packing list file mtime)
+6. Creates/overwrites the file silently — no download prompt; file appears in the Spreadsheets tab
+
+**Panel Number source:** iterates all entries in Panel Mapper `locs` JSON (same source as `panels_only` PDF). Duplicate panels (same panel on multiple pages) each get their own row. Panel IDs may contain any characters (letters, numbers, symbols). Sorted numerically by leading digits, then alphabetically.
+
+**Sheet Number extraction:**
+- Uses `scan_pdf` from `Panel Map/session.json` — this is the trimmed blueprint whose page indices match `panel_locs` exactly. Using `src_pdf` (full blueprint) instead would give wrong page indices.
+- Extracts words from the right 20% of each page (KPS title block column) using PyMuPDF `get_text("words")`
+- Filters for words matching exactly `X.Y` or `X.YY` format (e.g. "3.4", "2.10")
+- Picks the word closest to the bottom-right corner — that is always the dep. no. field in the KPS title block
+- Falls back to `page_index + 1` if no match found
 
 Clicking an xlsx file shows a popup with three options:
 - **View** — renders the spreadsheet inline using SheetJS (no download)
