@@ -983,9 +983,11 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
             # is independently selectable and deletable in Acrobat/Preview/etc.
             # Deleting the annotation leaves the original drawing and numbers intact.
             annot = page.add_rect_annot(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad))
-            annot.set_colors(fill=fill_c, stroke=stroke_c)
-            annot.set_opacity(0.50)
-            annot.set_border(width=0.8)
+            # Fill only, NO border — a border outlines the box and hides the printed
+            # panel number when zoomed out. The translucent fill marks it delivered.
+            annot.set_colors(fill=fill_c)
+            annot.set_opacity(0.45)
+            annot.set_border(width=0)
             annot.set_info(
                 title=f"Panel {panel_str}",
                 content=f"Skid {skid_num} — {shipment}"

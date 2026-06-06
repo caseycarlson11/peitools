@@ -585,9 +585,9 @@
   // coloured border + pulse marks the selection.
   function confirmOnBlueprint(panel, delivered, doScroll){
     document.querySelectorAll('#bpViewer .confirm-hl').forEach(e=>e.remove());
-    // light wash + flash only — NO border, so the printed panel number stays readable
-    const fill = 'rgba(255,225,77,0.22)';
-    const border = null;
+    // yellow box + flash marks the selected panel
+    const fill = 'rgba(255,225,77,0.30)';
+    const border = '#ffe14d';
     const loc=locations[panel];
     let target=null;
     if(loc){ placeConfirm(loc.page, loc.bbox, fill, border); target={page:loc.page,bbox:loc.bbox}; }
