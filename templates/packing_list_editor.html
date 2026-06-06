@@ -531,8 +531,11 @@
     // not yet placed (knows its skid/shipment); missed = not in the table.
     const kind = inTable ? (located ? 'delivered' : 'unlocated') : 'missed';
     selected={panel, kind, page:loc?loc.page:null, bbox:loc?loc.bbox:null};
-    // ring on the blueprint panel box(es)
-    document.querySelectorAll(`#bpViewer .pbox[data-panel="${cssesc(panel)}"]`).forEach(b=>b.classList.add('sel'));
+    // ring on the blueprint panel box(es) — only when selecting FROM the blueprint
+    // (a packing-list click is just a cross-reference; the ring shows the info tag).
+    if(source!=='pl'){
+      document.querySelectorAll(`#bpViewer .pbox[data-panel="${cssesc(panel)}"]`).forEach(b=>b.classList.add('sel'));
+    }
     // Only scroll the OTHER pane: clicking on the packing list scrolls the
     // blueprint; clicking on the blueprint scrolls the packing list. The pane you
     // clicked never moves.
@@ -582,9 +585,9 @@
   // coloured border + pulse marks the selection.
   function confirmOnBlueprint(panel, delivered, doScroll){
     document.querySelectorAll('#bpViewer .confirm-hl').forEach(e=>e.remove());
-    // same look as a matched packing-list mark: yellow box + flash
-    const fill = 'rgba(255,225,77,0.30)';
-    const border = '#ffe14d';
+    // light wash + flash only — NO border, so the printed panel number stays readable
+    const fill = 'rgba(255,225,77,0.22)';
+    const border = null;
     const loc=locations[panel];
     let target=null;
     if(loc){ placeConfirm(loc.page, loc.bbox, fill, border); target={page:loc.page,bbox:loc.bbox}; }
