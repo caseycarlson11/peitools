@@ -815,9 +815,6 @@ async function pullDataIntoSpreadsheet() {
     jobFiles  = await r2.json();
     const tab = Array.from(document.querySelectorAll('.cat-tab')).find(t => t.textContent.trim() === 'Spreadsheets');
     if (tab) selectCategory('Spreadsheets', tab);
-    // Auto-download the file
-    const url = `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(data.file)}`;
-    const a = document.createElement('a'); a.href = url; a.download = data.file; a.click();
   } catch(e) {
     const loc = e.stack ? e.stack.split('\n').slice(0,3).join(' | ') : '';
     alert('Error: ' + e.message + (loc ? '\n\n' + loc : ''));
