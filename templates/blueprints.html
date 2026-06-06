@@ -324,6 +324,16 @@
     .file-item.active .file-date { color: rgba(96,180,240,0.7); }
     .no-files { padding: 20px 12px; color: var(--text2); font-size: 0.8rem; text-align: center; line-height: 1.6; }
 
+    /* ── Toast ── */
+    #bvToast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #23272e; color: #e6edf3; padding: 10px 20px; border-radius: 8px;
+      font-size: 0.85rem; box-shadow: 0 4px 18px rgba(0,0,0,.5);
+      opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+      white-space: nowrap; z-index: 9999;
+    }
+    #bvToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
     /* ── Spreadsheets category ── */
     .pull-data-btn {
       display: flex; align-items: center; justify-content: center; gap: 7px;
@@ -782,11 +792,36 @@ function xlsxDirectDownload(fname) {
   const a = document.createElement('a'); a.href = xlsxFileUrl(f); a.download = f; a.click();
 }
 
-function xlsxGoogleSheets(fname) {
-  const f = fname || _currentSheetFile;
-  if (!f) return;
-  xlsxDirectDownload(f);
-  setTimeout(() => window.open('https://sheets.new', '_blank'), 400);
+let _toastTimer = null;
+function toast(msg, duration=3500) {
+  const el = document.getElementById('bvToast');
+  if (!el) return;
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+async function xlsxGoogleSheets(fname) {
+  // Build TSV from the rendered table so Google Sheets gets it directly
+  const table = document.querySelector('#sheetScroll table');
+  if (!table) { alert('No spreadsheet loaded.'); return; }
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const tsv = rows.map(tr =>
+    Array.from(tr.querySelectorAll('th, td'))
+      .map(cell => cell.innerText.replace(/\t/g, ' ').replace(/\n/g, ' '))
+      .join('\t')
+  ).join('\n');
+  try {
+    await navigator.clipboard.writeText(tsv);
+  } catch(e) {
+    // Fallback: textarea copy
+    const ta = document.createElement('textarea');
+    ta.value = tsv; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  window.open('https://sheets.new', '_blank');
+  toast(`"${currentJob}" data copied — press Ctrl+V to paste, then rename the sheet.`);
 }
 
 // ── Inline spreadsheet viewer (SheetJS) ───────────────────
@@ -1193,5 +1228,6 @@ loadJobs();
     </div>
   </div>
 </div>
+<div id="bvToast"></div>
 </body>
 </html>
