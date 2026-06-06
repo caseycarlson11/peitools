@@ -236,6 +236,7 @@
         <span class="lbl">Packing List</span>
         <select id="plSelect" onchange="onPlChange()"><option value="">— Select a packing list —</option></select>
         <button id="addPanelBtn" onclick="addMissingPanel()" title="Add a panel the scan missed">＋ Add missing panel</button>
+        <button id="blankBtn" onclick="duplicatePanel()" title="Drop empty highlights — stays on until Esc">⧉ Add blank highlights</button>
         <span class="pill" id="plStat"></span>
         <button class="ph-btn" onclick="printDoc('pl')" style="margin-left:auto">🖨 Print</button>
         <button class="ph-btn" data-share-btn onclick="toggleShare('pl',this)">🔗 Share</button>
@@ -1152,7 +1153,8 @@
   }
   function activateMarker(){
     if(!selMarker) return;
-    activeMarkerId = selMarker.id; markerJustActivated = false;
+    activeMarkerId = selMarker.id;
+    markerJustActivated = true;   // so this same click doesn't immediately deactivate it
     renderPlMarks();
     toast('Drag the marker to move it, drag the corner to resize');
   }
