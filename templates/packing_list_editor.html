@@ -284,6 +284,18 @@
 
   const SHIP_COLORS = ['#18f23c','#ffd900','#00c6ff','#ff8800','#e000e0','#00e8d8','#b800ff','#ff4444'];
   const shipColor = i => SHIP_COLORS[((i%SHIP_COLORS.length)+SHIP_COLORS.length)%SHIP_COLORS.length];
+  // Return a shipment's colour index, assigning a fresh UNUSED one if it's new
+  // (so every packing list gets a colour different from all the others).
+  function shipIdx(shipment){
+    if(shipment==null) shipment='';
+    if(!(shipment in shipIndex)){
+      const used=new Set(Object.values(shipIndex).map(Number));
+      let i=0; while(used.has(i)) i++;
+      shipIndex[shipment]=i;
+    }
+    return shipIndex[shipment];
+  }
+  function ensureShipColors(){ Object.values(delivery).forEach(v=>shipIdx(v.shipment)); }
 
   // ── State ──
   let delivery   = {};   // panel -> {skid, shipment}
@@ -354,6 +366,7 @@
       tableCells = d.table_cells || {};
       shipments = d.shipments || [];
       shipIndex = d.file_colors || {};
+      ensureShipColors();   // every shipment (incl. newly loaded lists) gets a distinct colour
       activeShip = shipments.length ? shipments[0].label : null;
       _panelsOnlyUrl = d.panels_only_url || null;
 
@@ -466,15 +479,14 @@
         box.className='pbox pending-remove';
         tag=`#${panel} · removing — Save to apply`;
       } else if(isAdd){
-        const c=shipColor(shipIndex[delivery[panel].shipment] ?? 0);
+        const c=shipColor(shipIdx(delivery[panel].shipment));
         box.className='pbox pending-add';
         box.style.borderColor=c; box.style.background=hexA(c,.32);
         tag=`#${panel} · added — Save to apply`;
       } else if(delivered){
         // When showing panels_only (no baked highlights), draw the shipment colour
         // ourselves — FILL ONLY, no border, so the printed panel number stays readable.
-        const shipI = shipIndex[delivery[panel].shipment] ?? 0;
-        const c = shipColor(shipI);
+        const c = shipColor(shipIdx(delivery[panel].shipment));
         box.className = 'pbox delivered';
         if(_panelsOnlyUrl){
           box.style.background = hexA(c, 0.45);
@@ -821,12 +833,13 @@
     const info={};
     Object.values(delivery).forEach(v=>{
       const s=v.shipment||'Unknown';
-      if(!(s in info)) info[s]={count:0,skids:new Set(),color_index:Object.keys(info).length};
+      if(!(s in info)) info[s]={count:0,skids:new Set()};
       info[s].count++; info[s].skids.add(String(v.skid||''));
     });
+    // Keep each shipment's existing colour; assign new shipments a fresh unused one
+    // (shipIdx) so colours stay stable and every list stays distinct.
     shipments=Object.entries(info).map(([label,v])=>({label,count:v.count,
-      skids:[...v.skids],color_index:v.color_index}));
-    shipIndex={}; shipments.forEach(s=>shipIndex[s.label]=s.color_index);
+      skids:[...v.skids],color_index:shipIdx(label)}));
     if(activeShip && !(activeShip in shipIndex)) activeShip = shipments.length?shipments[0].label:null;
     buildLegend();
   }
@@ -1020,7 +1033,7 @@
       const box=document.createElement('div'); box.className='plbox plmarker'+(active?' active':''); box.dataset.marker=m.id;
       // colour like a real mark: shipment colour if its panel is in the table, else red
       const key = m.panel ? tablePanelKey(m.panel) : null;
-      if(key){ const c=shipColor(shipIndex[delivery[key].shipment] ?? plColorIndex ?? 0);
+      if(key){ const c=shipColor(shipIdx(delivery[key].shipment));
                box.style.borderColor=c; box.style.background=hexA(c,.34); }
       else { box.style.borderColor='#ff5050'; box.style.background='rgba(255,80,80,.22)'; }
       box.title = active ? 'Drag to move · corner to resize · click off to set it'
