@@ -908,10 +908,12 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
                 chip_text_color = (0.4, 0.4, 0.4)
 
             # Panel highlight annotation (selectable/deletable in Acrobat etc.)
+            # Fill only, NO border — a border outlines the box and hides the printed
+            # panel number when zoomed out.
             annot = page.add_rect_annot(rect)
-            annot.set_colors(fill=fill_c, stroke=stroke_c)
+            annot.set_colors(fill=fill_c)
             annot.set_opacity(opacity)
-            annot.set_border(width=1.0)
+            annot.set_border(width=0)
             if label in delivered:
                 skid_num, shipment = delivered[label]
                 annot.set_info(title=f"Panel {label}",
