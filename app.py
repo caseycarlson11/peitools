@@ -345,16 +345,32 @@ def build_spreadsheet(job_name):
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
 
-    def _panel_sort_key(p):
-        m = _re_ss.match(r"(\d+)", str(p))
-        return (int(m.group(1)) if m else 9999, str(p))
+    def _panel_sort_key(display_name):
+        m = _re_ss.match(r"(\d+)", str(display_name))
+        return (int(m.group(1)) if m else float('inf'), str(display_name))
 
-    for row_idx, panel in enumerate(sorted(delivery_state.keys(), key=_panel_sort_key), 2):
-        info = delivery_state[panel]
-        shipment = info.get("shipment", "")
-        loc = panel_locs.get(panel) or panel_locs.get(str(panel))
-        sheet_num = (loc["page"] + 1) if loc else ""
-        date_del = shipment_dates.get(shipment, "")
+    # Build rows from Panel Mapper locs (source of panels_only PDF); fallback to delivery_state
+    if panel_locs:
+        # Each entry in panel_locs: key may be "211" or "211#2" (duplicate); loc has page, optional label
+        rows = []
+        for key, loc in panel_locs.items():
+            display_name = loc.get("label") or _re_ss.sub(r'#\d+$', '', key)
+            sheet_num = (loc["page"] + 1) if loc.get("page") is not None else ""
+            info = delivery_state.get(display_name) or delivery_state.get(str(display_name)) or {}
+            shipment = info.get("shipment", "")
+            date_del = shipment_dates.get(shipment, "")
+            rows.append((display_name, sheet_num, shipment, date_del))
+        rows.sort(key=lambda r: _panel_sort_key(r[0]))
+    else:
+        # Fallback: use delivery_state keys
+        rows = []
+        for panel in sorted(delivery_state.keys(), key=_panel_sort_key):
+            info = delivery_state[panel]
+            shipment = info.get("shipment", "")
+            date_del = shipment_dates.get(shipment, "")
+            rows.append((panel, "", shipment, date_del))
+
+    for row_idx, (panel, sheet_num, shipment, date_del) in enumerate(rows, 2):
         ws.cell(row=row_idx, column=1, value=panel)
         ws.cell(row=row_idx, column=2, value=sheet_num)
         ws.cell(row=row_idx, column=3, value=shipment)
@@ -365,7 +381,7 @@ def build_spreadsheet(job_name):
         ws.column_dimensions[col[0].column_letter].width = max_len + 4
 
     wb.save(out_path)
-    return jsonify({"ok": True, "panels": len(delivery_state), "file": f"{job_name}.xlsx"})
+    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
 
 
 @app.route("/admin", methods=["GET"])

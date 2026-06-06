@@ -50,7 +50,7 @@ docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs pan
 - Falls back to `docker restart` if container was stopped
 - Takes ~15 seconds, one password prompt
 
-**`deploy.bat`** — only when requirements.txt or Dockerfile changes (full rebuild ~5 min)
+**`deploy.bat`** — only when requirements.txt or Dockerfile changes (full rebuild ~5 min). Uses `git fetch + git reset --hard origin/main` on the server (not `git pull`) to cleanly overwrite server-side changes left by deploy_quick.bat. Always run from `C:\Users\ROG\Documents\Pacific Erectors\PEItools.com`, not from `C:\temp\peitools`.
 
 ---
 
@@ -59,7 +59,7 @@ docker run -d --name panelmapper -p 5000:5000 -v /var/www/pei-jobs:/app/jobs pan
 PEItools.com/
 ├── app.py                         # Flask routes (main backend)
 ├── packing_list_engine.py         # Packing List Tracker engine (OCR + PDF annotation)
-├── requirements.txt               # flask, gunicorn, pymupdf, pytesseract, pillow
+├── requirements.txt               # flask, gunicorn, pymupdf, pytesseract, pillow, ezdxf, openpyxl
 ├── Dockerfile                     # Includes tesseract-ocr install
 ├── run_local.bat
 ├── deploy_quick.bat               # Fast deploy — now includes packing_list_engine.py
@@ -134,6 +134,7 @@ PEItools.com/
 | `/compass/<token>` | Shared Field Compass | Public |
 | `/api/jobs` | List all jobs | Public |
 | `/api/jobs/<job>` | List files for a job (by category) | Public |
+| `/api/jobs/<job>/build-spreadsheet` | Generate/update `Spreadsheets/<job>.xlsx` from delivery + panel data | Login required |
 | `/files/<path>` | Serve a job file | Login required |
 | `/cad-files/<path>` | Serve a DXF/CAD file | Login required |
 
@@ -193,8 +194,16 @@ PEItools.com/
     Blueprints/Old Versions/
     Delivery Tracking/        <- Auto-created by Packing List Tracker
       delivery_state.json         Cumulative panel→skid/shipment map
-      panel_locations.json        Cached blueprint OCR panel positions (delete to force rescan)
+      panel_locations_v2.json     Cached blueprint panel positions (delete to force rescan)
       tracked_blueprint.pdf       Current annotated output PDF
+    Panel Mapper/             <- Panel Print Mapper published output (shown in Blueprint Viewer)
+      <bp> - Panel Mapper.pdf     Full doc with red-box annotations
+      <bp> - panels_only.pdf      Only the annotated pages
+    Panel Map/                <- Panel Print Mapper working files (internal, not in viewer)
+      session.json                Saved editor session (blueprint, pages, panel locations)
+      panel_locations_v2.json     Panel locations cache (shared with PL Tracker)
+    Spreadsheets/             <- Auto-created by Blueprint Viewer spreadsheet feature
+      <Job Name>.xlsx             Panel data spreadsheet (Panel #, Sheet #, Order #, Date Delivered)
   .shares.json
   .compass_shares.json
 ```
@@ -400,6 +409,36 @@ Adds clickable hyperlinks to callout circles on KPS blueprint PDFs.
 - Circle size 28–70pt, requires 2+ curve items + bisecting line
 - In-memory job store (`_hl_jobs`) — lost on server restart
 - Polling: `/blueprint/hyperlinks/status/<job_id>` every 3s
+
+---
+
+## Blueprint Viewer
+
+`/blueprints` — browse all jobs and their files organized by category tab.
+
+### Categories
+`CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets", "Panel Mapper", "Spreadsheets"]`
+
+- All categories show `.pdf` files except **Spreadsheets** which shows `.xlsx`/`.xls`.
+- The **Spreadsheets** tab always appears even if no file exists yet (to expose the Pull Data button).
+- File list shows filename + "Modified M/D/YY" date from `os.path.getmtime`.
+
+### Spreadsheets tab
+Clicking **"Pull Data into Spreadsheet"** calls `POST /api/jobs/<job>/build-spreadsheet`, which:
+1. Reads `Delivery Tracking/delivery_state.json` → `{panel: {skid, shipment}}` (from Packing List Tracker)
+2. Reads panel locations from Panel Map session locs or `Delivery Tracking/panel_locations_v2.json` → `{panel: {page, bbox}}`
+3. Gets packing list file mtimes from `Packing Lists/` folder for "Date Delivered"
+4. Writes `Spreadsheets/<job>.xlsx` with columns: **Panel Number**, **Sheet Number** (1-indexed page), **Order Number** (shipment label), **Date Delivered** (packing list file mtime)
+5. Creates/overwrites the file silently — no download prompt; file appears in the Spreadsheets tab
+
+Clicking an xlsx file shows a popup with three options:
+- **View** — renders the spreadsheet inline using SheetJS (no download)
+- **Download / Open in Excel** — standard download; Excel opens via OS file association
+- **Open in Google Sheets** — downloads the file and opens `sheets.new` (use File → Import)
+
+### Dependencies
+- `openpyxl` in `requirements.txt` (needs `deploy.bat` / Docker rebuild if not yet installed)
+- SheetJS loaded from CDN on first View click: `https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js`
 
 ---
 
