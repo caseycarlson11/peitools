@@ -40,7 +40,9 @@
               background:#fff; box-shadow:0 4px 18px rgba(0,0,0,.45); }
     .ed-page canvas{ display:block; width:100%; height:auto; }
     .ovl{ position:absolute; inset:0; }
-    .ovl.adding{ cursor:crosshair; }
+    .ovl.adding, .ovl.selecting{ cursor:crosshair; }
+    .ovl .pm-selrect{ position:absolute; border:1.6px dashed var(--blue);
+                      background:rgba(96,180,240,.18); pointer-events:none; }
     .pbox{ position:absolute; border:1.6px solid var(--red); background:rgba(248,81,73,.18);
            border-radius:2px; cursor:pointer; }
     .pbox:hover{ background:rgba(248,81,73,.32); }
@@ -74,6 +76,7 @@
     <div class="sp"></div>
     <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Missing Panel</button>
     <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each">🔢 Add Panel Series</button>
+    <button class="btn" id="multiBtn" onclick="toggleMulti()" title="Drag a box around panel numbers to read them">▦ Select Multiple Panels</button>
     <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
@@ -85,6 +88,7 @@
 
   <div class="ed-banner" id="addBanner">📍 Click on the print where the panel belongs, then type its number. Click “Add Missing Panel” again to stop.</div>
   <div class="ed-banner" id="seriesBanner"></div>
+  <div class="ed-banner" id="multiBanner">▦ Drag a box around a group of panel numbers, then release to read them. (Click “Select Multiple Panels” or Esc to stop.)</div>
   <div class="ed-body" id="body"><div style="padding:40px;text-align:center;color:#ccc">Loading…</div></div>
 
   <div class="ed-actionbar" id="actionBar">
@@ -111,6 +115,7 @@ let addMode = false;
 let selPanel = null;
 let seriesMode = false;     // "Add Panel Series" active
 let seriesNext = null;      // next number to drop in the series
+let multiSelectMode = false;// "Select Multiple Panels" (drag-to-OCR) active
 let selBoxEl   = null;      // the box element of the selected panel (for popup placement)
 let armedMode  = null;      // 'move' | 'resize' | null
 let undoStack  = [];        // JSON snapshots of locs for Undo
@@ -186,6 +191,7 @@ function buildPages(){
     wrap.style.aspectRatio = (d.w && d.h) ? (d.w+' / '+d.h) : 'auto';
     const ovl = document.createElement('div'); ovl.className='ovl'; ovl.dataset.pi=pi;
     ovl.addEventListener('click', (e)=>onOverlayClick(e, pi));
+    ovl.addEventListener('pointerdown', (e)=>onSelectStart(e, pi));
     wrap.innerHTML = '<canvas></canvas>';
     wrap.appendChild(ovl);
     body.appendChild(wrap);
@@ -256,7 +262,7 @@ function drawBoxes(){
     setBoxRect(box, loc.bbox, d);
     const lab = document.createElement('div'); lab.className='plabel'; lab.textContent=panel;
     box.appendChild(lab);
-    box.onclick = (e)=>{ if(addMode || seriesMode) return; e.stopPropagation(); selectPanel(panel, box); };
+    box.onclick = (e)=>{ if(addMode || seriesMode || multiSelectMode) return; e.stopPropagation(); selectPanel(panel, box); };
     box.addEventListener('pointerdown', (e)=>onBoxPointerDown(e, panel, box));
     ovl.appendChild(box);
   }
@@ -357,6 +363,7 @@ function toggleAdd(){
   addMode = !addMode;
   if(addMode && handMode) toggleHand();        // add and hand are mutually exclusive
   if(addMode && seriesMode) toggleSeries();    // add and series are mutually exclusive
+  if(addMode && multiSelectMode) toggleMulti();
   $('addBtn').classList.toggle('active', addMode);
   $('addBanner').classList.toggle('show', addMode);
   document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
@@ -370,6 +377,7 @@ function toggleSeries(){
   if(seriesMode){
     if(addMode) toggleAdd();
     if(handMode) toggleHand();
+    if(multiSelectMode) toggleMulti();
     seriesNext = null;        // start fresh each time the series begins
   }
   $('seriesBtn').classList.toggle('active', seriesMode);
@@ -391,6 +399,7 @@ function pageXY(e, pi){
 }
 
 function onOverlayClick(e, pi){
+  if(multiSelectMode) return;   // handled by drag-select
   if(seriesMode){ placeSeries(e, pi); return; }
   if(!addMode) return;
   const [x,y] = pageXY(e, pi);
@@ -420,6 +429,74 @@ function placeSeries(e, pi){
   pushUndo();
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
   setDirty(true); drawBoxes(); updateSeriesBanner();
+}
+
+/* ── Select Multiple Panels: drag a box, OCR the numbers inside ─────────── */
+function toggleMulti(){
+  multiSelectMode = !multiSelectMode;
+  if(multiSelectMode){
+    if(addMode) toggleAdd();
+    if(seriesMode) toggleSeries();
+    if(handMode) toggleHand();
+    clearSel();
+  }
+  $('multiBtn').classList.toggle('active', multiSelectMode);
+  $('multiBanner').classList.toggle('show', multiSelectMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('selecting', multiSelectMode));
+}
+
+function onSelectStart(e, pi){
+  if(!multiSelectMode) return;
+  e.preventDefault(); e.stopPropagation();
+  const ovl = ovlOf(pi); const ovlRect = ovl.getBoundingClientRect();
+  const sx = e.clientX - ovlRect.left, sy = e.clientY - ovlRect.top;
+  const rectEl = document.createElement('div'); rectEl.className = 'pm-selrect';
+  rectEl.style.left = sx + 'px'; rectEl.style.top = sy + 'px';
+  ovl.appendChild(rectEl);
+  try{ ovl.setPointerCapture(e.pointerId); }catch(_){}
+  const mv = (ev)=>{
+    const cx = ev.clientX - ovlRect.left, cy = ev.clientY - ovlRect.top;
+    rectEl.style.left = Math.min(sx,cx) + 'px'; rectEl.style.top = Math.min(sy,cy) + 'px';
+    rectEl.style.width = Math.abs(cx-sx) + 'px'; rectEl.style.height = Math.abs(cy-sy) + 'px';
+  };
+  const up = (ev)=>{
+    ovl.removeEventListener('pointermove', mv);
+    ovl.removeEventListener('pointerup', up);
+    ovl.removeEventListener('pointercancel', up);
+    const cx = ev.clientX - ovlRect.left, cy = ev.clientY - ovlRect.top;
+    rectEl.remove();
+    const d = dims[pi];
+    const x0 = Math.min(sx,cx)/ovlRect.width*d.w,  y0 = Math.min(sy,cy)/ovlRect.height*d.h;
+    const x1 = Math.max(sx,cx)/ovlRect.width*d.w,  y1 = Math.max(sy,cy)/ovlRect.height*d.h;
+    if(x1-x0 < 4 || y1-y0 < 4) return;   // ignore tiny drags / stray clicks
+    ocrRegion(pi, [x0,y0,x1,y1]);
+  };
+  ovl.addEventListener('pointermove', mv);
+  ovl.addEventListener('pointerup', up);
+  ovl.addEventListener('pointercancel', up);
+}
+
+async function ocrRegion(pi, bbox){
+  toast('Reading numbers…');
+  try{
+    const r = await fetch('/api/panel-map/ocr-region/'+encodeURIComponent(JOB), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ page: pi, bbox })
+    });
+    const d = await r.json();
+    if(d.error){ toast(d.error); return; }
+    const found = d.panels || [];
+    if(!found.length){ toast('No panel numbers found in that area.'); return; }
+    pushUndo();
+    let added = 0; const nums = [];
+    found.forEach(p=>{
+      nums.push(p.panel);
+      if(!(p.panel in locs)){ locs[p.panel] = { page: pi, bbox: p.bbox }; added++; }
+    });
+    recomputeDirty(); drawBoxes();
+    toast('Found ' + nums.join(', ') + ' — added ' + added +
+          (added < nums.length ? ' (others already existed)' : '') + '. Undo if wrong.');
+  }catch(e){ toast('Could not read that area.'); }
 }
 
 function refreshDownloadLinks(){
@@ -467,6 +544,7 @@ async function saveChanges(){
 let handMode = false;
 function toggleHand(){
   handMode = !handMode;
+  if(handMode && multiSelectMode) toggleMulti();   // hand disables overlay pointer events
   $('handBtn').classList.toggle('active', handMode);
   $('body').classList.toggle('hand', handMode);
 }
@@ -503,7 +581,8 @@ function toggleHand(){
 document.addEventListener('keydown', (e)=>{
   if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); return; }
   if(e.key === 'Escape'){
-    if(seriesMode) toggleSeries();
+    if(multiSelectMode) toggleMulti();
+    else if(seriesMode) toggleSeries();
     else if(addMode) toggleAdd();
     else clearSel();
   }

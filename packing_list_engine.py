@@ -626,6 +626,62 @@ def _ocr_page_words(page, pg_idx, scale=300/72, min_conf=75):
     return words
 
 
+def ocr_region(pdf_path, page_index, rect_pts, scale=400/72):
+    """OCR a rectangular region (given in PDF points) of one page and return the
+    panel-number candidates found there, as
+    [{'panel': '211', 'bbox': [x0,y0,x1,y1]}] in page coordinates. De-duplicated,
+    sorted by numeric value (panel numbers usually run in order)."""
+    import xml.etree.ElementTree as ET, tempfile
+    doc = fitz.open(pdf_path)
+    try:
+        if page_index < 0 or page_index >= doc.page_count:
+            return []
+        page = doc[page_index]
+        rx0, ry0, rx1, ry1 = [float(v) for v in rect_pts]
+        clip = fitz.Rect(min(rx0, rx1), min(ry0, ry1), max(rx0, rx1), max(ry0, ry1))
+        pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip)
+        tmp  = tempfile.mktemp(suffix=".png"); base = tmp[:-4]
+        pix.save(tmp)
+        subprocess.run(["tesseract", tmp, base, "--psm", "11", "-l", "eng", "hocr"],
+                       capture_output=True)
+        seen, out = {}, []
+        try:
+            tree = ET.parse(base + ".hocr")
+            for word in tree.iter():
+                if word.get("class") != "ocrx_word":
+                    continue
+                bm = re.search(r"bbox (\d+) (\d+) (\d+) (\d+)", word.get("title", ""))
+                if not bm:
+                    continue
+                t = "".join(word.itertext()).strip().strip(".,'\"")
+                m = re.match(r"^(\d{1,3})([A-Z]?)$", t)
+                if not m:
+                    continue
+                val = int(m.group(1))
+                if not (PANEL_MIN <= val <= PANEL_MAX):
+                    continue
+                panel = m.group(1) + m.group(2)
+                if panel in seen:
+                    continue
+                seen[panel] = True
+                px0, py0, px1, py1 = [int(v) for v in bm.groups()]
+                out.append({
+                    "panel": panel, "val": val,
+                    "bbox": [clip.x0 + px0/scale, clip.y0 + py0/scale,
+                             clip.x0 + px1/scale, clip.y0 + py1/scale],
+                })
+        finally:
+            for f in (tmp, base + ".hocr"):
+                try: os.unlink(f)
+                except Exception: pass
+        out.sort(key=lambda r: r["val"])
+        for r in out:
+            r.pop("val", None)
+        return out
+    finally:
+        doc.close()
+
+
 # --- Blueprint Annotator ---------------------------------------------------
 
 _SHIPMENT_COLORS = [

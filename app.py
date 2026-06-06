@@ -1453,6 +1453,29 @@ def panel_map_base(job_name):
     return send_file(sess["scan_pdf"], mimetype="application/pdf")
 
 
+@app.route("/api/panel-map/ocr-region/<path:job_name>", methods=["POST"])
+@login_required
+def panel_map_ocr_region(job_name):
+    """OCR a dragged rectangle on a page and return the panel numbers found."""
+    from packing_list_engine import ocr_region
+    sess = _pm_load_session(job_name)
+    if not sess or not os.path.isfile(sess.get("scan_pdf", "")):
+        return jsonify({"error": "Open the editor on a mapped document first."}), 404
+    data = request.get_json(silent=True) or {}
+    try:
+        page = int(data.get("page"))
+        bbox = [float(v) for v in data.get("bbox", [])][:4]
+    except (TypeError, ValueError):
+        return jsonify({"error": "Bad selection"}), 400
+    if len(bbox) != 4:
+        return jsonify({"error": "Bad selection"}), 400
+    try:
+        found = ocr_region(sess["scan_pdf"], page, bbox)
+    except Exception as e:
+        return jsonify({"error": f"Could not read that area: {e}"}), 500
+    return jsonify({"ok": True, "panels": found})
+
+
 @app.route("/api/panel-map/update/<path:job_name>", methods=["POST"])
 @login_required
 def panel_map_update(job_name):
