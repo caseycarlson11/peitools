@@ -157,6 +157,8 @@ let selectedJob = "";
 let selectedBp  = "";
 let pollTimer   = null;
 let startTime   = 0;
+let jobDone     = false;   // guard so finishProcess runs only once
+let polling     = false;   // guard against overlapping status fetches
 
 let totalPages  = 0;
 let included    = new Set();  // pages (1-based) to INCLUDE in the scan
@@ -461,6 +463,8 @@ function mapPanels(){
 function doProcess(){
   if(!selectedJob || !selectedBp) return;
   clearErr();
+  if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }   // never stack pollers
+  jobDone = false; polling = false;
   $('successBox').classList.remove('show');
   $('resultCard').style.display='none';
   $('progressWrap').classList.add('visible');
@@ -478,17 +482,22 @@ function doProcess(){
 }
 
 function poll(){
+  if(jobDone || polling) return;   // don't overlap fetches or run after finishing
+  polling = true;
   fetch('/api/panel-map/status/'+encodeURIComponent(selectedJob))
     .then(r=>r.json()).then(d=>{
+      if(jobDone) return;
       if(d.progress!=null) $('progressFill').style.width = d.progress + '%';
       if(d.message) $('progressMsg').textContent = d.message;
       $('pmTimer').textContent = 'Elapsed: ' + fmtElapsed(Date.now()-startTime);
       if(d.status==='done'){ finishProcess(d); }
       else if(d.status==='error'){ failProcess(d.message || 'Processing failed.'); }
-    }).catch(()=>{});
+    }).catch(()=>{}).finally(()=>{ polling = false; });
 }
 
 function finishProcess(d){
+  if(jobDone) return;             // run exactly once
+  jobDone = true;
   clearInterval(pollTimer); pollTimer=null;
   const elapsed = fmtElapsed(Date.now()-startTime);
   setTimeout(()=>$('progressWrap').classList.remove('visible'), 600);
@@ -507,6 +516,7 @@ function finishProcess(d){
 }
 
 function failProcess(msg){
+  jobDone = true; polling = false;
   clearInterval(pollTimer); pollTimer=null;
   $('progressWrap').classList.remove('visible');
   showErr(msg);
