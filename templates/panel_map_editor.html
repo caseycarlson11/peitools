@@ -547,6 +547,7 @@ function pageXY(e, pi){
 
 async function onOverlayClick(e, pi){
   if(multiSelectMode) return;   // handled by drag-select
+  if($('dupDialog').classList.contains('open')) return;   // wait for the choice first
   if(seriesMode){ placeSeries(e, pi); return; }
   if(!addMode) return;
   const [x,y] = pageXY(e, pi);
@@ -569,23 +570,35 @@ async function onOverlayClick(e, pi){
   }
 }
 
-function placeSeries(e, pi){
+async function placeSeries(e, pi){
   const [x,y] = pageXY(e, pi);
+  const bbox = [x-9, y-6, x+9, y+6];
+  // figure out which number this click is for (without advancing yet)
   let num;
   if(seriesNext == null){
     const v = prompt('Starting panel number for the series:');
     if(v == null) return;
     const n = parseInt(String(v).trim(), 10);
     if(isNaN(n)){ toast('Enter a whole number to start the series.'); return; }
-    pushUndo();                 // snapshot BEFORE placing (series counter still null)
-    num = n; seriesNext = n + 1;
+    num = n;
   } else {
-    pushUndo();                 // snapshot BEFORE incrementing, so undo restores this number
-    num = seriesNext; seriesNext++;
+    num = seriesNext;
   }
   const nn = String(num);
-  if(locs[nn]) toast('Panel ' + nn + ' moved here.');
-  locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
+
+  if(numberExists(nn)){
+    // Don't overwrite the existing one — ask what this is.
+    const rel = await askDuplicate(nn);
+    if(rel == null) return;                              // by mistake → don't place or advance
+    pushUndo();                                          // snapshot keeps the current series number
+    locs[freeKey(nn)] = { page: pi, bbox, label: nn, rel };
+    toast('Added another ' + nn + ' (' +
+          (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    locs[nn] = { page: pi, bbox };
+  }
+  seriesNext = num + 1;                                  // advance after placing
   setDirty(true); drawBoxes(); updateSeriesBanner(); updateSeriesCounter();
 }
 
