@@ -332,6 +332,8 @@
     clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2200); }
 
   // ── Boot ──
+  let _panelsOnlyUrl = null;   // set from editor-data when Panel Mapper panels_only exists
+
   async function boot(){
     try {
       const r = await fetch(`/api/packing-list/editor-data/${encodeURIComponent(JOB)}`);
@@ -343,14 +345,17 @@
       shipments = d.shipments || [];
       shipIndex = d.file_colors || {};
       activeShip = shipments.length ? shipments[0].label : null;
+      _panelsOnlyUrl = d.panels_only_url || null;
 
       buildLegend();
       buildShipSelect();
       fillPlSelect(d.packing_lists || []);
 
       $('bpLoad').textContent = 'Rendering blueprint…';
-      // Show the exact tracked PDF you can publish/download (table + highlights baked in)
-      bpDoc = await pdfjsLib.getDocument(trackedUrl()).promise;
+      // Prefer panels_only.pdf (Panel Mapper output) — its page indices match
+      // panel_locations exactly. Fall back to tracked_blueprint when not available.
+      const bpUrl = _panelsOnlyUrl || trackedUrl();
+      bpDoc = await pdfjsLib.getDocument(bpUrl).promise;
       await renderBlueprint();
       refreshStats();
     } catch(e){
@@ -388,7 +393,8 @@
   function trackedUrl(){ return `/api/packing-list/download/${encodeURIComponent(JOB)}?t=${Date.now()}`; }
   async function reloadBlueprint(){
     const v=$('bpViewer'); const a=captureAnchor(v);
-    bpDoc = await pdfjsLib.getDocument(trackedUrl()).promise;
+    const bpUrl = _panelsOnlyUrl || trackedUrl();
+    bpDoc = await pdfjsLib.getDocument(bpUrl).promise;
     await renderBlueprint();
     restoreAnchor(v, a);
   }
@@ -455,7 +461,14 @@
         box.style.borderColor=c; box.style.background=hexA(c,.32);
         tag=`#${panel} · added — Save to apply`;
       } else if(delivered){
-        box.className='pbox delivered';   // invisible; colour comes from the PDF
+        // When showing panels_only (no baked highlights), draw the shipment colour ourselves.
+        const shipI = shipIndex[delivery[panel].shipment] ?? 0;
+        const c = shipColor(shipI);
+        box.className = _panelsOnlyUrl ? 'pbox pending-add' : 'pbox delivered';
+        if(_panelsOnlyUrl){
+          box.style.borderColor = c;
+          box.style.background  = hexA(c, 0.45);
+        }
         tag=`#${panel} · ${delivery[panel].shipment||''} · skid ${delivery[panel].skid||'?'}`;
       } else {
         box.className='pbox missed'+(showMissed?'':' hidden');  // not on any packing list

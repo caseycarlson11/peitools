@@ -2168,6 +2168,21 @@ def packing_list_editor_data(job_name):
     if os.path.isdir(pl_dir):
         pl_files = sorted(f for f in os.listdir(pl_dir) if f.lower().endswith(".pdf"))
 
+    # If a Panel Mapper session exists, expose the panels_only URL so the editor
+    # can show that file instead of the full tracked blueprint — page indices match.
+    panels_only_url = None
+    pm_sess = _pm_load_session(job_name)
+    if pm_sess:
+        bp_name = pm_sess.get("bp_name", "")
+        if bp_name:
+            base = re.sub(r'\s*-\s*Panel Mapper$', '', bp_name, flags=re.IGNORECASE)
+            base = re.sub(r'\.pdf$', '', base, flags=re.IGNORECASE)
+            po_name = f"{base} - panels_only.pdf"
+            po_path = safe_join(job_name, "Panel Mapper", po_name)
+            if os.path.isfile(po_path):
+                from urllib.parse import quote as _uq
+                panels_only_url = f"/files/{_uq(job_name)}/Panel Mapper/{_uq(po_name)}"
+
     stats = _pl_stats(state)
     return jsonify({
         "job": job_name,
@@ -2176,6 +2191,7 @@ def packing_list_editor_data(job_name):
         "delivery_state": state,        # {panel: {skid, shipment}} delivered only
         "table_cells": _pl_load_cells(job_name),  # {panel: {page, bbox}} DELIVERED table row
         "packing_lists": pl_files,
+        "panels_only_url": panels_only_url,  # preferred view: Panel Mapper panels_only.pdf
         **stats,
         "has_output": os.path.exists(_pl_output_path(job_name)),
     })
@@ -2319,20 +2335,33 @@ def packing_list_update_panels(job_name):
         _json.dump(locations, f)
 
     # Regenerate the annotated PDF so Download / Publish reflect the edits.
+    # Use the same path as _run_pl_job: Panel Mapper scan_pdf when available,
+    # otherwise fall back to the full original blueprint.
     regen_ok, regen_err = True, None
     table_cells = {}
     try:
-        from packing_list_engine import generate_tracked_blueprint
-        bp = _find_blueprint(job_name)
-        if bp:
-            table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name)) or {}
-            try:
-                with open(_pl_cells_path(job_name), "w") as f:
-                    _json.dump(table_cells, f)
-            except Exception:
-                pass
+        pm_sess     = _pm_load_session(job_name)
+        pm_scan_pdf = pm_sess.get("scan_pdf", "") if pm_sess else ""
+        use_panel_map = bool(pm_sess and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
+
+        if use_panel_map:
+            from packing_list_engine import generate_tracked_blueprint_panel_map
+            generate_tracked_blueprint_panel_map(
+                pm_scan_pdf, locations, state, _pl_output_path(job_name))
+            table_cells = {}
         else:
-            regen_ok, regen_err = False, "No blueprint PDF found"
+            from packing_list_engine import generate_tracked_blueprint
+            bp = _find_blueprint(job_name)
+            if bp:
+                table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name)) or {}
+            else:
+                regen_ok, regen_err = False, "No blueprint PDF found"
+
+        try:
+            with open(_pl_cells_path(job_name), "w") as f:
+                _json.dump(table_cells, f)
+        except Exception:
+            pass
     except Exception as e:
         regen_ok, regen_err = False, str(e)
 
