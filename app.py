@@ -200,8 +200,9 @@ def serve_cad_file(filepath):
     full = safe_join(filepath)
     return send_from_directory(os.path.dirname(full), os.path.basename(full))
 
-# ── Blueprint viewer (public) ────────────────────────────────
+# ── Document Viewer (public) ─────────────────────────────────
 @app.route("/blueprints")
+@app.route("/documents")
 @login_required
 def blueprints():
     return render_template("blueprints.html")
