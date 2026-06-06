@@ -507,19 +507,34 @@ function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null; clearFlash();
   document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
   $('actionBar').classList.remove('show'); updateManipUI(); }
 
-function renameSelected(){
+async function renameSelected(){
   if(selPanel==null) return;
   const cur = labelOf(selPanel);
   const v = prompt('New panel number for "'+cur+'":', cur);
   if(v==null) return;
   const nn = String(v).trim();
   if(!nn || nn===cur) return;
-  if((nn in locs) && !confirm('Panel "'+nn+'" already exists — overwrite it?')) return;
-  pushUndo();
   const loc = locs[selPanel];
-  delete locs[selPanel];
-  locs[nn] = { page: loc.page, bbox: loc.bbox };   // clean number (drops any duplicate flag)
-  selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
+  if(numberExists(nn)){
+    // Show the same 4-option duplicate dialog used by Add Panel Series
+    _pendingPlace = { page: loc.page, bbox: loc.bbox };
+    const rel = await askDuplicate(nn);
+    if(rel == null) return;   // Cancel — keep original number
+    pushUndo();
+    const oldKey = selPanel;
+    delete locs[oldKey];
+    const newKey = freeKey(nn);
+    locs[newKey] = { page: loc.page, bbox: loc.bbox, label: nn, rel };
+    selPanel = newKey;
+    setDirty(true); drawBoxes(); selectPanel(newKey);
+    toast('Renamed to ' + nn + ' (' + (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    const oldKey = selPanel;
+    delete locs[oldKey];
+    locs[nn] = { page: loc.page, bbox: loc.bbox };
+    selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
+  }
 }
 
 function deleteSelected(){
