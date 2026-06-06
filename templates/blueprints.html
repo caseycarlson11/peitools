@@ -415,6 +415,7 @@
     }
     .sheet-scroll td.cell-edited { background: rgba(59,130,246,0.13) !important; }
     .sheet-action-btn.has-edits { border-color: var(--green); color: var(--green); }
+    .sheet-action-btn.linked { border-color: #34a853; color: #34a853; }
 
     /* PDF viewer */
     .pdf-pane {
@@ -531,7 +532,8 @@
               <span class="sheet-name" id="sheetName"></span>
               <button class="sheet-action-btn" id="sheetSaveEditsBtn" style="display:none" onclick="saveSpreadsheetEdits()">💾 Save Edits</button>
               <button class="sheet-action-btn" id="sheetDownloadBtn" onclick="xlsxDirectDownload()">📥 Download</button>
-              <button class="sheet-action-btn" onclick="xlsxGoogleSheets()">📊 Google Sheets</button>
+              <button class="sheet-action-btn" id="sheetLinkBtn" onclick="linkGoogleSheet()" title="Link a Google Sheet to this job">🔗 Link Sheet</button>
+              <button class="sheet-action-btn" id="sheetGSBtn" onclick="xlsxGoogleSheets()">📊 Google Sheets</button>
             </div>
             <div class="sheet-scroll" id="sheetScroll"></div>
           </div>
@@ -801,6 +803,59 @@ function toast(msg, duration=3500) {
   _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
 }
 
+let _linkedSheetsUrl = null;
+
+async function _loadLinkedSheetUrl() {
+  if (!currentJob) return;
+  try {
+    const r = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/sheets-url`);
+    const d = await r.json();
+    _linkedSheetsUrl = d.url || null;
+  } catch(e) { _linkedSheetsUrl = null; }
+  _updateLinkBtn();
+}
+
+function _updateLinkBtn() {
+  const btn = document.getElementById('sheetLinkBtn');
+  const gsBtn = document.getElementById('sheetGSBtn');
+  if (!btn) return;
+  if (_linkedSheetsUrl) {
+    btn.textContent = '🔗 Linked';
+    btn.classList.add('linked');
+    btn.title = _linkedSheetsUrl;
+    if (gsBtn) gsBtn.title = 'Push data to linked Google Sheet';
+  } else {
+    btn.textContent = '🔗 Link Sheet';
+    btn.classList.remove('linked');
+    btn.title = 'Link a Google Sheet to this job';
+    if (gsBtn) gsBtn.title = '';
+  }
+}
+
+async function linkGoogleSheet() {
+  const current = _linkedSheetsUrl || '';
+  const input = prompt(
+    'Paste the Google Sheets URL to link it to "' + currentJob + '".\nLeave blank to remove the link.',
+    current
+  );
+  if (input === null) return; // cancelled
+  const url = input.trim();
+  if (url && !url.includes('docs.google.com/spreadsheets')) {
+    alert('That doesn\'t look like a Google Sheets URL. Please paste the full URL from your browser.');
+    return;
+  }
+  const r = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/sheets-url`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _linkedSheetsUrl = url || null;
+    _updateLinkBtn();
+    toast(_linkedSheetsUrl ? 'Google Sheet linked to "' + currentJob + '".' : 'Link removed.');
+  }
+}
+
 async function xlsxGoogleSheets(fname) {
   // Build TSV from the rendered table so Google Sheets gets it directly
   const table = document.querySelector('#sheetScroll table');
@@ -814,14 +869,18 @@ async function xlsxGoogleSheets(fname) {
   try {
     await navigator.clipboard.writeText(tsv);
   } catch(e) {
-    // Fallback: textarea copy
     const ta = document.createElement('textarea');
     ta.value = tsv; ta.style.position = 'fixed'; ta.style.opacity = '0';
     document.body.appendChild(ta); ta.select();
     document.execCommand('copy'); document.body.removeChild(ta);
   }
-  window.open('https://sheets.new', '_blank');
-  toast(`"${currentJob}" data copied — press Ctrl+V to paste, then rename the sheet.`);
+  const target = _linkedSheetsUrl || 'https://sheets.new';
+  window.open(target, '_blank');
+  if (_linkedSheetsUrl) {
+    toast('"' + currentJob + '" data copied — press Ctrl+V to paste into the linked sheet.');
+  } else {
+    toast('"' + currentJob + '" data copied — press Ctrl+V to paste, then rename the sheet.');
+  }
 }
 
 // ── Inline spreadsheet viewer (SheetJS) ───────────────────
@@ -875,6 +934,7 @@ async function viewSpreadsheet(fname) {
     const saveBtn = document.getElementById('sheetSaveEditsBtn');
     if (saveBtn) saveBtn.style.display = 'none';
     scroll.innerHTML = html;
+    _loadLinkedSheetUrl();
     // Track cell edits via event delegation
     scroll.addEventListener('input', _onSheetCellInput, { once: false });
   } catch(e) {

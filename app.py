@@ -541,6 +541,35 @@ def spreadsheet_edits(job_name):
     return jsonify({"ok": True, "cells_updated": updated})
 
 
+@app.route("/api/jobs/<path:job_name>/sheets-url", methods=["GET"])
+@login_required
+def get_sheets_url(job_name):
+    import json as _json_su
+    ss_dir = safe_join(job_name, "Spreadsheets")
+    url_path = os.path.join(ss_dir, f"{job_name}_sheets_url.json")
+    if os.path.exists(url_path):
+        try:
+            with open(url_path) as f:
+                return jsonify(_json_su.load(f))
+        except Exception:
+            pass
+    return jsonify({"url": None})
+
+
+@app.route("/api/jobs/<path:job_name>/sheets-url", methods=["POST"])
+@login_required
+def save_sheets_url(job_name):
+    import json as _json_su
+    data = request.get_json(silent=True) or {}
+    url = data.get("url", "").strip()
+    ss_dir = safe_join(job_name, "Spreadsheets")
+    os.makedirs(ss_dir, exist_ok=True)
+    url_path = os.path.join(ss_dir, f"{job_name}_sheets_url.json")
+    with open(url_path, "w") as f:
+        _json_su.dump({"url": url or None}, f)
+    return jsonify({"ok": True, "url": url or None})
+
+
 @app.route("/admin", methods=["GET"])
 @login_required
 def admin():
