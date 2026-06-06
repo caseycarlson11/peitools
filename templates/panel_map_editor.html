@@ -76,6 +76,17 @@
     .ed-actionbar.show{ display:flex; }
     .ed-actionbar .lbl{ font-weight:700; font-size:.74rem; margin-right:2px; }
     .ed-actionbar .btn{ padding:3px 8px; font-size:.74rem; border-radius:6px; }
+    .ser-counter{ display:none; position:fixed; z-index:55; align-items:center; gap:8px;
+                  background:var(--surface); border:1px solid var(--green); border-radius:8px;
+                  padding:5px 8px; box-shadow:0 6px 18px rgba(0,0,0,.5); }
+    .ser-counter.show{ display:flex; }
+    .ser-counter .ser-num{ min-width:56px; text-align:center; font-weight:800; font-size:1.1rem;
+                           color:var(--green); cursor:text; }
+    .ser-step{ width:32px; height:32px; border:1px solid var(--border); background:#11151c;
+               color:var(--text); border-radius:6px; font-size:1rem; cursor:pointer;
+               user-select:none; touch-action:none; }
+    .ser-step:hover{ border-color:var(--green); }
+    .ser-step:active{ background:var(--green); color:#06210f; }
     .ed-banner{ display:none; background:var(--green); color:#06210f; font-weight:700;
                 font-size:.85rem; text-align:center; padding:8px 12px; }
     .ed-banner.show{ display:block; }
@@ -96,7 +107,7 @@
     <button class="btn" id="multiBtn" onclick="toggleMulti()" title="Drag a box around panel numbers to read them (shortcut: M)">▦ Select Multiple Panels <kbd>M</kbd></button>
     <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document (shortcut: H)">✋ Hand <kbd>H</kbd></button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
-    <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
+    <button class="btn" id="undoBtn" onclick="undo()" title="Undo last change (shortcut: Ctrl+Z)" disabled>↶ Undo <kbd>Ctrl+Z</kbd></button>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
@@ -126,6 +137,12 @@
     </div>
   </div>
   <div class="toast" id="toast"></div>
+
+  <div class="ser-counter" id="seriesCounter">
+    <button class="ser-step" id="serDown" title="Lower the number (hold to go fast, or ↓)">▼</button>
+    <span class="ser-num" id="serNum" title="Click to type a number">—</span>
+    <button class="ser-step" id="serUp" title="Raise the number (hold to go fast, or ↑)">▲</button>
+  </div>
 
 <script>
 const JOB = {{ job_name|tojson }};
@@ -169,7 +186,7 @@ function undo(){
   const snap = undoStack.pop();
   locs = JSON.parse(snap.locs);
   seriesNext = snap.series;                 // rewind the Add-Panel-Series number too
-  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn(); updateSeriesBanner();
+  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn(); updateSeriesBanner(); updateSeriesCounter();
   toast('Undid last change.');
 }
 
@@ -460,20 +477,68 @@ function toggleSeries(){
     if(addMode) toggleAdd();
     if(handMode) toggleHand();
     if(multiSelectMode) toggleMulti();
-    seriesNext = null;        // start fresh each time the series begins
+    if(seriesNext == null){
+      const v = prompt('Starting panel number for the series:');
+      const n = parseInt(String(v || '').trim(), 10);
+      if(isNaN(n)){ seriesMode = false; }   // cancelled → don't enter the mode
+      else seriesNext = Math.max(1, n);
+    }
   }
   $('seriesBtn').classList.toggle('active', seriesMode);
   $('seriesBanner').classList.toggle('show', seriesMode);
   document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
   updateSeriesBanner();
+  updateSeriesCounter();
 }
 function updateSeriesBanner(){
   $('seriesBanner').textContent = !seriesMode ? '' :
     (seriesNext == null
       ? '🔢 Series mode: click the FIRST panel on the print and enter its number.'
-      : '🔢 Series mode: click to drop panel ' + seriesNext + ', then ' + (seriesNext+1)
-        + ', … — one click each. Click “Add Panel Series” (or Esc) to stop.');
+      : '🔢 Series mode: click to drop panel ' + seriesNext + '. Use ▲▼ or ↑↓ to change it.');
 }
+
+// Live series-number counter shown right under the Add Panel Series button.
+function updateSeriesCounter(){
+  const w = $('seriesCounter');
+  if(seriesMode && seriesNext != null){
+    $('serNum').textContent = seriesNext;
+    const r = $('seriesBtn').getBoundingClientRect();
+    w.style.left = r.left + 'px';
+    w.style.top  = (r.bottom + 5) + 'px';
+    w.classList.add('show');
+  } else {
+    w.classList.remove('show');
+  }
+}
+function bumpSeries(delta){
+  if(!seriesMode) return;
+  seriesNext = Math.max(1, (seriesNext == null ? 1 : seriesNext) + delta);
+  updateSeriesCounter(); updateSeriesBanner();
+}
+let _serRep = null;
+function serRepeatStart(delta){
+  bumpSeries(delta);
+  let speed = 260;
+  const run = ()=>{ bumpSeries(delta); speed = Math.max(25, speed - 25); _serRep = setTimeout(run, speed); };
+  _serRep = setTimeout(run, 420);   // hold past this and it starts accelerating
+}
+function serRepeatStop(){ if(_serRep){ clearTimeout(_serRep); _serRep = null; } }
+(function initSeriesCounter(){
+  const up = $('serUp'), dn = $('serDown'), num = $('serNum');
+  const wire = (el, delta)=>{
+    if(!el) return;
+    el.addEventListener('pointerdown', (e)=>{ e.preventDefault(); serRepeatStart(delta); });
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>el.addEventListener(ev, serRepeatStop));
+  };
+  wire(up, 1); wire(dn, -1);
+  if(num) num.addEventListener('click', ()=>{
+    const v = prompt('Set the series number:', seriesNext == null ? '' : seriesNext);
+    if(v == null) return;
+    const n = parseInt(String(v).trim(), 10);
+    if(!isNaN(n)){ seriesNext = Math.max(1, n); updateSeriesCounter(); updateSeriesBanner(); }
+  });
+  window.addEventListener('resize', ()=>{ if(seriesMode) updateSeriesCounter(); });
+})();
 
 function pageXY(e, pi){
   const ovl = ovlOf(pi); const rect = ovl.getBoundingClientRect(); const d = dims[pi];
@@ -521,7 +586,7 @@ function placeSeries(e, pi){
   const nn = String(num);
   if(locs[nn]) toast('Panel ' + nn + ' moved here.');
   locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
-  setDirty(true); drawBoxes(); updateSeriesBanner();
+  setDirty(true); drawBoxes(); updateSeriesBanner(); updateSeriesCounter();
 }
 
 /* ── Select Multiple Panels: drag a box, OCR the numbers inside ─────────── */
@@ -656,8 +721,16 @@ function toggleHand(){
     const cur = parseInt(document.documentElement.style.getPropertyValue('--pw')) || 1000;
     const step = Math.max(80, Math.round(cur * 0.12));   // proportional zoom steps
     const w = Math.max(500, Math.min(5000, cur + (e.deltaY < 0 ? step : -step)));
+    if(w === cur) return;
+    const ratio = w / cur;
+    // Keep the point under the cursor fixed so it zooms in place (no page jump).
+    const pr = pane.getBoundingClientRect();
+    const ox = e.clientX - pr.left, oy = e.clientY - pr.top;     // cursor within the pane
+    const cx = pane.scrollLeft + ox, cy = pane.scrollTop + oy;   // content point under cursor
     document.documentElement.style.setProperty('--pw', w + 'px');
     const z = $('zoom'); if(z){ z.value = Math.max(+z.min, Math.min(+z.max, w)); }
+    pane.scrollLeft = cx * ratio - ox;
+    pane.scrollTop  = cy * ratio - oy;
     scheduleRerender();
   }, {passive:false});
   let drag=false, sx, sy, sl, st;
@@ -680,6 +753,9 @@ function toggleHand(){
 
 document.addEventListener('keydown', (e)=>{
   if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); return; }
+  if(seriesMode && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
+    e.preventDefault(); bumpSeries(e.key === 'ArrowUp' ? 1 : -1); return;   // OS key-repeat = fast scroll
+  }
   if(e.key === 'Escape'){
     if(multiSelectMode) toggleMulti();
     else if(seriesMode) toggleSeries();
