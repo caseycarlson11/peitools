@@ -105,6 +105,7 @@ let addMode = false;
 let selPanel = null;
 let seriesMode = false;     // "Add Panel Series" active
 let seriesNext = null;      // next number to drop in the series
+let selBoxEl   = null;      // the box element of the selected panel (for popup placement)
 
 function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
@@ -195,6 +196,7 @@ function updateLabelScale(){
 let zoomTimer = null;
 function scheduleRerender(){
   updateLabelScale();
+  positionActionBar();
   clearTimeout(zoomTimer);
   zoomTimer = setTimeout(()=>{
     document.querySelectorAll('.ed-page').forEach(wrap=>{
@@ -223,18 +225,38 @@ function drawBoxes(){
     box.style.height = ((y1-y0+pad*2)/d.h*100)+'%';
     const lab = document.createElement('div'); lab.className='plabel'; lab.textContent=panel;
     box.appendChild(lab);
-    box.onclick = (e)=>{ if(addMode) return; e.stopPropagation(); selectPanel(panel); };
+    box.onclick = (e)=>{ if(addMode || seriesMode) return; e.stopPropagation(); selectPanel(panel, box); };
     ovl.appendChild(box);
   }
 }
 
-function selectPanel(panel){
+function selectPanel(panel, boxEl){
   selPanel = panel;
+  selBoxEl = boxEl || document.querySelector('.pbox[data-panel="'+CSS.escape(panel)+'"]');
   document.querySelectorAll('.pbox').forEach(b=>b.classList.toggle('sel', b.dataset.panel===panel));
   $('selLabel').textContent = 'Panel ' + panel;
   $('actionBar').classList.add('show');
+  positionActionBar();
 }
-function clearSel(){ selPanel=null; document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
+
+// Float the Delete / Change# popup next to the clicked panel.
+function positionActionBar(){
+  const bar = $('actionBar'); if(!selBoxEl || !bar.classList.contains('show')) return;
+  const r = selBoxEl.getBoundingClientRect();
+  const bw = bar.offsetWidth || 300, bh = bar.offsetHeight || 46;
+  let left = r.left + r.width/2 - bw/2;
+  let top  = r.bottom + 8;
+  if(top + bh > window.innerHeight - 8) top = r.top - bh - 8;   // flip above if no room below
+  left = Math.max(8, Math.min(window.innerWidth - bw - 8, left));
+  top  = Math.max(8, top);
+  bar.style.left = left + 'px';
+  bar.style.top = top + 'px';
+  bar.style.bottom = 'auto';
+  bar.style.transform = 'none';
+}
+
+function clearSel(){ selPanel=null; selBoxEl=null;
+  document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
   $('actionBar').classList.remove('show'); }
 
 function renameSelected(){
@@ -379,6 +401,8 @@ document.addEventListener('keydown', (e)=>{
     else clearSel();
   }
 });
+// keep the popup pinned to the panel while scrolling the document
+$('body').addEventListener('scroll', ()=>{ if(selPanel!=null) positionActionBar(); }, {passive:true});
 
 window.addEventListener('beforeunload', (e)=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 load();
