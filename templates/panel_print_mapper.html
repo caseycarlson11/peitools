@@ -107,6 +107,7 @@
 
   <div class="btn-row">
     <button class="btn btn-green" id="selectPagesBtn" onclick="openPageSelector()" disabled>🗂 Select Pages &amp; Map</button>
+    <button class="btn btn-subtle" id="continueBtn" onclick="continueMapping()" disabled>✏️ Continue Mapping</button>
   </div>
   <div class="pm-pagestatus" id="pageStatus"></div>
 
@@ -223,6 +224,7 @@ function onJobChange(){
   $('resultCard').style.display='none';
   $('successBox').classList.remove('show');
   $('selectPagesBtn').disabled = true;
+  $('continueBtn').disabled = true;
   resetPageState();
   if(!selectedJob) return;
 
@@ -232,6 +234,7 @@ function onJobChange(){
   fetch('/api/panel-map/blueprints/'+encodeURIComponent(selectedJob))
     .then(r=>r.json()).then(d=>{
       const files = d.blueprints || [];
+      $('continueBtn').disabled = !d.has_session;   // resume prior editor work
       const notice = $('dxfNotice');
       if(d.has_dxf===false){
         notice.innerHTML = '⚠ This job has no <strong>DXF CAD FILE</strong> folder, so panel '
@@ -441,6 +444,11 @@ function mapPanels(){
   closePageSelector();
   updatePageStatus();
   doProcess();   // load the selected pages into the mapper and run the scan
+}
+
+function continueMapping(){
+  if(!selectedJob) return;
+  window.location.href = '/panel-map/editor/' + encodeURIComponent(selectedJob);
 }
 
 function loadWithoutMapping(){

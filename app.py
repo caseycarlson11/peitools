@@ -1297,7 +1297,8 @@ def panel_map_blueprints(job_name):
                 out.append({"name": f, "date": date, "folder": folder})
         return out
     files = _list("Blueprints", skip_tracked=True) + _list("Panel Mapper")
-    return jsonify({"blueprints": files, "has_dxf": _pl_dxf_dir(job_name) is not None})
+    return jsonify({"blueprints": files, "has_dxf": _pl_dxf_dir(job_name) is not None,
+                    "has_session": os.path.isfile(_pm_session_path(job_name))})
 
 
 # Folders the panel mapper is allowed to read source documents from.
