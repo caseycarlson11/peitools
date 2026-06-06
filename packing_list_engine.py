@@ -920,20 +920,20 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
                 annot.set_info(title=f"Panel {label}", content="Not yet delivered")
             annot.update()
 
-            # Number chip — small colored rectangle with the panel number,
-            # placed above-right of the highlight box.
+            # Number chip: bottom-right corner of chip = top-right corner of highlight.
             fs = 7.0
             chip_w = fs * len(label) * 0.65 + 4
             chip_h = fs + 3
-            cx0 = x1 + pad              # left edge of chip at right edge of highlight
-            cy1 = y0 - pad              # chip bottom at top of highlight
+            cx1 = x1 + pad              # chip right edge = highlight right edge
+            cx0 = cx1 - chip_w
+            cy1 = y0 - pad              # chip bottom = highlight top
             cy0 = cy1 - chip_h
             # Clamp: keep chip within page bounds
-            if cx0 + chip_w > pw - 1:
-                cx0 = pw - chip_w - 1
+            if cx0 < 1:
+                cx0 = 1.0; cx1 = cx0 + chip_w
             if cy0 < 0:
-                cy0, cy1 = y1 + pad, y1 + pad + chip_h
-            page.draw_rect(fitz.Rect(cx0, cy0, cx0 + chip_w, cy1),
+                cy0 = y1 + pad; cy1 = cy0 + chip_h
+            page.draw_rect(fitz.Rect(cx0, cy0, cx1, cy1),
                            color=stroke_c, fill=chip_color, width=0)
             page.insert_text((cx0 + 2, cy1 - 2), label,
                              fontsize=fs, color=chip_text_color,
@@ -1057,8 +1057,8 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
             annot.set_info(title=f"Panel {panel_str}")
             annot.update()
 
-            # Confirmation number on a white chip, placed ABOVE and to the RIGHT
-            # of the highlight box so it doesn't cover the printed digits.
+            # Confirmation number on a white chip.
+            # Bottom-right corner of chip = top-right corner of highlight box.
             fs    = 7.0
             label = str(panel_str)
             try:
@@ -1067,12 +1067,12 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
                 tw = len(label) * fs * 0.55
             lw   = tw + 3.0
             lh   = fs + 3.0
-            lx0  = rect.x1               # label's left edge at the panel's right edge
-            lx1  = lx0 + lw
-            ly1  = rect.y0               # label's bottom meets the panel's top edge
+            lx1  = rect.x1               # chip right edge = highlight right edge
+            lx0  = lx1 - lw
+            ly1  = rect.y0               # chip bottom = highlight top
             ly0  = ly1 - lh
-            if lx1 > page.rect.width - 2:  # clamp at the page's right margin
-                lx1 = page.rect.width - 2.0; lx0 = lx1 - lw
+            if lx0 < 2:                    # clamp at the page's left margin
+                lx0 = 2.0; lx1 = lx0 + lw
             if ly0 < 2:                    # clamp at the page's top margin
                 ly0 = 2.0; ly1 = ly0 + lh
             page.draw_rect(fitz.Rect(lx0, ly0, lx1, ly1),
