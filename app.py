@@ -399,7 +399,7 @@ def build_spreadsheet(job_name):
     ws = wb.active
     ws.title = "Panel Data"
 
-    headers = ["Panel Number", "Sheet Number", "Order Number", "Date Delivered"]
+    headers = ["Panel Number", "Sheet Number", "Packing List", "Date Delivered"]
     header_font = Font(bold=True, color="FFFFFF")
     header_fill = PatternFill("solid", fgColor="1F4E79")
     for col_idx, h in enumerate(headers, 1):

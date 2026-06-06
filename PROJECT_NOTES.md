@@ -558,10 +558,12 @@ and `templates/panel_map_editor.html` (standalone PDF.js editor).
   button (hold to fast-scroll, ↑/↓ arrows, click number to type), **Select Multiple Panels**
   (M) = drag a box → OCR (`ocr_region`) lists the numbers found and drops them.
 - **Undo** (Ctrl+Z) — snapshots include the series counter, so undo rewinds the next number too.
-- **Duplicate handling:** adding an existing number opens a NON-blocking top-right panel (the
-  document stays usable) with a dashed-yellow "N?" ghost marker at the placement spot. Buttons
-  (hotkeys 1–4): **1** Show other instance (toggles back/forth to the ghost), **2** same panel
-  another sheet, **3** different panel same number, **4** cancel. The original is never deleted.
+- **Duplicate handling:** any time a panel number already exists — whether placing via Add Panel,
+  Add Series, or **renaming** an existing panel with Change # — the same NON-blocking top-right
+  dialog appears (document stays usable) with a dashed-yellow "N?" ghost marker at the placement
+  spot. Buttons (hotkeys 1–4): **1** Show other instance (toggles back/forth to the ghost),
+  **2** same panel another sheet, **3** different panel same number, **4** cancel. The original
+  is never deleted or overwritten.
 - **Save Changes** shows a spinner + elapsed timer and a change summary toast.
 
 ### Gotchas

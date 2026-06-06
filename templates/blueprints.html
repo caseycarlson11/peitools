@@ -762,6 +762,7 @@ async function viewSpreadsheet(fname) {
     const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (!data.length) { scroll.innerHTML = '<p style="color:var(--text2);padding:20px;">No data.</p>'; return; }
     const editorBase = `/panel-map/editor/${encodeURIComponent(currentJob)}`;
+    const plBase = `/files/${encodeURIComponent(currentJob)}/Packing Lists/`;
     let html = '<table><thead><tr>';
     data[0].forEach(h => { html += `<th>${h ?? ''}</th>`; });
     html += '</tr></thead><tbody>';
@@ -772,6 +773,10 @@ async function viewSpreadsheet(fname) {
           // Panel Number — clickable link to Panel Map Editor centered on this panel
           const href = `${editorBase}?panel=${encodeURIComponent(String(c))}`;
           html += `<td><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Panel Mapper">${c}</a></td>`;
+        } else if (ci === 2 && c !== '') {
+          // Packing List — clickable link to the packing list PDF
+          const href = `${plBase}${encodeURIComponent(String(c) + '.pdf')}`;
+          html += `<td><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open packing list">${c}</a></td>`;
         } else {
           html += `<td>${c ?? ''}</td>`;
         }
