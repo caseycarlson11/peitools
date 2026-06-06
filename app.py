@@ -276,17 +276,16 @@ def api_job_all_files(job):
 
 def _extract_page_drawing_numbers(pdf_path, page_indices):
     """
-    OCR the bottom-right corner of each specified page to extract the KPS drawing number
-    (e.g. "2.3" from the dep. no. field in the title block).
+    Extract KPS drawing numbers (e.g. "2.3") from the title block of each page.
+    Uses PyMuPDF direct text extraction — fast and reliable on vector PDFs.
+    Strategy: search bottom-right corner first (last 15% w × last 12% h),
+    then widen to full bottom strip if not found.
     Returns dict: {page_index (int): drawing_number_string}
-    Falls back to str(page_index + 1) on any failure.
     """
     import re as _re_dn
     result = {}
     try:
         import fitz
-        import pytesseract
-        from PIL import Image
         doc = fitz.open(pdf_path)
         for page_num in sorted(page_indices):
             if page_num < 0 or page_num >= doc.page_count:
@@ -294,17 +293,35 @@ def _extract_page_drawing_numbers(pdf_path, page_indices):
                 continue
             page = doc[page_num]
             w, h = page.rect.width, page.rect.height
-            # Bottom-right corner: last 15% width, last 10% height — captures title block dep. no.
-            clip = fitz.Rect(w * 0.85, h * 0.90, w, h)
-            mat = fitz.Matrix(4, 4)   # 4× zoom for OCR clarity
-            pix = page.get_pixmap(matrix=mat, clip=clip, colorspace=fitz.csGRAY)
-            img = Image.frombytes("L", [pix.width, pix.height], pix.samples)
-            text = pytesseract.image_to_string(img, config='--psm 6 --oem 3')
-            # Drawing numbers are typically in X.Y or X.YY format (e.g. "2.3", "2.10", "10.2")
-            matches = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text)
-            result[page_num] = matches[-1] if matches else str(page_num + 1)
+
+            found = None
+            # Pass 1: tight bottom-right crop (title block dep. no. area)
+            clip = fitz.Rect(w * 0.82, h * 0.88, w, h)
+            text = page.get_text("text", clip=clip)
+            # Prefer number right after "dep" or "no" label
+            m = _re_dn.search(r'dep[\s\S]{0,30}?(\d{1,3}\.\d{1,2})', text, _re_dn.IGNORECASE)
+            if m:
+                found = m.group(1)
+            else:
+                matches = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text)
+                if matches:
+                    found = matches[-1]
+
+            # Pass 2: widen to full right strip if still nothing
+            if not found:
+                clip2 = fitz.Rect(w * 0.82, 0, w, h)
+                text2 = page.get_text("text", clip=clip2)
+                m2 = _re_dn.search(r'dep[\s\S]{0,30}?(\d{1,3}\.\d{1,2})', text2, _re_dn.IGNORECASE)
+                if m2:
+                    found = m2.group(1)
+                else:
+                    matches2 = _re_dn.findall(r'\b(\d{1,3}\.\d{1,2})\b', text2)
+                    if matches2:
+                        found = matches2[-1]
+
+            result[page_num] = found if found else str(page_num + 1)
         doc.close()
-    except Exception:
+    except Exception as _e:
         for p in page_indices:
             result.setdefault(p, str(p + 1))
     return result
@@ -431,7 +448,17 @@ def build_spreadsheet(job_name):
         ws.column_dimensions[col[0].column_letter].width = max_len + 4
 
     wb.save(out_path)
-    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
+    return jsonify({
+        "ok": True,
+        "panels": len(rows),
+        "file": f"{job_name}.xlsx",
+        "debug": {
+            "pm_sess": bool(pm_sess),
+            "src_pdf": pm_sess.get("src_pdf", "") if pm_sess else "",
+            "drawing_nums": drawing_nums,
+            "panel_locs_count": len(panel_locs)
+        }
+    })
 
 
 @app.route("/admin", methods=["GET"])
