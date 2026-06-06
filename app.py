@@ -82,7 +82,7 @@ def logout():
     session.pop("user", None)
     return redirect(url_for("login"))
 
-CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets"]
+CATEGORIES = ["Blueprints", "Packing Lists", "Fab Sheets", "Panel Mapper"]
 CAD_FOLDER = "DXF CAD FILE"
 ALL_FOLDERS = CATEGORIES + [CAD_FOLDER]
 IMAGE_EXTS = {".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tiff", ".tif"}
@@ -1128,6 +1128,23 @@ def _pm_build_full(job_name, bp_name, pages):
     except Exception:
         pass
 
+def _pm_publish_to_viewer(job_name, bp_name):
+    """Copy the current panel-mapper documents into the job's 'Panel Mapper'
+    folder so the Blueprint Viewer shows them. Stable names = updated each save."""
+    import shutil
+    try:
+        dest_dir = safe_join(job_name, "Panel Mapper")
+        os.makedirs(dest_dir, exist_ok=True)
+        base   = os.path.splitext(bp_name)[0]
+        full   = _pm_full_path(job_name, bp_name)
+        mapped = _pm_output_path(job_name, bp_name)
+        if os.path.isfile(full):
+            shutil.copy2(full, os.path.join(dest_dir, f"{base} - Panel Mapper.pdf"))
+        if os.path.isfile(mapped):
+            shutil.copy2(mapped, os.path.join(dest_dir, f"{base} - panels_only.pdf"))
+    except Exception:
+        pass
+
 def _pm_session_path(job_name):
     return os.path.join(_pm_dir(job_name), "session.json")
 
@@ -1212,6 +1229,7 @@ def _run_pm_job(job_name, bp_name, pages=None):
             scan_path, panel_locations, _pm_output_path(job_name, bp_name),
             keep_only_panel_pages=False)
         _pm_build_full(job_name, bp_name, pages)   # also build the full merged document
+        _pm_publish_to_viewer(job_name, bp_name)
         drawn   = result["drawn"]
         out_pgs = result["output_pages"]
         withp   = result["pages_with_panels"]
@@ -1344,6 +1362,7 @@ def panel_map_load_only(job_name):
         generate_panel_map_blueprint(scan_path, {}, _pm_output_path(job_name, bp_name),
                                      keep_only_panel_pages=False)
         _pm_build_full(job_name, bp_name, pages)
+        _pm_publish_to_viewer(job_name, bp_name)
     except Exception:
         pass
 
@@ -1451,6 +1470,7 @@ def panel_map_update(job_name):
         sess["scan_pdf"], clean, _pm_output_path(job_name, bp_name),
         keep_only_panel_pages=False)
     _pm_build_full(job_name, bp_name, sess.get("pages"))
+    _pm_publish_to_viewer(job_name, bp_name)
 
     # Log the human corrections to the shared cross-project record so the
     # packing-list tracker can benefit from how panels were dialed in.
