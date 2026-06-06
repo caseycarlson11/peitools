@@ -713,7 +713,10 @@
     if(np===null) return;
     const panel=np.trim(); if(!panel) return;
     const shipment=plShipmentLabel()||activeShip||'Manual';
-    const skid=(delivery[panel]&&delivery[panel].skid)||'';
+    const defaultSkid=(delivery[panel]&&delivery[panel].skid)||'';
+    const sk=prompt('Skid # (optional):', defaultSkid);
+    if(sk===null) return;
+    const skid=sk.trim();
     const hw=11, hh=6;
     const bbox=[cx-hw, cy-hh, cx+hw, cy+hh];
     locations[panel]={page:pi, bbox};
@@ -986,10 +989,13 @@
     const np=prompt('Panel number for this marker:');
     if(np===null) return;
     const panel=np.trim(); if(!panel) return;
+    const sk=prompt('Skid # (optional):', m.skid||'');
+    if(sk===null) return;
+    const skid=sk.trim();
     const shipment=plShipmentLabel()||activeShip||'Manual';
     locations[panel]={page:m.page, bbox:m.bbox};
-    delivery[panel]={skid:'', shipment};                 // blank skid
-    pendingAdd[panel]={panel, skid:'', shipment, page:m.page, bbox:m.bbox};
+    delivery[panel]={skid, shipment};
+    pendingAdd[panel]={panel, skid, shipment, page:m.page, bbox:m.bbox};
     pendingRemove.delete(panel); dismissed.delete(panel);
     bpMarkers=bpMarkers.filter(x=>x.id!==m.id);
     rebuildShipmentsLocal();
