@@ -48,8 +48,12 @@
     .pm-vhead .sp { flex:1; }
     .pm-vbody { flex:1; display:flex; min-height:0; }
 
-    .pm-sidebar { position:relative; width:172px; flex-shrink:0; overflow-y:auto; background:#23272f;
-                  border-right:1px solid var(--border); padding:12px 8px; }
+    .pm-sidebar { position:relative; width:var(--pm-sbw,320px); flex-shrink:0; overflow-y:auto;
+                  background:#23272f; padding:14px 12px; }
+    .pm-resizer { width:8px; flex-shrink:0; cursor:col-resize; background:#3a3f4a;
+                  border-left:1px solid var(--border); border-right:1px solid var(--border);
+                  touch-action:none; transition:background .12s; }
+    .pm-resizer:hover, .pm-resizer.active { background:var(--blue); }
     .pm-mainpane { position:relative; flex:1; overflow-y:auto; background:#525659; padding:20px 0; }
     .pm-page { margin:0 auto 18px; width:min(1100px, 94%); background:#fff;
                box-shadow:0 4px 18px rgba(0,0,0,.4); }
@@ -97,8 +101,7 @@
   <div class="alert alert-error" id="errBox"></div>
 
   <div class="btn-row">
-    <button class="btn btn-subtle" id="selectPagesBtn" onclick="openPageSelector()" disabled>🗂 Select Pages</button>
-    <button class="btn btn-green"  id="processBtn"     onclick="doProcess()"        disabled>⚡ Map Panels</button>
+    <button class="btn btn-green" id="selectPagesBtn" onclick="openPageSelector()" disabled>🗂 Select Pages &amp; Map</button>
   </div>
   <div class="pm-pagestatus" id="pageStatus"></div>
 
@@ -129,11 +132,12 @@
       <div class="sp"></div>
       <button class="btn btn-subtle" onclick="selectAllPages()">Select all</button>
       <button class="btn btn-subtle" onclick="clearSelection()">Clear</button>
-      <button class="btn btn-green"  onclick="confirmPageSelection()">✓ Use these pages</button>
+      <button class="btn btn-green"  id="mapBtn" onclick="mapPanels()">⚡ Map Panels</button>
       <button class="btn btn-subtle" onclick="closePageSelector()">✕ Cancel</button>
     </div>
     <div class="pm-vbody">
       <div class="pm-sidebar" id="thumbSidebar"><div class="pm-empty">Loading…</div></div>
+      <div class="pm-resizer" id="pmResizer" title="Drag to resize the page column"></div>
       <div class="pm-mainpane" id="mainPane"></div>
     </div>
   </div>
@@ -204,7 +208,6 @@ function onJobChange(){
   $('rescanRow').style.display='none';
   $('resultCard').style.display='none';
   $('successBox').classList.remove('show');
-  $('processBtn').disabled = true;
   $('selectPagesBtn').disabled = true;
   resetPageState();
   if(!selectedJob) return;
@@ -252,7 +255,6 @@ function selectBp(name, item){
   $('successBox').classList.remove('show');
   document.querySelectorAll('.pm-item').forEach(el=>el.classList.remove('selected'));
   item.classList.add('selected');
-  $('processBtn').disabled = false;
   $('selectPagesBtn').disabled = false;
   $('rescanRow').style.display = 'flex';
   resetPageState();
@@ -280,6 +282,8 @@ async function openPageSelector(){
   if(!selectedBp) return;
   clearErr();
   $('pageModal').classList.add('open');
+  try{ const w = localStorage.getItem('pm_sbw');
+       if(w) document.documentElement.style.setProperty('--pm-sbw', w); }catch(_){}
   $('thumbSidebar').innerHTML = '<div class="pm-empty">Loading…</div>';
   $('mainPane').innerHTML = '';
   try{
@@ -322,7 +326,7 @@ function makeObserver(root, targetW){
 function buildSidebar(){
   const bar = $('thumbSidebar');
   bar.innerHTML = ''; thumbEls = {};
-  const obs = makeObserver(bar, 150);
+  const obs = makeObserver(bar, 560);
   for(let pg=1; pg<=totalPages; pg++){
     const cell = document.createElement('div');
     cell.className = 'pm-thumb' + (included.has(pg) ? ' included' : '');
@@ -412,12 +416,38 @@ function updateSelCount(){
   $('selCount').textContent = included.size + ' of ' + totalPages + ' selected';
 }
 
-function confirmPageSelection(){
+function mapPanels(){
   if(included.size === 0){ alert('Pick at least one page to include.'); return; }
   keptPages = (included.size === totalPages) ? null : Array.from(included).sort((a,b)=>a-b);
   closePageSelector();
   updatePageStatus();
+  doProcess();   // load the selected pages into the mapper and run the scan
 }
+
+/* Drag the divider to resize the page column */
+(function setupResizer(){
+  const rez = $('pmResizer'); if(!rez) return;
+  let dragging = false;
+  rez.addEventListener('pointerdown', (e)=>{
+    dragging = true; rez.classList.add('active');
+    try{ rez.setPointerCapture(e.pointerId); }catch(_){}
+    document.body.style.userSelect = 'none'; e.preventDefault();
+  });
+  rez.addEventListener('pointermove', (e)=>{
+    if(!dragging) return;
+    const left = $('thumbSidebar').getBoundingClientRect().left;
+    const w = Math.max(160, Math.min(820, e.clientX - left));
+    document.documentElement.style.setProperty('--pm-sbw', w + 'px');
+  });
+  const stop = ()=>{
+    if(!dragging) return;
+    dragging = false; rez.classList.remove('active'); document.body.style.userSelect = '';
+    try{ localStorage.setItem('pm_sbw',
+      document.documentElement.style.getPropertyValue('--pm-sbw')); }catch(_){}
+  };
+  rez.addEventListener('pointerup', stop);
+  rez.addEventListener('pointercancel', stop);
+})();
 
 /* ── Processing ────────────────────────────────────────────────────────── */
 function doProcess(){
@@ -425,7 +455,6 @@ function doProcess(){
   clearErr();
   $('successBox').classList.remove('show');
   $('resultCard').style.display='none';
-  $('processBtn').disabled = true;
   $('progressWrap').classList.add('visible');
   $('progressFill').style.width = '0%';
   $('progressMsg').textContent = 'Starting…';
@@ -453,7 +482,6 @@ function poll(){
 
 function finishProcess(d){
   clearInterval(pollTimer); pollTimer=null;
-  $('processBtn').disabled = false;
   const elapsed = fmtElapsed(Date.now()-startTime);
   setTimeout(()=>$('progressWrap').classList.remove('visible'), 600);
   const s=$('successBox');
@@ -470,7 +498,6 @@ function finishProcess(d){
 
 function failProcess(msg){
   clearInterval(pollTimer); pollTimer=null;
-  $('processBtn').disabled = false;
   $('progressWrap').classList.remove('visible');
   showErr(msg);
 }
