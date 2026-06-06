@@ -55,6 +55,8 @@
     .pbox.sel{ border-color:var(--blue); background:rgba(96,180,240,.35); box-shadow:0 0 0 2px var(--blue); }
     .pbox.dup{ border-style:double; border-width:3px; }       /* a tracked duplicate instance */
     .pbox.flash{ border-color:#ffd400 !important; box-shadow:0 0 0 3px rgba(255,212,0,.8) !important; }
+    .pbox.ghost{ border:2px dashed #ffd400; background:rgba(255,212,0,.22); box-shadow:0 0 0 3px rgba(255,212,0,.45); }
+    .pbox.ghost .plabel{ color:#7a5d00; border-color:#ffd400; }
     /* duplicate choice dialog */
     /* non-blocking panel pinned to the top-right so the document stays usable */
     .ed-dialog{ display:none; position:fixed; top:62px; right:16px; z-index:1200; }
@@ -302,35 +304,48 @@ function freeKey(n){
   return n + '#' + i;
 }
 
-let _dupResolve = null;
-let _dupNumber  = null;
-let _dupViewIdx = 0;       // 0 = back where you were placing, 1..n = each existing instance
-let _dupHome    = null;    // scroll position when the panel opened (your placement spot)
+let _dupResolve  = null;
+let _dupNumber   = null;
+let _dupViewIdx  = 0;        // 0 = the panel you're assigning, 1..n = each existing instance
+let _pendingPlace = null;    // {page, bbox} where the new panel would go
+let _ghostEl     = null;     // temporary marker at the placement spot
+
+function makeGhost(){
+  removeGhost();
+  if(!_pendingPlace) return;
+  const ovl = ovlOf(_pendingPlace.page), d = dims[_pendingPlace.page];
+  if(!ovl || !d) return;
+  const g = document.createElement('div'); g.className = 'pbox ghost';
+  g.innerHTML = '<div class="plabel">' + (_dupNumber || '') + '?</div>';
+  setBoxRect(g, _pendingPlace.bbox, d);
+  ovl.appendChild(g); _ghostEl = g;
+}
+function removeGhost(){ if(_ghostEl){ _ghostEl.remove(); _ghostEl = null; } }
+
 function askDuplicate(n){
   _dupNumber = n; _dupViewIdx = 0;
-  const pane = $('body');
-  _dupHome = { left: pane.scrollLeft, top: pane.scrollTop };
+  makeGhost();
   $('dupTitle').textContent = 'Panel ' + n + ' is already placed';
   $('dupDialog').classList.add('open');
   return new Promise(res => { _dupResolve = res; });
 }
 function dupChoose(val){
   $('dupDialog').classList.remove('open');
-  _dupNumber = null; _dupHome = null;
+  removeGhost();
+  _dupNumber = null; _pendingPlace = null;
   const r = _dupResolve; _dupResolve = null;
   if(r) r(val);
 }
-// Toggle between the existing instance(s) and where you were placing — back and forth.
+// Toggle between the panel you're assigning and the existing instance(s) — back and forth.
 function dupShowOther(){
   if(_dupNumber == null) return;
   const keys = instancesOf(_dupNumber);
   if(!keys.length){ toast('No existing instance found.'); return; }
   _dupViewIdx = (_dupViewIdx + 1) % (keys.length + 1);
-  if(_dupViewIdx === 0){                 // jump back to your placement spot
+  if(_dupViewIdx === 0){                 // back to the panel you're assigning
     clearFlash();
-    const pane = $('body');
-    if(_dupHome){ pane.scrollLeft = _dupHome.left; pane.scrollTop = _dupHome.top; }
-    toast('Back to where you were placing.');
+    if(_ghostEl) centerOnBox(_ghostEl);
+    toast('Back to the panel you’re assigning.');
     return;
   }
   const key = keys[_dupViewIdx - 1];
@@ -588,6 +603,7 @@ async function onOverlayClick(e, pi){
   const nn = String(v).trim(); if(!nn) return;
   const bbox = [x-9, y-6, x+9, y+6];
   if(numberExists(nn)){
+    _pendingPlace = { page: pi, bbox };
     const rel = await askDuplicate(nn);     // 'sheet' | 'dup' | null
     if(rel == null) return;                 // added by mistake → cancel
     pushUndo();
@@ -620,6 +636,7 @@ async function placeSeries(e, pi){
 
   if(numberExists(nn)){
     // Don't overwrite the existing one — ask what this is.
+    _pendingPlace = { page: pi, bbox };
     const rel = await askDuplicate(nn);
     if(rel == null) return;                              // by mistake → don't place or advance
     pushUndo();                                          // snapshot keeps the current series number
