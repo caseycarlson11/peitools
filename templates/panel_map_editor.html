@@ -51,11 +51,12 @@
              transform:translate(1px,1px); }
 
     .ed-actionbar{ position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
-                   display:none; align-items:center; gap:10px; z-index:50;
-                   background:var(--surface); border:1px solid var(--border); border-radius:10px;
-                   padding:10px 14px; box-shadow:0 8px 30px rgba(0,0,0,.5); }
+                   display:none; align-items:center; gap:5px; z-index:50;
+                   background:var(--surface); border:1px solid var(--border); border-radius:8px;
+                   padding:5px 7px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
     .ed-actionbar.show{ display:flex; }
-    .ed-actionbar .lbl{ font-weight:700; }
+    .ed-actionbar .lbl{ font-weight:700; font-size:.74rem; margin-right:2px; }
+    .ed-actionbar .btn{ padding:3px 8px; font-size:.74rem; border-radius:6px; }
     .ed-banner{ display:none; background:var(--green); color:#06210f; font-weight:700;
                 font-size:.85rem; text-align:center; padding:8px 12px; }
     .ed-banner.show{ display:block; }
@@ -297,8 +298,8 @@ function updateManipUI(){
   const mb=$('moveBtn'), rb=$('resizeBtn');
   if(mb) mb.classList.toggle('active', armedMode==='move');
   if(rb) rb.classList.toggle('active', armedMode==='resize');
-  if(selBoxEl) selBoxEl.style.cursor = armedMode==='move' ? 'move'
-                                     : armedMode==='resize' ? 'nwse-resize' : 'pointer';
+  // Don't switch to a move icon — the default cursor keeps the panel visible while dragging.
+  if(selBoxEl) selBoxEl.style.cursor = armedMode==='resize' ? 'nwse-resize' : 'default';
 }
 
 function selectPanel(panel, boxEl){
@@ -312,16 +313,18 @@ function selectPanel(panel, boxEl){
   positionActionBar();
 }
 
-// Float the Delete / Change# popup next to the clicked panel.
+// Float the small popup OFF TO THE SIDE of the panel so it doesn't cover it.
 function positionActionBar(){
   const bar = $('actionBar'); if(!selBoxEl || !bar.classList.contains('show')) return;
   const r = selBoxEl.getBoundingClientRect();
-  const bw = bar.offsetWidth || 300, bh = bar.offsetHeight || 46;
-  let left = r.left + r.width/2 - bw/2;
-  let top  = r.bottom + 8;
-  if(top + bh > window.innerHeight - 8) top = r.top - bh - 8;   // flip above if no room below
+  const bw = bar.offsetWidth || 220, bh = bar.offsetHeight || 34;
+  const gap = 28;
+  let left, top;
+  if(r.right + gap + bw < window.innerWidth - 8){ left = r.right + gap; top = r.top - 4; }      // right
+  else if(r.left - gap - bw > 8){ left = r.left - gap - bw; top = r.top - 4; }                  // left
+  else { left = r.left + r.width/2 - bw/2; top = r.bottom + gap; }                              // below
   left = Math.max(8, Math.min(window.innerWidth - bw - 8, left));
-  top  = Math.max(8, top);
+  top  = Math.max(8, Math.min(window.innerHeight - bh - 8, top));
   bar.style.left = left + 'px';
   bar.style.top = top + 'px';
   bar.style.bottom = 'auto';
