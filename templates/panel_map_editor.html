@@ -28,6 +28,8 @@
     .btn-blue{ background:var(--blue); border-color:var(--blue); color:#06210f; }
     .btn.active{ background:var(--blue); border-color:var(--blue); color:#06210f; }
     .btn:disabled{ opacity:.45; cursor:not-allowed; }
+    .btn kbd{ font-family:inherit; font-size:.72em; font-weight:700; opacity:.75;
+              border:1px solid currentColor; border-radius:3px; padding:0 4px; margin-left:5px; }
     .spin{ display:inline-block; width:12px; height:12px; vertical-align:-2px;
            border:2px solid rgba(0,0,0,.3); border-top-color:#06210f; border-radius:50%;
            animation:spin .7s linear infinite; }
@@ -89,10 +91,10 @@
     <a class="home" href="/panel-print-mapper">‹ Panel Print Mapper</a>
     <div class="ed-title">Panel Editor <span id="bpName"></span></div>
     <div class="sp"></div>
-    <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Missing Panel</button>
-    <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each">🔢 Add Panel Series</button>
-    <button class="btn" id="multiBtn" onclick="toggleMulti()" title="Drag a box around panel numbers to read them">▦ Select Multiple Panels</button>
-    <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
+    <button class="btn" id="addBtn" onclick="toggleAdd()" title="Add a missing panel (shortcut: A)">➕ Add Missing Panel <kbd>A</kbd></button>
+    <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each (shortcut: S)">🔢 Add Panel Series <kbd>S</kbd></button>
+    <button class="btn" id="multiBtn" onclick="toggleMulti()" title="Drag a box around panel numbers to read them (shortcut: M)">▦ Select Multiple Panels <kbd>M</kbd></button>
+    <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document (shortcut: H)">✋ Hand <kbd>H</kbd></button>
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
@@ -683,7 +685,17 @@ document.addEventListener('keydown', (e)=>{
     else if(seriesMode) toggleSeries();
     else if(addMode) toggleAdd();
     else clearSel();
+    return;
   }
+  // Single-key mode shortcuts — ignore with modifiers or while typing in a field.
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+  const k = e.key.toLowerCase();
+  if(k === 'a'){ e.preventDefault(); toggleAdd(); }
+  else if(k === 's'){ e.preventDefault(); toggleSeries(); }
+  else if(k === 'm'){ e.preventDefault(); toggleMulti(); }
+  else if(k === 'h'){ e.preventDefault(); toggleHand(); }
 });
 // keep the popup pinned to the panel while scrolling the document
 $('body').addEventListener('scroll', ()=>{ if(selPanel!=null) positionActionBar(); }, {passive:true});
