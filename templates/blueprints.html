@@ -692,14 +692,17 @@ function selectCategory(cat, tab) {
 // ── xlsx action menu ──────────────────────────────────────
 let _xlsxMenuFile = null;
 let _currentSheetFile = null;
-let _pendingEdits = {};   // key "row,col" → new text value
+let _currentSheetHeaders = [];   // column header names, populated on load
+let _pendingEdits = {};          // key "panel||col_header" → {panel, col_header, value}
 
 function _onSheetCellInput(e) {
   const td = e.target.closest('td[contenteditable]');
   if (!td) return;
-  const row = +td.dataset.row;
-  const col = +td.dataset.col;
-  _pendingEdits[`${row},${col}`] = td.innerText.trim();
+  const tr = td.closest('tr[data-panel]');
+  if (!tr) return;
+  const panel     = tr.dataset.panel;
+  const colHeader = _currentSheetHeaders[+td.dataset.col] || String(td.dataset.col);
+  _pendingEdits[`${panel}||${colHeader}`] = { panel, col_header: colHeader, value: td.innerText.trim() };
   td.classList.add('cell-edited');
   const btn = document.getElementById('sheetSaveEditsBtn');
   if (btn) { btn.style.display = ''; btn.classList.add('has-edits'); }
@@ -709,14 +712,10 @@ async function saveSpreadsheetEdits() {
   if (!currentJob || !Object.keys(_pendingEdits).length) return;
   const btn = document.getElementById('sheetSaveEditsBtn');
   btn.disabled = true; btn.textContent = '⏳ Saving…';
-  const cells = Object.entries(_pendingEdits).map(([key, value]) => {
-    const [row, col] = key.split(',').map(Number);
-    return { row, col, value };
-  });
   try {
     const res = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/spreadsheet-edits`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cells })
+      body: JSON.stringify({ edits: Object.values(_pendingEdits) })
     });
     const data = await res.json();
     if (data.ok) {
@@ -811,13 +810,15 @@ async function viewSpreadsheet(fname) {
     // Build table manually for clean dark-mode styling
     const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (!data.length) { scroll.innerHTML = '<p style="color:var(--text2);padding:20px;">No data.</p>'; return; }
+    _currentSheetHeaders = data[0].map(h => String(h ?? ''));
     const editorBase = `/panel-map/editor/${encodeURIComponent(currentJob)}`;
     const plBase = `/files/${encodeURIComponent(currentJob)}/Packing Lists/`;
     let html = '<table><thead><tr>';
     data[0].forEach(h => { html += `<th>${h ?? ''}</th>`; });
     html += '</tr></thead><tbody>';
     for (let r = 1; r < data.length; r++) {
-      html += '<tr>';
+      const panelVal = String(data[r][0] ?? '');
+      html += `<tr data-panel="${panelVal.replace(/"/g,'&quot;')}">`;
       data[r].forEach((c, ci) => {
         if (ci === 0 && c !== '') {
           // Panel Number — link only, not directly editable (use Panel Mapper)

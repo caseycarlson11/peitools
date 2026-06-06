@@ -436,7 +436,29 @@ def build_spreadsheet(job_name):
             date_del = shipment_dates.get(shipment, "")
             rows.append((panel, "", order_num, shipment, date_del))
 
-    for row_idx, (panel, sheet_num, order_num, shipment, date_del) in enumerate(rows, 2):
+    # Apply any persisted manual overrides
+    overrides_path = os.path.join(ss_dir, f"{job_name}_overrides.json")
+    overrides = {}
+    if os.path.exists(overrides_path):
+        try:
+            with open(overrides_path) as _of:
+                overrides = _json_ss.load(_of)
+        except Exception:
+            overrides = {}
+    col_name_to_idx = {h: i for i, h in enumerate(headers)}
+    rows_final = []
+    for row in rows:
+        panel = row[0]
+        if panel in overrides:
+            row = list(row)
+            for col_header, value in overrides[panel].items():
+                idx = col_name_to_idx.get(col_header)
+                if idx is not None:
+                    row[idx] = value
+            row = tuple(row)
+        rows_final.append(row)
+
+    for row_idx, (panel, sheet_num, order_num, shipment, date_del) in enumerate(rows_final, 2):
         ws.cell(row=row_idx, column=1, value=panel)
         ws.cell(row=row_idx, column=2, value=sheet_num)
         ws.cell(row=row_idx, column=3, value=order_num)
@@ -448,37 +470,72 @@ def build_spreadsheet(job_name):
         ws.column_dimensions[col[0].column_letter].width = max_len + 4
 
     wb.save(out_path)
-    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
+    return jsonify({"ok": True, "panels": len(rows_final), "file": f"{job_name}.xlsx"})
 
 
 @app.route("/api/jobs/<path:job_name>/spreadsheet-edits", methods=["POST"])
 @login_required
 def spreadsheet_edits(job_name):
-    """Apply manual cell edits to the job's xlsx file."""
+    """Save manual cell edits to overrides JSON and apply to xlsx."""
+    import json as _json_ed
     try:
         import openpyxl as _xl_ed
     except ImportError:
         return jsonify({"error": "openpyxl not installed"}), 500
-    data = request.get_json(silent=True) or {}
-    cells = data.get("cells", [])
-    if not cells:
+    payload = request.get_json(silent=True) or {}
+    edits = payload.get("edits", [])
+    if not edits:
         return jsonify({"ok": True, "cells_updated": 0})
     ss_dir = safe_join(job_name, "Spreadsheets")
     out_path = os.path.join(ss_dir, f"{job_name}.xlsx")
+    overrides_path = os.path.join(ss_dir, f"{job_name}_overrides.json")
     if not os.path.exists(out_path):
         return jsonify({"error": "Spreadsheet not found — run Pull Data first"}), 404
+
+    # Load existing overrides
+    overrides = {}
+    if os.path.exists(overrides_path):
+        try:
+            with open(overrides_path) as f:
+                overrides = _json_ed.load(f)
+        except Exception:
+            overrides = {}
+
+    # Merge new edits into overrides
+    for edit in edits:
+        panel = str(edit.get("panel", "")).strip()
+        col_header = str(edit.get("col_header", "")).strip()
+        value = str(edit.get("value", ""))
+        if panel and col_header:
+            overrides.setdefault(panel, {})[col_header] = value
+
+    # Save overrides JSON
+    os.makedirs(ss_dir, exist_ok=True)
+    with open(overrides_path, "w") as f:
+        _json_ed.dump(overrides, f, indent=2)
+
+    # Also apply to xlsx so it's immediately up-to-date
     wb = _xl_ed.load_workbook(out_path)
     ws = wb.active
+    # Build header->col map from row 1
+    header_row = [ws.cell(row=1, column=c).value for c in range(1, ws.max_column + 1)]
+    col_map = {str(h): i + 1 for i, h in enumerate(header_row) if h is not None}
+    # Build panel->row map from column 1
+    panel_row_map = {}
+    for r in range(2, ws.max_row + 1):
+        pval = ws.cell(row=r, column=1).value
+        if pval is not None:
+            panel_row_map[str(pval)] = r
     updated = 0
-    for cell in cells:
-        try:
-            # JS r is 1-based data row; xlsx row 1 is the header, so xlsx row = r + 1
-            r = int(cell["row"]) + 1
-            c = int(cell["col"]) + 1   # JS is 0-based, xlsx is 1-based
-            ws.cell(row=r, column=c, value=str(cell.get("value", "")))
+    for edit in edits:
+        panel = str(edit.get("panel", "")).strip()
+        col_header = str(edit.get("col_header", "")).strip()
+        value = str(edit.get("value", ""))
+        r = panel_row_map.get(panel)
+        c = col_map.get(col_header)
+        if r and c:
+            ws.cell(row=r, column=c, value=value)
             updated += 1
-        except Exception:
-            pass
     wb.save(out_path)
     return jsonify({"ok": True, "cells_updated": updated})
 
