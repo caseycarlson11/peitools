@@ -907,19 +907,10 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
                 chip_color = GRAY_FILL
                 chip_text_color = (0.4, 0.4, 0.4)
 
-            # Panel highlight annotation. Make the border the SAME colour as the fill
-            # (and width 0) so there's no contrasting outline hiding the printed number.
-            annot = page.add_rect_annot(rect)
-            annot.set_colors(stroke=fill_c, fill=fill_c)
-            annot.set_opacity(opacity)
-            annot.set_border(width=0)
-            if label in delivered:
-                skid_num, shipment = delivered[label]
-                annot.set_info(title=f"Panel {label}",
-                               content=f"Skid {skid_num} — {shipment}")
-            else:
-                annot.set_info(title=f"Panel {label}", content="Not yet delivered")
-            annot.update()
+            # Panel highlight: a filled rectangle drawn directly into the page with
+            # NO stroke at all (color=None) — annotation borders straddle the edge and
+            # show as a light ring that hides the printed number, even at width 0.
+            page.draw_rect(rect, color=None, fill=fill_c, fill_opacity=opacity, width=0)
 
             # Number chip: left edge of chip = right edge of highlight, bottom of chip = top of highlight.
             fs = 7.0
@@ -983,16 +974,9 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
             # Use a PDF annotation (not a content-stream draw) so the highlight
             # is independently selectable and deletable in Acrobat/Preview/etc.
             # Deleting the annotation leaves the original drawing and numbers intact.
-            annot = page.add_rect_annot(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad))
-            # Border same colour as fill (width 0) → no contrasting outline over the number.
-            annot.set_colors(stroke=fill_c, fill=fill_c)
-            annot.set_opacity(0.45)
-            annot.set_border(width=0)
-            annot.set_info(
-                title=f"Panel {panel_str}",
-                content=f"Skid {skid_num} — {shipment}"
-            )
-            annot.update()
+            # Filled rectangle, NO stroke (color=None) → never a border over the number.
+            page.draw_rect(fitz.Rect(x0-pad, y0-pad, x1+pad, y1+pad),
+                           color=None, fill=fill_c, fill_opacity=0.45, width=0)
         cells = _insert_delivery_table(page, panels, pw, ph, shipment_order)
         for ps, bbox in (cells or {}).items():
             table_cells[ps] = {"page": pg_idx, "bbox": bbox}
