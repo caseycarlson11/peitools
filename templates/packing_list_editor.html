@@ -257,12 +257,12 @@
     </div>
     <div class="tb-sep"></div>
     <button class="ab-btn" id="abMoveBtn" onclick="enterPlaceMode()" style="display:none">📍 Move highlight</button>
-    <button class="ab-btn" id="abDragBtn" onclick="armMove()" style="display:none">✥ Move</button>
-    <button class="ab-btn" id="abResizeBtn" onclick="armResize()" style="display:none">⤡ Resize</button>
-    <button class="ab-btn" id="abSkidBtn" onclick="changeSkid()" style="display:none">🔢 Skid #</button>
+    <button class="ab-btn" id="abDragBtn" onclick="armMove()" style="display:none">✥ Move (M)</button>
+    <button class="ab-btn" id="abResizeBtn" onclick="armResize()" style="display:none">⤡ Resize (R)</button>
+    <button class="ab-btn" id="abSkidBtn" onclick="changeSkid()" style="display:none">🔢 Skid # (S)</button>
     <button class="ab-btn" id="abDupBtn" onclick="duplicatePanel()" style="display:none">⧉ Duplicate</button>
-    <button class="ab-btn" id="abChangeBtn" onclick="changeNumber()" style="display:none">✎ Change #</button>
-    <button class="ab-btn ab-del" id="abDelBtn" onclick="deleteSelected()" style="display:none">🗑 Delete highlight</button>
+    <button class="ab-btn" id="abChangeBtn" onclick="changeNumber()" style="display:none">✎ Change # (C)</button>
+    <button class="ab-btn ab-del" id="abDelBtn" onclick="deleteSelected()" style="display:none">🗑 Delete (D)</button>
     <button class="ab-btn ab-x" onclick="clearSelection()">✕</button>
   </div>
 
@@ -537,8 +537,11 @@
     // blueprint; clicking on the blueprint scrolls the packing list. The pane you
     // clicked never moves.
     confirmOnBlueprint(panel, located, source==='pl');
-    showActionBar();
     crossHighlightPL(panel, source==='bp');
+    // Clicking a panel ON THE PACKING LIST is just a cross-reference — flash it on
+    // the blueprint, but don't pop the info/edit bar or arm placement.
+    if(source==='pl'){ selected=null; return; }
+    showActionBar();
     // A panel that isn't on the prints yet: assume we want to place it — arm place
     // mode so the next click on the blueprint sets it (unless another button is used).
     if(kind==='unlocated' || (kind==='missed' && !located)) enterPlaceMode();
@@ -600,20 +603,20 @@
     $('abTitle').textContent=`Panel ${p}`;
     // Delete + Change # are always available for any panel.
     $('abDelBtn').style.display='';
-    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Change #';
+    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Change # (C)';
     // Duplicate only makes sense for a missing panel (red) you want to copy.
     $('abDupBtn').style.display = (k==='delivered') ? 'none' : '';
     if(k==='delivered'){
       $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'}`;
-      $('abMoveBtn').textContent='📍 Move highlight';
+      $('abMoveBtn').textContent='📍 Move highlight (P)';
       $('abMoveBtn').style.display='';
     } else if(k==='unlocated'){
       $('abSub').textContent=`In table — ${delivery[p].shipment||''}, skid ${delivery[p].skid||'?'} · click blueprint to place`;
-      $('abMoveBtn').textContent='📍 Place on Blueprint';
+      $('abMoveBtn').textContent='📍 Place on Blueprint (P)';
       $('abMoveBtn').style.display='';
     } else {
       $('abSub').textContent='Not in table — click blueprint to place it';
-      $('abMoveBtn').textContent='📍 Place on Blueprint';
+      $('abMoveBtn').textContent='📍 Place on Blueprint (P)';
       $('abMoveBtn').style.display='';
     }
     // Drag/Resize need a placed highlight; Skid # needs a table entry.
@@ -1148,7 +1151,7 @@
     $('abDragBtn').style.display='';
     $('abResizeBtn').style.display='';
     $('abSkidBtn').style.display='';
-    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Set #';
+    $('abChangeBtn').style.display=''; $('abChangeBtn').textContent='✎ Set # (C)';
     $('abDelBtn').style.display='';
   }
   function activateMarker(){
@@ -1369,6 +1372,19 @@
     if((e.key==='Delete'||e.key==='Backspace') && selected && selected.kind==='delivered'){
       e.preventDefault(); deleteSelected();
     }
+    // Popup shortcuts (only while the popup is open, not while typing)
+    if(e.ctrlKey||e.metaKey||e.altKey) return;
+    const tag=(e.target&&e.target.tagName)||'';
+    if(tag==='INPUT'||tag==='TEXTAREA'||(e.target&&e.target.isContentEditable)) return;
+    if(!$('actionBar').classList.contains('show')) return;
+    const vis=id=>{ const b=$(id); return b && b.style.display!=='none'; };
+    const k=e.key.toLowerCase();
+    if(k==='m' && vis('abDragBtn')){ e.preventDefault(); armMove(); }
+    else if(k==='r' && vis('abResizeBtn')){ e.preventDefault(); armResize(); }
+    else if(k==='s' && vis('abSkidBtn')){ e.preventDefault(); changeSkid(); }
+    else if(k==='c' && vis('abChangeBtn')){ e.preventDefault(); changeNumber(); }
+    else if(k==='d' && vis('abDelBtn')){ e.preventDefault(); deleteSelected(); }
+    else if(k==='p' && vis('abMoveBtn')){ e.preventDefault(); enterPlaceMode(); }
   });
 
   // ── Resizable divider ──
