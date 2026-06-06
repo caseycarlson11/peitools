@@ -134,10 +134,10 @@
     <div class="ed-dialog-box">
       <div class="ed-dialog-title" id="dupTitle">Panel already exists</div>
       <div class="ed-dialog-msg">This panel number is already placed. Look around the document, then choose.</div>
-      <button class="btn" onclick="dupShowOther()">🔎 Show the other instance (jump &amp; highlight)</button>
-      <button class="btn btn-blue" onclick="dupChoose('sheet')">📄 Same panel — shown on another sheet</button>
-      <button class="btn btn-blue" onclick="dupChoose('dup')">🔁 A different panel with the same number</button>
-      <button class="btn" onclick="dupChoose(null)">✕ Cancel — added by mistake</button>
+      <button class="btn" onclick="dupShowOther()"><kbd>1</kbd> 🔎 Show the other instance (jump &amp; highlight)</button>
+      <button class="btn btn-blue" onclick="dupChoose('sheet')"><kbd>2</kbd> 📄 Same panel — shown on another sheet</button>
+      <button class="btn btn-blue" onclick="dupChoose('dup')"><kbd>3</kbd> 🔁 A different panel with the same number</button>
+      <button class="btn" onclick="dupChoose(null)"><kbd>4</kbd> ✕ Cancel — added by mistake</button>
     </div>
   </div>
   <div class="toast" id="toast"></div>
@@ -814,6 +814,14 @@ function toggleHand(){
 })();
 
 document.addEventListener('keydown', (e)=>{
+  // While the duplicate panel is open, 1–4 drive its buttons (other keys keep native behavior).
+  if($('dupDialog').classList.contains('open')){
+    if(e.key === '1'){ e.preventDefault(); dupShowOther(); }
+    else if(e.key === '2'){ e.preventDefault(); dupChoose('sheet'); }
+    else if(e.key === '3'){ e.preventDefault(); dupChoose('dup'); }
+    else if(e.key === '4' || e.key === 'Escape'){ e.preventDefault(); dupChoose(null); }
+    return;
+  }
   if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); return; }
   if(seriesMode && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
     e.preventDefault(); bumpSeries(e.key === 'ArrowUp' ? 1 : -1); return;   // OS key-repeat = fast scroll
