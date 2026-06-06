@@ -32,7 +32,10 @@
     .zoom{ display:flex; align-items:center; gap:6px; color:var(--text2); font-size:.8rem; }
     .zoom input{ width:120px; accent-color:var(--blue); }
 
-    .ed-body{ flex:1; overflow:auto; padding:20px 0; }
+    .ed-body{ flex:1; overflow:auto; overscroll-behavior:contain; padding:20px 0; }
+    .ed-body.hand{ cursor:grab; }
+    .ed-body.hand.grabbing{ cursor:grabbing; }
+    .ed-body.hand .ovl{ pointer-events:none; }   /* drag over boxes without selecting */
     .ed-page{ position:relative; margin:0 auto 18px; width:var(--pw,1000px); max-width:96%;
               background:#fff; box-shadow:0 4px 18px rgba(0,0,0,.45); }
     .ed-page canvas{ display:block; width:100%; height:auto; }
@@ -65,7 +68,8 @@
     <div class="ed-title">Panel Editor <span id="bpName"></span></div>
     <div class="sp"></div>
     <button class="btn" id="addBtn" onclick="toggleAdd()">➕ Add Panel</button>
-    <div class="zoom">Size <input type="range" id="zoom" min="600" max="1700" step="50" value="1000" oninput="setZoom(this.value)"></div>
+    <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
+    <div class="zoom">Size <input type="range" id="zoom" min="600" max="2200" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
@@ -238,6 +242,40 @@ async function saveChanges(){
     toast('Saved — ' + d.count + ' panels. Map regenerated.');
   }catch(e){ toast('Save failed.'); setDirty(true); }
 }
+
+/* Hand tool + scroll-to-zoom (the rest of the page is untouched) */
+let handMode = false;
+function toggleHand(){
+  handMode = !handMode;
+  $('handBtn').classList.toggle('active', handMode);
+  $('body').classList.toggle('hand', handMode);
+}
+(function setupZoomPan(){
+  const pane = $('body');
+  pane.addEventListener('wheel', (e)=>{
+    e.preventDefault();
+    const cur = parseInt(document.documentElement.style.getPropertyValue('--pw')) || 1000;
+    const w = Math.max(500, Math.min(2600, cur + (e.deltaY < 0 ? 80 : -80)));
+    document.documentElement.style.setProperty('--pw', w + 'px');
+    const z = $('zoom'); if(z){ z.value = Math.max(+z.min, Math.min(+z.max, w)); }
+  }, {passive:false});
+  let drag=false, sx, sy, sl, st;
+  pane.addEventListener('pointerdown', (e)=>{
+    if(!handMode) return;
+    drag=true; sx=e.clientX; sy=e.clientY; sl=pane.scrollLeft; st=pane.scrollTop;
+    pane.classList.add('grabbing');
+    try{ pane.setPointerCapture(e.pointerId); }catch(_){}
+    e.preventDefault();
+  });
+  pane.addEventListener('pointermove', (e)=>{
+    if(!drag) return;
+    pane.scrollLeft = sl - (e.clientX - sx);
+    pane.scrollTop  = st - (e.clientY - sy);
+  });
+  const end = ()=>{ drag=false; pane.classList.remove('grabbing'); };
+  pane.addEventListener('pointerup', end);
+  pane.addEventListener('pointercancel', end);
+})();
 
 window.addEventListener('beforeunload', (e)=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
 load();

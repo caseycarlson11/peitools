@@ -41,6 +41,7 @@
     .pm-modal { display:none; position:fixed; inset:0; z-index:3000; background:rgba(6,10,18,.92); }
     .pm-modal.open { display:flex; }
     .pm-vhead { flex-wrap:wrap; }
+    #handBtn.active { background:var(--blue); color:#06210f; border-color:var(--blue); }
     .pm-vwrap { margin:auto; width:100%; height:100%; display:flex; flex-direction:column; background:#1b1f27; }
     .pm-vhead { display:flex; align-items:center; gap:10px; padding:12px 18px; border-bottom:1px solid var(--border); }
     .pm-vtitle { font-weight:700; font-size:.95rem; }
@@ -50,13 +51,16 @@
     .pm-vbody { flex:1; display:flex; min-height:0; }
 
     .pm-sidebar { position:relative; width:var(--pm-sbw,320px); flex-shrink:0; overflow-y:auto;
-                  background:#23272f; padding:14px 12px; }
+                  overscroll-behavior:contain; background:#23272f; padding:14px 12px; }
     .pm-resizer { width:8px; flex-shrink:0; cursor:col-resize; background:#3a3f4a;
                   border-left:1px solid var(--border); border-right:1px solid var(--border);
                   touch-action:none; transition:background .12s; }
     .pm-resizer:hover, .pm-resizer.active { background:var(--blue); }
-    .pm-mainpane { position:relative; flex:1; overflow-y:auto; background:#525659; padding:20px 0; }
-    .pm-page { margin:0 auto 18px; width:min(1100px, 94%); background:#fff;
+    .pm-mainpane { position:relative; flex:1; overflow:auto; overscroll-behavior:contain;
+                   background:#525659; padding:20px 0; }
+    .pm-mainpane.hand { cursor:grab; }
+    .pm-mainpane.hand.grabbing { cursor:grabbing; }
+    .pm-page { margin:0 auto 18px; width:var(--pm-pagew,1000px); max-width:96%; background:#fff;
                box-shadow:0 4px 18px rgba(0,0,0,.4); }
     .pm-page canvas { display:block; width:100%; height:auto; }
 
@@ -81,7 +85,7 @@
   being read correctly. All the pages you load are kept in the output.
 </p>
 
-<div class="card">
+<div class="card" id="configCard">
   <div class="pm-field">
     <label for="jobSelect">Job</label>
     <select id="jobSelect" onchange="onJobChange()">
@@ -121,6 +125,7 @@
     <a class="btn btn-green"   id="editBtn" href="#" target="_blank">✏️ Edit / Add Panels</a>
     <a class="btn btn-primary" id="openBtn" href="#" target="_blank">👁 Open in new tab</a>
     <a class="btn btn-subtle"  id="dlBtn"   href="#" download>⬇ Download</a>
+    <button class="btn btn-subtle" onclick="newMap()">🗂 Map Another</button>
   </div>
   <iframe class="pm-viewer" id="pmViewer" title="Panel map"></iframe>
 </div>
@@ -132,6 +137,7 @@
       <div class="pm-vtitle">Select Pages to Include <span id="selCount"></span></div>
       <div class="hint">Click a page to include it · Shift-click to include a range</div>
       <div class="sp"></div>
+      <button class="btn btn-subtle" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document">✋ Hand</button>
       <button class="btn btn-subtle" onclick="selectAllPages()">Select all</button>
       <button class="btn btn-subtle" onclick="clearSelection()">Clear</button>
       <button class="btn btn-green"  id="mapBtn" onclick="mapPanels()">⚡ Map Panels</button>
@@ -496,6 +502,7 @@ function finishProcess(d){
   $('dlBtn').href   = url;
   $('editBtn').href = '/panel-map/editor/' + encodeURIComponent(selectedJob);
   $('pmViewer').src = url + '#pagemode=none&zoom=page-width';
+  $('configCard').style.display='none';   // no Select Pages button on the results page
   $('resultCard').style.display='block';
 }
 
@@ -508,6 +515,45 @@ function failProcess(msg){
 document.addEventListener('keydown', (e)=>{
   if(e.key === 'Escape' && $('pageModal').classList.contains('open')) closePageSelector();
 });
+
+/* Hand tool + scroll-to-zoom for the document pane (the site behind is untouched) */
+let handMode = false;
+function toggleHand(){
+  handMode = !handMode;
+  $('handBtn').classList.toggle('active', handMode);
+  $('mainPane').classList.toggle('hand', handMode);
+}
+(function setupPaneZoomPan(){
+  const pane = $('mainPane');
+  pane.addEventListener('wheel', (e)=>{
+    e.preventDefault();   // zoom the document, never scroll the page behind
+    const cur = parseInt(document.documentElement.style.getPropertyValue('--pm-pagew')) || 1000;
+    const w = Math.max(400, Math.min(2600, cur + (e.deltaY < 0 ? 80 : -80)));
+    document.documentElement.style.setProperty('--pm-pagew', w + 'px');
+  }, {passive:false});
+  let drag=false, sx, sy, sl, st;
+  pane.addEventListener('pointerdown', (e)=>{
+    if(!handMode) return;
+    drag=true; sx=e.clientX; sy=e.clientY; sl=pane.scrollLeft; st=pane.scrollTop;
+    pane.classList.add('grabbing');
+    try{ pane.setPointerCapture(e.pointerId); }catch(_){}
+    e.preventDefault();
+  });
+  pane.addEventListener('pointermove', (e)=>{
+    if(!drag) return;
+    pane.scrollLeft = sl - (e.clientX - sx);
+    pane.scrollTop  = st - (e.clientY - sy);
+  });
+  const end = ()=>{ drag=false; pane.classList.remove('grabbing'); };
+  pane.addEventListener('pointerup', end);
+  pane.addEventListener('pointercancel', end);
+})();
+
+function newMap(){
+  $('resultCard').style.display='none';
+  $('configCard').style.display='block';
+  window.scrollTo({top:0, behavior:'smooth'});
+}
 
 // Lift the selector out of the page's stacking context so it overlays the site
 // header (otherwise the page-main container traps it underneath).
