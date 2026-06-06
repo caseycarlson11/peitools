@@ -52,8 +52,10 @@
     .pm-modal-bar { display:flex; align-items:center; gap:8px; flex-wrap:wrap;
                     padding:12px 20px; border-bottom:1px solid var(--border); }
     .pm-count { color:var(--text); font-size:.85rem; font-weight:600; }
-    .pm-thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr));
-                 gap:14px; padding:18px 20px; overflow-y:auto; }
+    .pm-thumbs { display:grid; grid-template-columns:repeat(auto-fill, minmax(var(--pm-tw,420px), 1fr));
+                 gap:16px; padding:18px 20px; overflow-y:auto; }
+    .pm-zoom { display:flex; align-items:center; gap:8px; color:var(--text2); font-size:.8rem; }
+    .pm-zoom input[type=range] { width:130px; accent-color:var(--blue); cursor:pointer; }
     .pm-thumb { position:relative; border:2px solid var(--border); border-radius:8px;
                 background:#0d1117; cursor:pointer; overflow:hidden; user-select:none;
                 transition:border-color .12s, box-shadow .12s; }
@@ -68,6 +70,24 @@
                           display:none; align-items:center; justify-content:center;
                           font-size:.7rem; font-weight:800; }
     .pm-thumb.selected .pm-check { display:flex; }
+    .pm-thumb .pm-zoombtn { position:absolute; bottom:6px; right:6px;
+                            background:rgba(13,17,23,.85); color:#fff; border:none;
+                            border-radius:6px; padding:3px 8px; font-size:.72rem; font-weight:700;
+                            cursor:zoom-in; opacity:0; transition:opacity .12s; }
+    .pm-thumb:hover .pm-zoombtn { opacity:1; }
+
+    /* Full-size single-page preview (over the selector modal) */
+    .pm-preview { display:none; position:fixed; inset:0; z-index:1100;
+                  background:rgba(6,10,18,.92); padding:20px;
+                  flex-direction:column; align-items:center; }
+    .pm-preview.open { display:flex; }
+    .pm-preview-bar { display:flex; align-items:center; gap:12px; width:100%;
+                      max-width:1200px; margin-bottom:10px; color:var(--text); }
+    .pm-preview-bar .ttl { font-weight:700; }
+    .pm-preview-canvaswrap { flex:1; width:100%; overflow:auto; display:flex;
+                             justify-content:center; align-items:flex-start; }
+    .pm-preview canvas { background:#fff; border-radius:6px; box-shadow:0 8px 40px rgba(0,0,0,.5);
+                         max-width:100%; height:auto; }
 {% endblock %}
 
 {% block content %}
@@ -128,12 +148,15 @@
     <div class="pm-modal-head">
       <div>
         <div class="pm-modal-title">Select Pages to Scan</div>
-        <div class="pm-modal-sub" id="modalSub">Click a page to select it. Shift-click for a range, Ctrl/Cmd-click to add or remove individual pages, then Delete the ones you don't want.</div>
+        <div class="pm-modal-sub" id="modalSub">Click a page to select it. Shift-click for a range, Ctrl/Cmd-click to add or remove individual pages, then Delete the ones you don't want. <b>Double-click (or the ⛶ button) to view a page full size.</b></div>
       </div>
       <button class="btn btn-subtle" onclick="closePageSelector()">✕ Close</button>
     </div>
     <div class="pm-modal-bar">
       <span class="pm-count" id="modalCount">—</span>
+      <label class="pm-zoom">Size
+        <input type="range" id="thumbZoom" min="240" max="780" step="20" value="420" oninput="onZoomChange(this.value)">
+      </label>
       <span style="flex:1"></span>
       <button class="btn btn-subtle"  id="selAllBtn"  onclick="selectAllPages()">Select all</button>
       <button class="btn btn-subtle"  id="selNoneBtn" onclick="clearSelection()">Clear selection</button>
@@ -143,6 +166,19 @@
     </div>
     <div class="pm-thumbs" id="thumbGrid"><div class="pm-empty">Loading pages…</div></div>
   </div>
+</div>
+
+<!-- ── Full-size page preview ────────────────────────────────────────── -->
+<div class="pm-preview" id="pagePreview">
+  <div class="pm-preview-bar">
+    <span class="ttl" id="previewTitle">Page</span>
+    <button class="btn btn-subtle" id="prevPrevBtn" onclick="previewStep(-1)">‹ Prev</button>
+    <button class="btn btn-subtle" id="prevNextBtn" onclick="previewStep(1)">Next ›</button>
+    <span style="flex:1"></span>
+    <button class="btn btn-green"  id="prevToggleSel" onclick="previewToggleSelect()">Select this page</button>
+    <button class="btn btn-subtle" onclick="closePreview()">✕ Close</button>
+  </div>
+  <div class="pm-preview-canvaswrap"><canvas id="previewCanvas"></canvas></div>
 </div>
 {% endblock %}
 
@@ -354,6 +390,12 @@ async function openPageSelector(){
       pdfDoc = await pdfjsLib.getDocument(blueprintUrl()).promise;
       totalPages = pdfDoc.numPages;
     }
+    // Restore the user's saved thumbnail size
+    let z = 420;
+    try{ z = parseInt(localStorage.getItem('pm_thumb_w'),10) || 420; }catch(_){}
+    $('thumbZoom').value = z;
+    onZoomChange(z);
+
     gridPages = keptPages ? keptPages.slice() : Array.from({length:totalPages}, (_,i)=>i+1);
     modalSel.clear(); modalAnchor = null;
     await renderGrid();
@@ -364,28 +406,93 @@ async function openPageSelector(){
 
 function closePageSelector(){ $('pageModal').classList.remove('open'); }
 
+const THUMB_RES = 760;   // internal render width (px) — crisp detail when enlarged
+let thumbObserver = null;
+
 async function renderThumb(pg, canvas){
+  if(canvas.dataset.rendered) return;
   const page  = await pdfDoc.getPage(pg);
   const base  = page.getViewport({scale:1});
-  const scale = 150 / base.width;
-  const vp    = page.getViewport({scale});
+  const vp    = page.getViewport({scale: THUMB_RES / base.width});
   canvas.width = vp.width; canvas.height = vp.height;
   await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+  canvas.dataset.rendered = '1';
 }
 
-async function renderGrid(){
+function renderGrid(){
   const grid = $('thumbGrid');
   grid.innerHTML = '';
+  if(thumbObserver) thumbObserver.disconnect();
+  // Lazy-render: only rasterize pages as they scroll near the viewport.
+  thumbObserver = new IntersectionObserver((entries)=>{
+    entries.forEach(en=>{
+      if(en.isIntersecting){
+        const cell = en.target;
+        thumbObserver.unobserve(cell);
+        renderThumb(parseInt(cell.dataset.pg,10), cell.querySelector('canvas')).catch(()=>{});
+      }
+    });
+  }, {root: grid, rootMargin: '600px 0px'});
+
   for(const pg of gridPages){
     const cell = document.createElement('div');
     cell.className = 'pm-thumb'; cell.dataset.pg = pg;
-    cell.innerHTML = '<span class="pm-pgnum">p.' + pg + '</span><span class="pm-check">✓</span>';
+    cell.innerHTML = '<span class="pm-pgnum">p.' + pg + '</span>'
+                   + '<span class="pm-check">✓</span>'
+                   + '<button class="pm-zoombtn" title="View full size">⛶</button>';
     const canvas = document.createElement('canvas');
     cell.appendChild(canvas);
-    cell.onclick = (e)=>onThumbClick(pg, e);
+    cell.onclick = (e)=>{
+      if(e.target.classList.contains('pm-zoombtn')){ openPreview(pg); return; }
+      onThumbClick(pg, e);
+    };
+    cell.ondblclick = ()=>openPreview(pg);
     grid.appendChild(cell);
-    try{ await renderThumb(pg, canvas); }catch(_){}
+    thumbObserver.observe(cell);
   }
+  refreshSelection();
+}
+
+function onZoomChange(v){
+  $('thumbGrid').style.setProperty('--pm-tw', v + 'px');
+  try{ localStorage.setItem('pm_thumb_w', v); }catch(_){}
+}
+
+/* Full-size single-page preview */
+let previewPg = null;
+async function openPreview(pg){
+  previewPg = pg;
+  $('pagePreview').classList.add('open');
+  $('previewTitle').textContent = 'Page ' + pg + ' of ' + totalPages;
+  updatePreviewSelBtn();
+  try{
+    const page = await pdfDoc.getPage(pg);
+    const base = page.getViewport({scale:1});
+    const dpr  = Math.min(window.devicePixelRatio || 1, 2);
+    const maxW = Math.min(window.innerWidth - 48, 1600);
+    const vp   = page.getViewport({scale: (maxW / base.width) * dpr});
+    const canvas = $('previewCanvas');
+    canvas.width = vp.width; canvas.height = vp.height;
+    canvas.style.width = (vp.width / dpr) + 'px';
+    await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+  }catch(_){}
+}
+function closePreview(){ $('pagePreview').classList.remove('open'); previewPg = null; }
+function previewStep(d){
+  if(previewPg == null) return;
+  const i = gridPages.indexOf(previewPg);
+  if(i < 0) return;
+  const ni = i + d;
+  if(ni >= 0 && ni < gridPages.length) openPreview(gridPages[ni]);
+}
+function updatePreviewSelBtn(){
+  $('prevToggleSel').textContent = modalSel.has(previewPg) ? 'Unselect this page' : 'Select this page';
+}
+function previewToggleSelect(){
+  if(previewPg == null) return;
+  if(modalSel.has(previewPg)) modalSel.delete(previewPg); else modalSel.add(previewPg);
+  modalAnchor = previewPg;
+  updatePreviewSelBtn();
   refreshSelection();
 }
 
@@ -452,6 +559,12 @@ document.getElementById('pageModal').addEventListener('click', (e)=>{
   if(e.target.id === 'pageModal') closePageSelector();
 });
 document.addEventListener('keydown', (e)=>{
-  if(e.key === 'Escape' && $('pageModal').classList.contains('open')) closePageSelector();
+  if(e.key === 'Escape'){
+    if($('pagePreview').classList.contains('open')) closePreview();
+    else if($('pageModal').classList.contains('open')) closePageSelector();
+  } else if($('pagePreview').classList.contains('open')){
+    if(e.key === 'ArrowLeft')  previewStep(-1);
+    if(e.key === 'ArrowRight') previewStep(1);
+  }
 });
 {% endblock %}
