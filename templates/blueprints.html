@@ -542,7 +542,7 @@ async function selectJob(job, btn) {
 // ── Select a category ──────────────────────────────────────
 function selectCategory(cat, tab) {
   document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
-  tab.classList.add('active');
+  if (tab) tab.classList.add('active');
   currentCategory = cat;
 
   const files = jobFiles[cat] || [];
@@ -639,8 +639,8 @@ async function pullDataIntoSpreadsheet() {
     // Reload job files to show the new/updated xlsx, then auto-download it
     const r2 = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}`);
     jobFiles  = await r2.json();
-    const tab = document.querySelector('.cat-tab.active');
-    selectCategory('Spreadsheets', tab);
+    const tab = Array.from(document.querySelectorAll('.cat-tab')).find(t => t.textContent.trim() === 'Spreadsheets');
+    if (tab) selectCategory('Spreadsheets', tab);
     // Auto-download the file
     const url = `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(data.file)}`;
     const a = document.createElement('a'); a.href = url; a.download = data.file; a.click();
