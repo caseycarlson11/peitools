@@ -74,11 +74,12 @@
              transform:translate(2px,1px); }
 
     .ed-actionbar{ position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
-                   display:none; align-items:center; gap:5px; z-index:50;
+                   display:none; align-items:center; gap:5px; z-index:50; cursor:move;
                    background:var(--surface); border:1px solid var(--border); border-radius:8px;
                    padding:5px 7px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
     .ed-actionbar.show{ display:flex; }
     .ed-actionbar .lbl{ font-weight:700; font-size:.74rem; margin-right:2px; }
+    .ed-actionbar .btn{ cursor:pointer; }
     .ed-actionbar .btn{ padding:3px 8px; font-size:.74rem; border-radius:6px; }
     .ser-counter{ display:none; position:fixed; z-index:55; align-items:center; gap:8px;
                   background:var(--surface); border:1px solid var(--green); border-radius:8px;
@@ -165,6 +166,7 @@ let seriesMode = false;     // "Add Panel Series" active
 let seriesNext = null;      // next number to drop in the series
 let multiSelectMode = false;// "Select Multiple Panels" (drag-to-OCR) active
 let selBoxEl   = null;      // the box element of the selected panel (for popup placement)
+let _barPos    = null;      // user-dragged popup position (sticky once moved)
 let armedMode  = null;      // 'move' | 'resize' | null
 let undoStack  = [];        // JSON snapshots of locs for Undo
 let savedSnapshot = '{}';   // locs at last load/save (to compute dirty)
@@ -486,16 +488,19 @@ function selectPanel(panel, boxEl){
   positionActionBar();
 }
 
-// Float the small popup OFF TO THE SIDE of the panel so it doesn't cover it.
+// Float the popup well BELOW the panel (or wherever the user dragged it).
 function positionActionBar(){
   const bar = $('actionBar'); if(!selBoxEl || !bar.classList.contains('show')) return;
-  const r = selBoxEl.getBoundingClientRect();
-  const bw = bar.offsetWidth || 220, bh = bar.offsetHeight || 34;
-  const gap = 28;
+  const bw = bar.offsetWidth || 360, bh = bar.offsetHeight || 40;
   let left, top;
-  if(r.right + gap + bw < window.innerWidth - 8){ left = r.right + gap; top = r.top - 4; }      // right
-  else if(r.left - gap - bw > 8){ left = r.left - gap - bw; top = r.top - 4; }                  // left
-  else { left = r.left + r.width/2 - bw/2; top = r.bottom + gap; }                              // below
+  if(_barPos){                                   // user dragged it — keep their spot
+    left = _barPos.left; top = _barPos.top;
+  } else {
+    const r = selBoxEl.getBoundingClientRect();
+    left = r.left + r.width/2 - bw/2;
+    top  = r.bottom + bh * 2 + 8;                 // ~2 popup-heights below the panel
+    if(top + bh > window.innerHeight - 8) top = r.top - bh - 8;   // flip above if no room
+  }
   left = Math.max(8, Math.min(window.innerWidth - bw - 8, left));
   top  = Math.max(8, Math.min(window.innerHeight - bh - 8, top));
   bar.style.left = left + 'px';
@@ -503,6 +508,28 @@ function positionActionBar(){
   bar.style.bottom = 'auto';
   bar.style.transform = 'none';
 }
+
+// Let the user drag the popup (anywhere except a button).
+(function initBarDrag(){
+  const bar = $('actionBar'); if(!bar) return;
+  bar.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('.btn')) return;         // pressing a button shouldn't drag
+    e.preventDefault();
+    const r = bar.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    try{ bar.setPointerCapture(e.pointerId); }catch(_){}
+    const mv = (ev)=>{
+      _barPos = { left: ev.clientX - ox, top: ev.clientY - oy };
+      bar.style.left = _barPos.left + 'px'; bar.style.top = _barPos.top + 'px';
+      bar.style.bottom = 'auto'; bar.style.transform = 'none';
+    };
+    const up = ()=>{ bar.removeEventListener('pointermove', mv);
+      bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up); };
+    bar.addEventListener('pointermove', mv);
+    bar.addEventListener('pointerup', up);
+    bar.addEventListener('pointercancel', up);
+  });
+})();
 
 function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null; clearFlash();
   document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
