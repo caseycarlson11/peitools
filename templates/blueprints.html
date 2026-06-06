@@ -338,6 +338,27 @@
     .file-item.xlsx svg { stroke: #3fb950; }
     .file-item.xlsx.active svg { stroke: #3fb950; }
 
+    /* xlsx action menu */
+    .xlsx-menu {
+      position: fixed; z-index: 500;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px;
+      display: none; flex-direction: column; gap: 2px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+      min-width: 210px;
+    }
+    .xlsx-menu.open { display: flex; }
+    .xlsx-menu-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 7px;
+      background: transparent; border: none;
+      color: var(--text); font-size: 0.83rem; font-weight: 600;
+      cursor: pointer; text-align: left; width: 100%;
+      transition: background 0.12s;
+    }
+    .xlsx-menu-item:hover { background: var(--card); }
+    .xlsx-menu-item .mi-icon { font-size: 1rem; flex-shrink: 0; }
+
     /* PDF viewer */
     .pdf-pane {
       flex: 1; display: flex; flex-direction: column; overflow: hidden;
@@ -581,7 +602,7 @@ function selectCategory(cat, tab) {
             <span class="file-name">${fname}</span>
             ${modified ? `<span class="file-date">Modified ${modified}</span>` : ''}
           </div>`;
-        item.onclick = () => downloadFile(fname, item);
+        item.onclick = (e) => downloadFile(fname, item, e);
         list.appendChild(item);
       });
     }
@@ -612,14 +633,57 @@ function selectCategory(cat, tab) {
 
 }
 
-// ── Download an xlsx file ──────────────────────────────────
-function downloadFile(fname, item) {
+// ── xlsx action menu ──────────────────────────────────────
+let _xlsxMenuFile = null;
+
+function downloadFile(fname, item, e) {
+  e && e.stopPropagation();
   document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
   if (item) item.classList.add('active');
-  const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
-  const a = document.createElement('a');
-  a.href = url; a.download = fname; a.click();
+  _xlsxMenuFile = fname;
+
+  const menu = document.getElementById('xlsxMenu');
+  menu.classList.add('open');
+
+  // Position near the item
+  const rect = item.getBoundingClientRect();
+  const mw = 220, mh = 130;
+  let left = rect.right + 8;
+  let top  = rect.top;
+  if (left + mw > window.innerWidth)  left = Math.max(8, rect.left - mw - 8);
+  if (top  + mh > window.innerHeight) top  = Math.max(8, window.innerHeight - mh - 8);
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
 }
+
+function closeXlsxMenu() {
+  document.getElementById('xlsxMenu').classList.remove('open');
+  _xlsxMenuFile = null;
+}
+
+function xlsxAction(action) {
+  if (!_xlsxMenuFile || !currentJob) return;
+  const fname = _xlsxMenuFile;
+  const url   = `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(fname)}`;
+  closeXlsxMenu();
+
+  if (action === 'download') {
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+  } else if (action === 'excel') {
+    // Open the file URL directly — browser will prompt to open in Excel (xlsx association)
+    window.open(url, '_blank');
+  } else if (action === 'sheets') {
+    // Download the file, then open Google Sheets import page
+    const a = document.createElement('a'); a.href = url; a.download = fname; a.click();
+    setTimeout(() => window.open('https://sheets.new', '_blank'), 400);
+  }
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', e => {
+  const menu = document.getElementById('xlsxMenu');
+  if (menu && menu.classList.contains('open') && !menu.contains(e.target)) closeXlsxMenu();
+});
 
 // ── Pull Data into Spreadsheet ────────────────────────────
 async function pullDataIntoSpreadsheet() {
@@ -916,6 +980,19 @@ loadJobs();
       <button class="share-copy-btn" id="shareGenBtn" onclick="generateShareLink()">Generate Link</button>
     </div>
   </div>
+</div>
+
+<!-- ── xlsx Action Menu ── -->
+<div id="xlsxMenu" class="xlsx-menu" role="menu">
+  <button class="xlsx-menu-item" onclick="xlsxAction('download')">
+    <span class="mi-icon">📥</span> Download
+  </button>
+  <button class="xlsx-menu-item" onclick="xlsxAction('excel')">
+    <span class="mi-icon">📊</span> Open in Excel
+  </button>
+  <button class="xlsx-menu-item" onclick="xlsxAction('sheets')">
+    <span class="mi-icon" style="color:#34a853;">▶</span> Open in Google Sheets
+  </button>
 </div>
 
 <!-- ── Compass Mode Overlay ── -->
