@@ -362,11 +362,13 @@ def build_spreadsheet(job_name):
             with open(cache_path) as f:
                 panel_locs = _json_ss.load(f)
 
-    # ── Extract drawing numbers from title block of source blueprint ──
+    # ── Extract drawing numbers from title block ──────────────────
+    # scan_pdf is the trimmed PDF whose page indices match panel_locs exactly.
+    # src_pdf is the full blueprint — page indices do NOT match panel_locs.
     drawing_nums = {}
     if panel_locs and pm_sess:
         try:
-            src_pdf = pm_sess.get("src_pdf", "")
+            src_pdf = pm_sess.get("scan_pdf") or pm_sess.get("src_pdf", "")
             if src_pdf and os.path.isfile(src_pdf):
                 unique_pages = {loc["page"] for loc in panel_locs.values()
                                 if loc.get("page") is not None}
@@ -443,38 +445,7 @@ def build_spreadsheet(job_name):
         ws.column_dimensions[col[0].column_letter].width = max_len + 4
 
     wb.save(out_path)
-
-    # ── Debug: show all X.Y words found per page so we can verify drawing number extraction ──
-    debug_pages = {}
-    if drawing_nums and pm_sess:
-        try:
-            import fitz as _fitz_dbg
-            src_pdf = pm_sess.get("src_pdf", "")
-            if src_pdf and os.path.isfile(src_pdf):
-                doc = _fitz_dbg.open(src_pdf)
-                for pg_num in sorted(drawing_nums.keys()):
-                    if pg_num >= doc.page_count:
-                        continue
-                    pg = doc[pg_num]
-                    w2, h2 = pg.rect.width, pg.rect.height
-                    words = pg.get_text("words", clip=_fitz_dbg.Rect(w2 * 0.80, 0, w2, h2))
-                    xy = []
-                    for wd in words:
-                        t = wd[4].strip()
-                        if _re_ss.match(r'^\d{1,3}\.\d{1,2}$', t):
-                            cx = (wd[0]+wd[2])/2; cy = (wd[1]+wd[3])/2
-                            xy.append({"text": t,
-                                       "x_pct": round(cx/w2*100,1),
-                                       "y_pct": round(cy/h2*100,1),
-                                       "dist_to_br": round(((cx-w2)**2+(cy-h2)**2)**0.5,1)})
-                    xy.sort(key=lambda x: x["dist_to_br"])
-                    debug_pages[str(pg_num)] = {"picked": drawing_nums[pg_num], "all_xy": xy}
-                doc.close()
-        except Exception:
-            pass
-
-    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx",
-                    "debug_drawing_nums": debug_pages})
+    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
 
 
 @app.route("/admin", methods=["GET"])
