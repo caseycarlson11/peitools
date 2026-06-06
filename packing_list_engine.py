@@ -33,6 +33,16 @@ def _is_panel(txt):
 
 def parse_packing_list(pdf_path):
     """Parse KPS packing list (up to 4 skid blocks per page, 2x2 grid).
+
+    Hybrid approach:
+    - Crops each quadrant and runs psm-6 plain-text OCR to reliably detect the
+      SKID number, expected panel count, and handwriting/not-shipping flags —
+      the same signals the old parser used, which work well on cropped images.
+    - Then runs hOCR on the same cropped image to get word positions.  Finds
+      the PANEL # column header and extracts only numbers that sit inside the
+      panel column — eliminating false order-number drops for small panels like
+      1, 3, 60 that are ≤99 and were missed by the old text heuristic.
+
     Returns:
         results  : { "skid_num": ["panel1", ...], ... }
         warnings : list of strings for skids needing human review.
@@ -56,23 +66,52 @@ def parse_packing_list(pdf_path):
         for qname, crop in quads:
             tmp = f"/tmp/plq_{pg_idx}_{qname}.png"
             img.crop(crop).save(tmp)
+
+            # ── Step 1: plain-text OCR for SKID, count, and not-shipping ──────
             r = subprocess.run(
                 ["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
                 capture_output=True, text=True)
             text = r.stdout
+            # Fix OCR artifact: "2/7" → "27"
+            text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
 
             skid_m = re.search(r"SKID\s*[#*]?\s*(\d+)", text, re.I)
             if not skid_m:
                 continue
             skid_num = skid_m.group(1)
 
-            panels, warn = _parse_skid_block(text, skid_num)
+            # Not-shipping check from plain text
+            if re.search(r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b", text, re.I):
+                warnings.append(f"SKIP:#{skid_num}: Not-shipping note detected — skid excluded.")
+                continue
 
-            if warn:
-                warnings.append(warn)
-                if warn.startswith("SKIP:"):
-                    log.warning("Skid #%s skipped: %s", skid_num, warn)
-                    continue
+            # Expected count and garbled-footer check from plain text
+            count_m  = re.search(r"\b(\d+)\s+PANELS\b", text, re.I)
+            expected = int(count_m.group(1)) if count_m else None
+            panels_kw_present = bool(re.search(r"\bPANELS\b", text, re.I))
+
+            if expected is None and panels_kw_present:
+                # Footer garbled (handwriting) — exclude and flag
+                warnings.append(
+                    f"SKIP:#{skid_num}: Panel count footer unreadable — "
+                    f"possible handwriting or not-shipping note. "
+                    f"Please review this skid manually."
+                )
+                continue
+
+            # ── Step 2: hOCR for word positions within this quadrant ──────────
+            panels = _extract_panels_positional(tmp, skid_num)
+
+            # Fall back to text heuristic if positional extraction found nothing
+            if not panels:
+                panels = _extract_panels(text)
+
+            # ── Step 3: validate ──────────────────────────────────────────────
+            if expected is not None and len(panels) < expected * 0.70:
+                warnings.append(
+                    f"#{skid_num}: Only {len(panels)} of {expected} expected panels "
+                    f"extracted — OCR may have missed some. Please verify."
+                )
 
             if panels:
                 bucket = results.setdefault(skid_num, [])
@@ -82,6 +121,75 @@ def parse_packing_list(pdf_path):
 
     doc.close()
     return results, warnings
+
+
+def _extract_panels_positional(img_path, skid_num):
+    """Run hOCR on a quadrant image and extract panel numbers from the PANEL #
+    column only, using word x-positions to separate them from ORDER # numbers.
+    Returns a list of panel strings, or [] if the PANEL # header isn't found.
+    """
+    import xml.etree.ElementTree as ET
+    base = img_path.replace(".png", "_hocr")
+    subprocess.run(
+        ["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"],
+        capture_output=True)
+    try:
+        tree = ET.parse(base + ".hocr")
+    except Exception:
+        return []
+    finally:
+        try: os.unlink(base + ".hocr")
+        except Exception: pass
+
+    # Collect all words with bounding boxes
+    words = []
+    for word in tree.iter():
+        if word.get("class") != "ocrx_word":
+            continue
+        bm = re.search(r"bbox (\d+) (\d+) (\d+) (\d+)", word.get("title", ""))
+        if not bm:
+            continue
+        t  = "".join(word.itertext()).strip()
+        x0, y0, x1, y1 = [int(v) for v in bm.groups()]
+        words.append((t, x0, y0, x1, y1))
+
+    if not words:
+        return []
+
+    img_w = max(x1 for _, _, _, x1, _ in words) if words else 1000
+
+    # Find "PANEL #" header → gives us the left edge of the panel column
+    panel_hx = panel_hy = None
+    for t, x0, y0, x1, y1 in words:
+        if re.match(r"PANEL", t, re.I):
+            panel_hx, panel_hy = x0, y0
+            break
+
+    if panel_hx is None:
+        return []   # can't locate column — caller will fall back
+
+    # Find "X PANELS" footer → gives the bottom boundary
+    footer_y = None
+    for i, (t, x0, y0, x1, y1) in enumerate(words):
+        if re.search(r"\bPANELS\b", t, re.I) and y0 > panel_hy:
+            footer_y = y0
+            break
+    y_bot = footer_y if footer_y else img_w * 2   # generous fallback
+
+    # Column region: x >= panel_hx - small_margin, y between header and footer
+    panels = []
+    for t, x0, y0, x1, y1 in words:
+        tt = t.strip(".,:'\"")
+        if not _is_panel(tt):
+            continue
+        if x0 < panel_hx - 15:
+            continue    # left of panel column = order number territory
+        if not (panel_hy < y0 < y_bot):
+            continue
+        if tt not in panels:
+            panels.append(tt)
+
+    return panels
 
 
 def _parse_skid_block(text, skid_num):
@@ -1047,4 +1155,3 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
 def _sort_key(panel_str):
     m = re.match(r"(\d+)", panel_str)
     return int(m.group(1)) if m else 0
-# end of packing_list_engine.py
