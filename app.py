@@ -448,17 +448,7 @@ def build_spreadsheet(job_name):
         ws.column_dimensions[col[0].column_letter].width = max_len + 4
 
     wb.save(out_path)
-    return jsonify({
-        "ok": True,
-        "panels": len(rows),
-        "file": f"{job_name}.xlsx",
-        "debug": {
-            "pm_sess": bool(pm_sess),
-            "src_pdf": pm_sess.get("src_pdf", "") if pm_sess else "",
-            "drawing_nums": drawing_nums,
-            "panel_locs_count": len(panel_locs)
-        }
-    })
+    return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
 
 
 @app.route("/admin", methods=["GET"])
