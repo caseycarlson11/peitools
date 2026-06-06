@@ -773,7 +773,10 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
             pg = int(loc["page"])
         except (KeyError, TypeError, ValueError):
             continue
-        page_panels.setdefault(pg, []).append((panel_str, loc["bbox"]))
+        # an instance may carry an explicit display label (duplicates of a number
+        # are stored under unique keys but should print the real number)
+        label = str(loc.get("label") or panel_str) if isinstance(loc, dict) else str(panel_str)
+        page_panels.setdefault(pg, []).append((label, loc["bbox"]))
 
     RED   = (0.85, 0.10, 0.10)
     WHITE = (1, 1, 1)

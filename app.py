@@ -1502,7 +1502,12 @@ def panel_map_update(job_name):
             bbox = [float(x) for x in v.get("bbox", [])][:4]
             if len(bbox) != 4:
                 continue
-            clean[p] = {"page": int(v.get("page")), "bbox": bbox}
+            entry = {"page": int(v.get("page")), "bbox": bbox}
+            if v.get("label"):
+                entry["label"] = str(v["label"])
+            if v.get("rel"):
+                entry["rel"] = str(v["rel"])    # 'sheet' = same panel on multiple sheets, 'dup' = duplicate number
+            clean[p] = entry
         except (TypeError, ValueError):
             continue
 

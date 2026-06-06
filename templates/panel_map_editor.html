@@ -47,6 +47,17 @@
            border-radius:2px; cursor:pointer; }
     .pbox:hover{ background:rgba(248,81,73,.32); }
     .pbox.sel{ border-color:var(--blue); background:rgba(96,180,240,.35); box-shadow:0 0 0 2px var(--blue); }
+    .pbox.dup{ border-style:double; border-width:3px; }       /* a tracked duplicate instance */
+    .pbox.flash{ border-color:#ffd400 !important; box-shadow:0 0 0 3px rgba(255,212,0,.8) !important; }
+    /* duplicate choice dialog */
+    .ed-dialog{ display:none; position:fixed; inset:0; z-index:1200; background:rgba(6,10,18,.85); }
+    .ed-dialog.open{ display:flex; }
+    .ed-dialog-box{ margin:auto; background:var(--surface); border:1px solid var(--border);
+                    border-radius:12px; padding:20px; width:min(460px,92%); display:flex;
+                    flex-direction:column; gap:9px; box-shadow:0 10px 40px rgba(0,0,0,.6); }
+    .ed-dialog-title{ font-weight:700; font-size:1rem; }
+    .ed-dialog-msg{ color:var(--text2); font-size:.85rem; margin-bottom:6px; }
+    .ed-dialog-box .btn{ justify-content:flex-start; }
     .plabel{ position:absolute; bottom:100%; right:100%; white-space:nowrap;
              background:#fff; color:var(--red); border:1px solid var(--red); border-radius:2px;
              font-size:var(--lblpx,7px); font-weight:800; padding:0 1px; line-height:1.25;
@@ -81,8 +92,6 @@
     <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
     <button class="btn" id="undoBtn" onclick="undo()" disabled>↶ Undo</button>
     <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
-    <a class="btn" id="dlMarkedBtn" href="#" target="_blank" title="Only the marked-up pages">⬇ Marked Pages</a>
-    <a class="btn" id="dlFullBtn" href="#" target="_blank" title="Whole blueprint with edits merged in">⬇ Full Document</a>
     <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
   </div>
 
@@ -96,8 +105,19 @@
     <button class="btn btn-blue" onclick="renameSelected()">✎ Change #</button>
     <button class="btn" id="moveBtn" onclick="armMove()">✥ Move</button>
     <button class="btn" id="resizeBtn" onclick="armResize()">⤡ Resize</button>
+    <button class="btn" id="findOtherBtn" onclick="findOther()" style="display:none">🔎 Find Other</button>
     <button class="btn" onclick="deleteSelected()">🗑 Delete</button>
     <button class="btn" onclick="clearSel()">Done</button>
+  </div>
+
+  <div class="ed-dialog" id="dupDialog">
+    <div class="ed-dialog-box">
+      <div class="ed-dialog-title" id="dupTitle">Panel already exists</div>
+      <div class="ed-dialog-msg">This panel number is already placed. What is this one?</div>
+      <button class="btn btn-blue" onclick="dupChoose('sheet')">📄 Same panel — shown on another sheet</button>
+      <button class="btn btn-blue" onclick="dupChoose('dup')">🔁 A different panel with the same number</button>
+      <button class="btn" onclick="dupChoose(null)">✕ Cancel — added by mistake</button>
+    </div>
   </div>
   <div class="toast" id="toast"></div>
 
@@ -243,6 +263,54 @@ function scheduleRerender(){
 
 function ovlOf(pi){ return document.querySelector('.ovl[data-pi="'+pi+'"]'); }
 
+// ── Instances: a number can be placed more than once (same panel on multiple
+// sheets, or two different panels sharing a number). Extra instances are stored
+// under unique keys (e.g. "211#2") but display + report the real number. ──
+function labelOf(key){ const l = locs[key]; return (l && l.label) ? l.label : key; }
+function numberExists(n){ for(const k in locs){ if(labelOf(k) === n) return true; } return false; }
+function instancesOf(n){ const a=[]; for(const k in locs){ if(labelOf(k) === n) a.push(k); } return a; }
+function freeKey(n){
+  if(!(n in locs)) return n;
+  let i = 2; while((n + '#' + i) in locs) i++;
+  return n + '#' + i;
+}
+
+let _dupResolve = null;
+function askDuplicate(n){
+  $('dupTitle').textContent = 'Panel ' + n + ' is already placed';
+  $('dupDialog').classList.add('open');
+  return new Promise(res => { _dupResolve = res; });
+}
+function dupChoose(val){
+  $('dupDialog').classList.remove('open');
+  const r = _dupResolve; _dupResolve = null;
+  if(r) r(val);
+}
+
+let _flashKey = null;
+function clearFlash(){ document.querySelectorAll('.pbox.flash').forEach(b=>b.classList.remove('flash')); _flashKey=null; }
+function centerOnBox(box){
+  const pane = $('body');
+  const r = box.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+  pane.scrollTop  += (r.top  + r.height/2) - (pr.top  + pr.height/2);
+  pane.scrollLeft += (r.left + r.width/2)  - (pr.left + pr.width/2);
+}
+function findOther(){
+  if(selPanel == null) return;
+  const label = labelOf(selPanel);
+  const keys = instancesOf(label);
+  if(keys.length < 2){ toast('No other instance of ' + label + '.'); return; }
+  const idx = keys.indexOf(selPanel);
+  const targetKey = keys[(idx + 1) % keys.length];
+  const box = document.querySelector('.pbox[data-panel="' + CSS.escape(targetKey) + '"]');
+  if(!box){ toast('Could not locate the other instance.'); return; }
+  clearFlash();
+  box.classList.add('flash'); _flashKey = targetKey;
+  centerOnBox(box);
+  const pg = (locs[targetKey] && locs[targetKey].page);
+  toast('Showing ' + label + ' on page ' + ((pg!=null?pg+1:'?')));
+}
+
 function setBoxRect(box, bbox, d){
   const [x0,y0,x1,y1] = bbox; const pad=2;
   box.style.left   = ((x0-pad)/d.w*100)+'%';
@@ -257,10 +325,11 @@ function drawBoxes(){
     const loc = locs[panel]; const d = dims[loc.page]; const ovl = ovlOf(loc.page);
     if(!d || !ovl) continue;
     const box = document.createElement('div');
-    box.className='pbox' + (panel===selPanel ? ' sel' : '');
+    box.className='pbox' + (panel===selPanel ? ' sel' : '') + (loc.rel ? ' dup' : '') + (panel===_flashKey ? ' flash' : '');
     box.dataset.panel = panel;
+    box.dataset.label = labelOf(panel);
     setBoxRect(box, loc.bbox, d);
-    const lab = document.createElement('div'); lab.className='plabel'; lab.textContent=panel;
+    const lab = document.createElement('div'); lab.className='plabel'; lab.textContent = labelOf(panel);
     box.appendChild(lab);
     box.onclick = (e)=>{ if(addMode || seriesMode || multiSelectMode) return; e.stopPropagation(); selectPanel(panel, box); };
     box.addEventListener('pointerdown', (e)=>onBoxPointerDown(e, panel, box));
@@ -309,11 +378,13 @@ function updateManipUI(){
 }
 
 function selectPanel(panel, boxEl){
-  if(panel !== selPanel) armedMode = null;
+  if(panel !== selPanel){ armedMode = null; clearFlash(); }
   selPanel = panel;
   selBoxEl = boxEl || document.querySelector('.pbox[data-panel="'+CSS.escape(panel)+'"]');
   document.querySelectorAll('.pbox').forEach(b=>b.classList.toggle('sel', b.dataset.panel===panel));
-  $('selLabel').textContent = 'Panel ' + panel;
+  const label = labelOf(panel);
+  $('selLabel').textContent = 'Panel ' + label;
+  const fb = $('findOtherBtn'); if(fb) fb.style.display = (instancesOf(label).length > 1) ? '' : 'none';
   $('actionBar').classList.add('show');
   updateManipUI();
   positionActionBar();
@@ -337,19 +408,22 @@ function positionActionBar(){
   bar.style.transform = 'none';
 }
 
-function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null;
+function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null; clearFlash();
   document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
   $('actionBar').classList.remove('show'); updateManipUI(); }
 
 function renameSelected(){
   if(selPanel==null) return;
-  const v = prompt('New panel number for "'+selPanel+'":', selPanel);
+  const cur = labelOf(selPanel);
+  const v = prompt('New panel number for "'+cur+'":', cur);
   if(v==null) return;
   const nn = String(v).trim();
-  if(!nn || nn===selPanel) return;
-  if(locs[nn] && !confirm('Panel "'+nn+'" already exists — overwrite it?')) return;
+  if(!nn || nn===cur) return;
+  if((nn in locs) && !confirm('Panel "'+nn+'" already exists — overwrite it?')) return;
   pushUndo();
-  locs[nn] = locs[selPanel]; delete locs[selPanel];
+  const loc = locs[selPanel];
+  delete locs[selPanel];
+  locs[nn] = { page: loc.page, bbox: loc.bbox };   // clean number (drops any duplicate flag)
   selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
 }
 
@@ -398,7 +472,7 @@ function pageXY(e, pi){
   return [ (e.clientX-rect.left)/rect.width*d.w, (e.clientY-rect.top)/rect.height*d.h ];
 }
 
-function onOverlayClick(e, pi){
+async function onOverlayClick(e, pi){
   if(multiSelectMode) return;   // handled by drag-select
   if(seriesMode){ placeSeries(e, pi); return; }
   if(!addMode) return;
@@ -406,10 +480,20 @@ function onOverlayClick(e, pi){
   const v = prompt('Panel number to add here:');
   if(v==null) return;
   const nn = String(v).trim(); if(!nn) return;
-  if(locs[nn] && !confirm('Panel "'+nn+'" already exists — move it here?')) return;
-  pushUndo();
-  locs[nn] = { page: pi, bbox: [x-9, y-6, x+9, y+6] };
-  setDirty(true); drawBoxes(); toast('Added panel ' + nn);   // stays red (not selected)
+  const bbox = [x-9, y-6, x+9, y+6];
+  if(numberExists(nn)){
+    const rel = await askDuplicate(nn);     // 'sheet' | 'dup' | null
+    if(rel == null) return;                 // added by mistake → cancel
+    pushUndo();
+    locs[freeKey(nn)] = { page: pi, bbox, label: nn, rel };
+    setDirty(true); drawBoxes();
+    toast('Added another ' + nn + ' (' +
+          (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    locs[nn] = { page: pi, bbox };
+    setDirty(true); drawBoxes(); toast('Added panel ' + nn);   // stays red (not selected)
+  }
 }
 
 function placeSeries(e, pi){
