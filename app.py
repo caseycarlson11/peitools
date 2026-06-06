@@ -451,6 +451,38 @@ def build_spreadsheet(job_name):
     return jsonify({"ok": True, "panels": len(rows), "file": f"{job_name}.xlsx"})
 
 
+@app.route("/api/jobs/<path:job_name>/spreadsheet-edits", methods=["POST"])
+@login_required
+def spreadsheet_edits(job_name):
+    """Apply manual cell edits to the job's xlsx file."""
+    try:
+        import openpyxl as _xl_ed
+    except ImportError:
+        return jsonify({"error": "openpyxl not installed"}), 500
+    data = request.get_json(silent=True) or {}
+    cells = data.get("cells", [])
+    if not cells:
+        return jsonify({"ok": True, "cells_updated": 0})
+    ss_dir = safe_join(job_name, "Spreadsheets")
+    out_path = os.path.join(ss_dir, f"{job_name}.xlsx")
+    if not os.path.exists(out_path):
+        return jsonify({"error": "Spreadsheet not found — run Pull Data first"}), 404
+    wb = _xl_ed.load_workbook(out_path)
+    ws = wb.active
+    updated = 0
+    for cell in cells:
+        try:
+            # JS r is 1-based data row; xlsx row 1 is the header, so xlsx row = r + 1
+            r = int(cell["row"]) + 1
+            c = int(cell["col"]) + 1   # JS is 0-based, xlsx is 1-based
+            ws.cell(row=r, column=c, value=str(cell.get("value", "")))
+            updated += 1
+        except Exception:
+            pass
+    wb.save(out_path)
+    return jsonify({"ok": True, "cells_updated": updated})
+
+
 @app.route("/admin", methods=["GET"])
 @login_required
 def admin():

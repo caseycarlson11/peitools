@@ -398,6 +398,13 @@
     .sheet-scroll tr:hover td { background: var(--accent); }
     .panel-edit-link { color: var(--blue); text-decoration: none; font-weight: 600; }
     .panel-edit-link:hover { text-decoration: underline; }
+    .sheet-scroll td[contenteditable] { cursor: text; }
+    .sheet-scroll td[contenteditable]:focus {
+      outline: 2px solid var(--blue); outline-offset: -2px;
+      background: var(--card) !important; position: relative; z-index: 1;
+    }
+    .sheet-scroll td.cell-edited { background: rgba(59,130,246,0.13) !important; }
+    .sheet-action-btn.has-edits { border-color: var(--green); color: var(--green); }
 
     /* PDF viewer */
     .pdf-pane {
@@ -512,6 +519,7 @@
           <div class="sheet-pane" id="sheetPane">
             <div class="sheet-toolbar">
               <span class="sheet-name" id="sheetName"></span>
+              <button class="sheet-action-btn" id="sheetSaveEditsBtn" style="display:none" onclick="saveSpreadsheetEdits()">💾 Save Edits</button>
               <button class="sheet-action-btn" id="sheetDownloadBtn" onclick="xlsxDirectDownload()">📥 Download</button>
               <button class="sheet-action-btn" onclick="xlsxGoogleSheets()">📊 Google Sheets</button>
             </div>
@@ -684,6 +692,48 @@ function selectCategory(cat, tab) {
 // ── xlsx action menu ──────────────────────────────────────
 let _xlsxMenuFile = null;
 let _currentSheetFile = null;
+let _pendingEdits = {};   // key "row,col" → new text value
+
+function _onSheetCellInput(e) {
+  const td = e.target.closest('td[contenteditable]');
+  if (!td) return;
+  const row = +td.dataset.row;
+  const col = +td.dataset.col;
+  _pendingEdits[`${row},${col}`] = td.innerText.trim();
+  td.classList.add('cell-edited');
+  const btn = document.getElementById('sheetSaveEditsBtn');
+  if (btn) { btn.style.display = ''; btn.classList.add('has-edits'); }
+}
+
+async function saveSpreadsheetEdits() {
+  if (!currentJob || !Object.keys(_pendingEdits).length) return;
+  const btn = document.getElementById('sheetSaveEditsBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  const cells = Object.entries(_pendingEdits).map(([key, value]) => {
+    const [row, col] = key.split(',').map(Number);
+    return { row, col, value };
+  });
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/spreadsheet-edits`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cells })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      _pendingEdits = {};
+      document.querySelectorAll('#sheetScroll td.cell-edited').forEach(td => td.classList.remove('cell-edited'));
+      btn.classList.remove('has-edits');
+      btn.textContent = '✓ Saved';
+      setTimeout(() => { btn.textContent = '💾 Save Edits'; btn.disabled = false; btn.style.display = 'none'; }, 1500);
+    } else {
+      alert(data.error || 'Error saving edits.');
+      btn.disabled = false; btn.textContent = '💾 Save Edits';
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false; btn.textContent = '💾 Save Edits';
+  }
+}
 
 function downloadFile(fname, item, e) {
   e && e.stopPropagation();
@@ -770,21 +820,27 @@ async function viewSpreadsheet(fname) {
       html += '<tr>';
       data[r].forEach((c, ci) => {
         if (ci === 0 && c !== '') {
-          // Panel Number — clickable link to Panel Map Editor centered on this panel
+          // Panel Number — link only, not directly editable (use Panel Mapper)
           const href = `${editorBase}?panel=${encodeURIComponent(String(c))}`;
-          html += `<td><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Panel Mapper">${c}</a></td>`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Panel Mapper">${c}</a></td>`;
         } else if (ci === 3 && c !== '') {
-          // Packing List — clickable link to the packing list PDF
+          // Packing List — link only, not directly editable
           const href = `${plBase}${encodeURIComponent(String(c) + '.pdf')}`;
-          html += `<td><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open packing list">${c}</a></td>`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open packing list">${c}</a></td>`;
         } else {
-          html += `<td>${c ?? ''}</td>`;
+          html += `<td data-row="${r}" data-col="${ci}" contenteditable="true">${c ?? ''}</td>`;
         }
       });
       html += '</tr>';
     }
     html += '</tbody></table>';
+    // Reset pending edits and hide save button whenever a new sheet loads
+    _pendingEdits = {};
+    const saveBtn = document.getElementById('sheetSaveEditsBtn');
+    if (saveBtn) saveBtn.style.display = 'none';
     scroll.innerHTML = html;
+    // Track cell edits via event delegation
+    scroll.addEventListener('input', _onSheetCellInput, { once: false });
   } catch(e) {
     scroll.innerHTML = `<p style="color:#ff6b6b;padding:20px;">Error loading spreadsheet: ${e.message}</p>`;
   }
