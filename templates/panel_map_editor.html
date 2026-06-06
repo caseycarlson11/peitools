@@ -304,25 +304,36 @@ function freeKey(n){
 
 let _dupResolve = null;
 let _dupNumber  = null;
-let _dupOtherIdx = 0;
+let _dupViewIdx = 0;       // 0 = back where you were placing, 1..n = each existing instance
+let _dupHome    = null;    // scroll position when the panel opened (your placement spot)
 function askDuplicate(n){
-  _dupNumber = n; _dupOtherIdx = 0;
+  _dupNumber = n; _dupViewIdx = 0;
+  const pane = $('body');
+  _dupHome = { left: pane.scrollLeft, top: pane.scrollTop };
   $('dupTitle').textContent = 'Panel ' + n + ' is already placed';
   $('dupDialog').classList.add('open');
   return new Promise(res => { _dupResolve = res; });
 }
 function dupChoose(val){
   $('dupDialog').classList.remove('open');
-  _dupNumber = null;
+  _dupNumber = null; _dupHome = null;
   const r = _dupResolve; _dupResolve = null;
   if(r) r(val);
 }
-// Jump to (and yellow-highlight) an existing instance of the number being decided.
+// Toggle between the existing instance(s) and where you were placing — back and forth.
 function dupShowOther(){
   if(_dupNumber == null) return;
   const keys = instancesOf(_dupNumber);
   if(!keys.length){ toast('No existing instance found.'); return; }
-  const key = keys[_dupOtherIdx % keys.length]; _dupOtherIdx++;
+  _dupViewIdx = (_dupViewIdx + 1) % (keys.length + 1);
+  if(_dupViewIdx === 0){                 // jump back to your placement spot
+    clearFlash();
+    const pane = $('body');
+    if(_dupHome){ pane.scrollLeft = _dupHome.left; pane.scrollTop = _dupHome.top; }
+    toast('Back to where you were placing.');
+    return;
+  }
+  const key = keys[_dupViewIdx - 1];
   const box = document.querySelector('.pbox[data-panel="' + CSS.escape(key) + '"]');
   if(!box){ toast('Could not locate it.'); return; }
   clearFlash();
@@ -330,7 +341,7 @@ function dupShowOther(){
   centerOnBox(box);
   const pg = locs[key] && locs[key].page;
   toast('Showing ' + _dupNumber + (pg != null ? (' on page ' + (pg+1)) : '') +
-        (keys.length > 1 ? ' (' + ((_dupOtherIdx-1)%keys.length + 1) + ' of ' + keys.length + ')' : ''));
+        (keys.length > 1 ? ' (' + _dupViewIdx + ' of ' + keys.length + ')' : ''));
 }
 
 let _flashKey = null;
