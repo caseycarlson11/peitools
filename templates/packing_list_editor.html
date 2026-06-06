@@ -1045,15 +1045,22 @@
   }
   // Click on the packing list while in "add missing panel" mode → drop a red marker.
   function onPlOverlayClick(e, overlay, pi){
-    if(!(placeMode && (placeMode.plMissing || placeMode.plDup))) return;
+    if(!(placeMode && (placeMode.plMissing || placeMode.plDup || placeMode.plBlank))) return;
     const dims=plPages[pi]; if(!dims) return;
     const obr=overlay.getBoundingClientRect();
     const cx=(e.clientX-obr.left)/overlay.offsetWidth*dims.w;
     const cy=(e.clientY-obr.top)/overlay.offsetHeight*dims.h;
     const hw=10, hh=7;
+    const id=++markerSeq;
+    // Sticky blank-drop: leave a blank marker and STAY armed for the next one.
+    if(placeMode.plBlank){
+      markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel:null, skid:'', assigned:false});
+      renderPlMarks();
+      toast('Blank highlight placed — keep clicking, or Esc to stop');
+      return;   // keep placeMode active
+    }
     const dup = placeMode.plDup;
     const panel = dup ? placeMode.panel : null;   // duplicate keeps the original number
-    const id=++markerSeq;
     markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid:'', assigned:false});
     activeMarkerId=id; markerJustActivated=true;   // new marker is editable until you click off
     placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
@@ -1062,13 +1069,14 @@
   }
   // Duplicate → drop a blank red marker on the BLUEPRINT (panel + skid blank).
   function duplicatePanel(){
-    // Sticky mode: each click on the BLUEPRINT drops a blank highlight (no panel #,
-    // no skid). Stays armed until Esc (assign numbers later by clicking each marker).
+    // Sticky mode: each click on the PACKING LIST drops a blank highlight (no panel #,
+    // no skid). Stays armed until Esc — assign numbers later by clicking each marker.
+    if(!plDoc){ toast('Open a packing list first'); return; }
     clearSelection(true);
-    placeMode={bpDup:true};
+    placeMode={plBlank:true};
     document.body.style.cursor='crosshair';
-    showPlaceBanner('bp','Click the BLUEPRINT to drop blank highlights — press Esc to stop');
-    toast('Dropping blank highlights — Esc to stop');
+    showPlaceBanner('pl','Click the PACKING LIST to drop blank highlights — press Esc to stop');
+    toast('Dropping blank highlights on the packing list — Esc to stop');
   }
   // Click a blueprint marker → assign its panel number (skid stays blank).
   function onBpMarkerClick(m){
@@ -1339,7 +1347,7 @@
   // placement is armed, a click anywhere on the correct document places the marker.
   function viewerPlaceClick(e, which){
     if(!placeMode) return;
-    const wantPl = !!(placeMode.plMissing || placeMode.plDup);   // these go on the packing list
+    const wantPl = !!(placeMode.plMissing || placeMode.plDup || placeMode.plBlank);   // these go on the packing list
     if((which==='pl') !== wantPl) return;
     const wrap = e.target.closest('.page-wrap'); if(!wrap) return;
     const overlay = wrap.querySelector('.overlay'); if(!overlay) return;
