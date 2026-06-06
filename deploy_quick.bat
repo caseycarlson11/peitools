@@ -12,7 +12,7 @@ tar -czf - app.py packing_list_engine.py templates static BlueprintLinker | ssh 
 
 echo.
 echo === Syncing to git folder and pushing to GitHub ===
-robocopy "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com" C:\temp\peitools /E /XD Jobs .git /XF landing_preview.html upload_app.ps1 upload_cmd.txt deploy.bat /NFL /NDL /NJH /NJS
+robocopy "C:\Users\ROG\Documents\Pacific Erectors\PEItools.com" C:\temp\peitools /E /XD Jobs .git /XF landing_preview.html upload_app.ps1 upload_cmd.txt /NFL /NDL /NJH /NJS
 cd /d C:\temp\peitools
 git add .
 git commit -m "Quick deploy %date% %time%"
