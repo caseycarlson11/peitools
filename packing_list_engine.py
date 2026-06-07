@@ -821,23 +821,25 @@ def ocr_region(pdf_path, page_index, rect_pts, scale=400/72):
 
 # --- Blueprint Annotator ---------------------------------------------------
 
-# No red — red is reserved for the Panel Mapper's panel boxes. Keep this list in the
-# same order as SHIP_COLORS in packing_list_editor.html so color indexes line up.
+# No red — red is reserved for the Panel Mapper's panel boxes. These are the EXACT
+# RGB equivalents of SHIP_COLORS in packing_list_editor.html / packing_list_tracker.html
+# (same order) so a shipment's blueprint color matches its tracker color exactly.
 _SHIPMENT_COLORS = [
-    ((0.1, 0.95, 0.25), (0.0, 0.55, 0.1)),
-    ((1.0, 0.92, 0.0),  (0.75, 0.60, 0.0)),
-    ((0.0, 0.78, 1.0),  (0.0, 0.45, 0.80)),
-    ((1.0, 0.55, 0.0),  (0.80, 0.30, 0.0)),
-    ((0.85, 0.0, 0.85), (0.55, 0.0, 0.55)),
-    ((0.0, 0.92, 0.85), (0.0, 0.55, 0.50)),
-    ((0.75, 0.25, 1.0), (0.50, 0.0, 0.80)),
+    ((0.094, 0.949, 0.235), (0.094, 0.949, 0.235)),  # #18f23c green
+    ((1.0,   0.851, 0.0),   (1.0,   0.851, 0.0)),    # #ffd900 yellow
+    ((0.0,   0.776, 1.0),   (0.0,   0.776, 1.0)),    # #00c6ff cyan
+    ((1.0,   0.533, 0.0),   (1.0,   0.533, 0.0)),    # #ff8800 orange
+    ((0.878, 0.0,   0.878), (0.878, 0.0,   0.878)),  # #e000e0 magenta
+    ((0.0,   0.910, 0.847), (0.0,   0.910, 0.847)),  # #00e8d8 teal
+    ((0.722, 0.0,   1.0),   (0.722, 0.0,   1.0)),    # #b800ff purple
 ]
 
 def _shipment_color(shipment_index):
     return _SHIPMENT_COLORS[shipment_index % len(_SHIPMENT_COLORS)]
 
 
-def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, output_path):
+def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, output_path,
+                                         shipment_colors=None):
     """Delivery-status version of the Panel Mapper output.
 
     Uses the Panel Mapper's pre-verified panel positions (``all_locs``) instead
@@ -854,12 +856,16 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
     """
     doc = fitz.open(scan_pdf)
 
-    # Build shipment color index from delivery_state
-    shipment_order = {}
-    for info in delivery_state.values():
-        s = info.get("shipment", "")
-        if s not in shipment_order:
-            shipment_order[s] = len(shipment_order)
+    # Use the persistent per-packing-list color map when provided (same colors as
+    # the tracker UI + editor); otherwise fall back to first-seen order.
+    if shipment_colors:
+        shipment_order = dict(shipment_colors)
+    else:
+        shipment_order = {}
+        for info in delivery_state.values():
+            s = info.get("shipment", "")
+            if s not in shipment_order:
+                shipment_order[s] = len(shipment_order)
 
     # Delivered panel lookup: panel_str → (skid, shipment)
     delivered = {p: (info["skid"], info.get("shipment", ""))
@@ -944,14 +950,20 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
     doc.close()
 
 
-def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, output_path):
+def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, output_path,
+                               shipment_colors=None):
     doc = fitz.open(blueprint_path)
 
-    shipment_order = {}
-    for info in delivery_state.values():
-        s = info.get("shipment", "")
-        if s not in shipment_order:
-            shipment_order[s] = len(shipment_order)
+    # Use the persistent per-packing-list color map when provided; otherwise fall
+    # back to first-seen order. Same map is used by the tracker UI + editor.
+    if shipment_colors:
+        shipment_order = dict(shipment_colors)
+    else:
+        shipment_order = {}
+        for info in delivery_state.values():
+            s = info.get("shipment", "")
+            if s not in shipment_order:
+                shipment_order[s] = len(shipment_order)
 
     page_panels = {}
     for panel_str, info in delivery_state.items():

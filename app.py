@@ -1275,6 +1275,43 @@ def _pl_state_path(job_name):    return os.path.join(_pl_tracking_dir(job_name),
 def _pl_cache_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "panel_locations_v2.json")  # v2 = DXF-coordinate locator
 def _pl_output_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "tracked_blueprint.pdf")
 def _pl_cells_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "table_cells.json")
+def _pl_colors_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "ship_colors.json")
+
+# Persistent shipment → color-index map. A color is assigned to a packing list the
+# first time it's processed and never changes; the SAME index is used by the tracker
+# UI, the editor, and the baked prints. (Palettes have 7 colors, no red.)
+def _pl_load_colors(job_name):
+    p = _pl_colors_path(job_name)
+    if os.path.exists(p):
+        try:
+            with open(p) as f:
+                return _json.load(f)
+        except Exception:
+            pass
+    return {}
+
+def _pl_assign_colors(job_name, delivery_state):
+    """Ensure every shipment present in delivery_state has a stored color index.
+    New shipments get the lowest unused index (in first-seen order). Returns the map."""
+    m = _pl_load_colors(job_name)
+    new = []
+    for info in delivery_state.values():
+        s = info.get("shipment", "")
+        if s and s not in m and s not in new:
+            new.append(s)
+    for s in new:
+        used = set(m.values())
+        i = 0
+        while i in used:
+            i += 1
+        m[s] = i
+    try:
+        os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+        with open(_pl_colors_path(job_name), "w") as f:
+            _json.dump(m, f)
+    except Exception:
+        pass
+    return m
 
 def _find_blueprint(job_name):
     bp_dir = safe_join(job_name, "Blueprints")
@@ -1387,14 +1424,17 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
 
+        ship_colors = _pl_assign_colors(job_name, delivery_state)   # lock in each list's color
         if use_panel_map:
             from packing_list_engine import generate_tracked_blueprint_panel_map
             generate_tracked_blueprint_panel_map(
-                pm_scan_pdf, panel_locations, delivery_state, _pl_output_path(job_name))
+                pm_scan_pdf, panel_locations, delivery_state, _pl_output_path(job_name),
+                shipment_colors=ship_colors)
             table_cells = {}
         else:
             table_cells = generate_tracked_blueprint(
-                blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name))
+                blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name),
+                shipment_colors=ship_colors)
         try:
             with open(_pl_cells_path(job_name), "w") as f:
                 _json.dump(table_cells or {}, f)
@@ -1963,12 +2003,15 @@ def packing_list_status(job_name):
         with open(_pl_state_path(job_name)) as f:
             state = _json.load(f)
 
-        # Build per-shipment stats preserving insertion order (= color index order)
+        # Per-shipment stats. Color index comes from the persistent per-job map so
+        # it matches the prints exactly and never changes.
+        cmap = _pl_assign_colors(job_name, state)
         shipment_info = {}   # label -> {count, skids, color_index}
         for info in state.values():
             s = info.get("shipment", "Unknown")
             if s not in shipment_info:
-                shipment_info[s] = {"count": 0, "skids": set(), "color_index": len(shipment_info)}
+                shipment_info[s] = {"count": 0, "skids": set(),
+                                    "color_index": cmap.get(s, len(shipment_info))}
             shipment_info[s]["count"] += 1
             shipment_info[s]["skids"].add(info.get("skid", ""))
 
@@ -2031,13 +2074,16 @@ def packing_list_reset(job_name):
 
 _sk_key = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
 
-def _pl_stats(state):
-    """Per-shipment stats from a delivery_state dict, color index = first-seen order."""
+def _pl_stats(state, color_map=None):
+    """Per-shipment stats. Color index comes from the persistent per-job color_map
+    when provided (matches the prints); otherwise first-seen order."""
+    color_map = color_map or {}
     shipment_info = {}
     for info in state.values():
         s = info.get("shipment", "Unknown")
         if s not in shipment_info:
-            shipment_info[s] = {"count": 0, "skids": set(), "color_index": len(shipment_info)}
+            shipment_info[s] = {"count": 0, "skids": set(),
+                                "color_index": color_map.get(s, len(shipment_info))}
         shipment_info[s]["count"] += 1
         shipment_info[s]["skids"].add(str(info.get("skid", "")))
     shipments = [
@@ -2183,7 +2229,7 @@ def packing_list_editor_data(job_name):
                 from urllib.parse import quote as _uq
                 panels_only_url = f"/files/{_uq(job_name)}/Panel Mapper/{_uq(po_name)}"
 
-    stats = _pl_stats(state)
+    stats = _pl_stats(state, _pl_assign_colors(job_name, state))
     return jsonify({
         "job": job_name,
         "pages": dims,
@@ -2344,16 +2390,18 @@ def packing_list_update_panels(job_name):
         pm_scan_pdf = pm_sess.get("scan_pdf", "") if pm_sess else ""
         use_panel_map = bool(pm_sess and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
 
+        ship_colors = _pl_assign_colors(job_name, state)
         if use_panel_map:
             from packing_list_engine import generate_tracked_blueprint_panel_map
             generate_tracked_blueprint_panel_map(
-                pm_scan_pdf, locations, state, _pl_output_path(job_name))
+                pm_scan_pdf, locations, state, _pl_output_path(job_name), shipment_colors=ship_colors)
             table_cells = {}
         else:
             from packing_list_engine import generate_tracked_blueprint
             bp = _find_blueprint(job_name)
             if bp:
-                table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name)) or {}
+                table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name),
+                                                         shipment_colors=ship_colors) or {}
             else:
                 regen_ok, regen_err = False, "No blueprint PDF found"
 
@@ -2365,7 +2413,7 @@ def packing_list_update_panels(job_name):
     except Exception as e:
         regen_ok, regen_err = False, str(e)
 
-    stats = _pl_stats(state)
+    stats = _pl_stats(state, _pl_load_colors(job_name))
     located = sum(1 for p in state if p in locations)
     return jsonify({
         "ok": True, "added": added, "removed": removed,

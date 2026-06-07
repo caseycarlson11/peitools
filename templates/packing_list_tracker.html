@@ -169,6 +169,9 @@
 
 {% block scripts %}
 // Matches _SHIPMENT_COLORS in packing_list_engine.py (CSS equivalents)
+// No red — red is reserved for the Panel Mapper's panel boxes.
+// Keep this identical (order + values) to SHIP_COLORS in packing_list_editor.html
+// and to _SHIPMENT_COLORS in packing_list_engine.py so colors match everywhere.
 const SHIP_COLORS = [
   '#18f23c',  // 0 green
   '#ffd900',  // 1 yellow
@@ -177,7 +180,6 @@ const SHIP_COLORS = [
   '#e000e0',  // 4 magenta
   '#00e8d8',  // 5 teal
   '#b800ff',  // 6 purple
-  '#ff4444',  // 7 red
 ];
 function shipColor(idx) { return SHIP_COLORS[idx % SHIP_COLORS.length]; }
 
