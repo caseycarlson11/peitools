@@ -2006,9 +2006,12 @@ def packing_list_upload(job_name):
     f = request.files["file"]
     if not f.filename.lower().endswith(".pdf"):
         return jsonify({"error": "Must be a PDF"}), 400
+    # Save to the Packing Lists folder so it appears in the file list
+    pl_dir = safe_join(job_name, "Packing Lists")
+    os.makedirs(pl_dir, exist_ok=True)
     os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
     label     = request.form.get("label", f.filename.replace(".pdf", ""))
-    save_path = os.path.join(_pl_tracking_dir(job_name), "upload_" + f.filename)
+    save_path = os.path.join(pl_dir, f.filename)
     f.save(save_path)
     with _pl_jobs_lock:
         _pl_jobs[job_name] = {"status": "processing", "progress": 0, "message": "Starting..."}
