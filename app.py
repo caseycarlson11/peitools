@@ -2125,6 +2125,97 @@ def packing_list_reset(job_name):
     return jsonify({"ok": True})
 
 
+@app.route("/api/packing-list/manual-panels/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_manual_panels(job_name):
+    """Add panels to a shipment manually (for handwritten or unreadable packing lists)."""
+    data = request.get_json(force=True) or {}
+    label = data.get("label", "").strip()
+    rows  = data.get("rows", [])
+    if not label or not rows:
+        return jsonify({"error": "label and rows required"}), 400
+
+    os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+    delivery_state = {}
+    if os.path.exists(_pl_state_path(job_name)):
+        with open(_pl_state_path(job_name)) as f:
+            delivery_state = _json.load(f)
+
+    _panel_re = re.compile(r"^\d{1,3}[A-Za-z]?$")
+    added = 0
+    parsed_skids = []
+
+    for row in rows:
+        skid   = str(row.get("skid", "")).strip() or "?"
+        panels_text = str(row.get("panels", ""))
+        parsed_skids.append(skid)
+        tokens = re.split(r"[,\s]+", panels_text)
+        for tok in tokens:
+            tok = tok.strip()
+            if not tok:
+                continue
+            # Normalize: strip leading zeros → "05" → "5"
+            try:
+                norm = str(int(re.match(r"(\d+)", tok).group(1)))
+                suffix = re.sub(r"^\d+", "", tok)
+                tok = norm + suffix.upper()
+            except Exception:
+                continue
+            if not _panel_re.match(tok):
+                continue
+            try:
+                num = int(re.match(r"(\d+)", tok).group(1))
+                if not (1 <= num <= 700):
+                    continue
+            except Exception:
+                continue
+            if tok not in delivery_state:
+                added += 1
+            elif delivery_state[tok].get("shipment") != label:
+                added += 1  # count reassignments too so UI shows something meaningful
+            delivery_state[tok] = {"skid": skid, "shipment": label, "order_num": ""}
+
+    with open(_pl_state_path(job_name), "w") as f:
+        _json.dump(delivery_state, f)
+
+    ship_colors = _pl_assign_colors(job_name, delivery_state, extra_shipments=[label])
+    _pl_record_shipment(job_name, label, parsed_skids, ship_colors)
+
+    # Regenerate blueprint
+    try:
+        from packing_list_engine import generate_tracked_blueprint, generate_tracked_blueprint_panel_map
+        pm_sess      = _pm_load_session(job_name)
+        pm_locs_path = pm_sess.get("locs", "") if pm_sess else ""
+        pm_scan_pdf  = pm_sess.get("scan_pdf", "") if pm_sess else ""
+        use_panel_map = bool(pm_sess and pm_locs_path and os.path.isfile(pm_locs_path)
+                             and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
+        if use_panel_map:
+            with open(pm_locs_path) as f:
+                panel_locations = _json.load(f)
+            try:
+                with open(_pl_cache_path(job_name), "w") as f:
+                    _json.dump(panel_locations, f)
+            except Exception:
+                pass
+            generate_tracked_blueprint_panel_map(
+                pm_scan_pdf, panel_locations, delivery_state, _pl_output_path(job_name),
+                shipment_colors=ship_colors)
+        else:
+            panel_locations = {}
+            if os.path.exists(_pl_cache_path(job_name)):
+                with open(_pl_cache_path(job_name)) as f:
+                    panel_locations = _json.load(f)
+            blueprint_path = _find_blueprint(job_name)
+            if blueprint_path and panel_locations:
+                generate_tracked_blueprint(
+                    blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name),
+                    shipment_colors=ship_colors)
+    except Exception:
+        pass  # state saved; blueprint regen failed — user can reprocess
+
+    return jsonify({"ok": True, "added": added})
+
+
 # ── Packing List Editor (interactive cross-reference) ─────────────────────────
 
 _sk_key = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
