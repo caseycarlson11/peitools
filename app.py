@@ -1275,7 +1275,8 @@ def _pl_state_path(job_name):    return os.path.join(_pl_tracking_dir(job_name),
 def _pl_cache_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "panel_locations_v2.json")  # v2 = DXF-coordinate locator
 def _pl_output_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "tracked_blueprint.pdf")
 def _pl_cells_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "table_cells.json")
-def _pl_colors_path(job_name):   return os.path.join(_pl_tracking_dir(job_name), "ship_colors.json")
+def _pl_colors_path(job_name):    return os.path.join(_pl_tracking_dir(job_name), "ship_colors.json")
+def _pl_registry_path(job_name): return os.path.join(_pl_tracking_dir(job_name), "shipment_registry.json")
 
 # Persistent shipment → color-index map. A color is assigned to a packing list the
 # first time it's processed and never changes; the SAME index is used by the tracker
@@ -1290,13 +1291,17 @@ def _pl_load_colors(job_name):
             pass
     return {}
 
-def _pl_assign_colors(job_name, delivery_state):
+def _pl_assign_colors(job_name, delivery_state, extra_shipments=None):
     """Ensure every shipment present in delivery_state has a stored color index.
-    New shipments get the lowest unused index (in first-seen order). Returns the map."""
+    New shipments get the lowest unused index (in first-seen order). Returns the map.
+    extra_shipments: list of labels to ensure are in the map even if not in delivery_state."""
     m = _pl_load_colors(job_name)
     new = []
     for info in delivery_state.values():
         s = info.get("shipment", "")
+        if s and s not in m and s not in new:
+            new.append(s)
+    for s in (extra_shipments or []):
         if s and s not in m and s not in new:
             new.append(s)
     for s in new:
@@ -1312,6 +1317,25 @@ def _pl_assign_colors(job_name, delivery_state):
     except Exception:
         pass
     return m
+
+def _pl_record_shipment(job_name, label, parsed_skids, cmap):
+    """Persist every processed shipment label + skids to the registry, even if 0 panels.
+    This ensures 0-panel shipments still appear in section 3 of the tracker UI."""
+    reg_path = _pl_registry_path(job_name)
+    try:
+        reg = {}
+        if os.path.exists(reg_path):
+            with open(reg_path) as f:
+                reg = _json.load(f)
+        _sk = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
+        reg[label] = {
+            "skids": sorted([str(s) for s in parsed_skids], key=_sk),
+            "color_index": cmap.get(label, 0),
+        }
+        with open(reg_path, "w") as f:
+            _json.dump(reg, f)
+    except Exception:
+        pass
 
 def _find_blueprint(job_name):
     bp_dir = safe_join(job_name, "Blueprints")
@@ -1424,7 +1448,9 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
 
-        ship_colors = _pl_assign_colors(job_name, delivery_state)   # lock in each list's color
+        # Lock in color for this shipment even if it has 0 panels
+        ship_colors = _pl_assign_colors(job_name, delivery_state, extra_shipments=[shipment_label])
+        _pl_record_shipment(job_name, shipment_label, list(parsed.keys()), ship_colors)
         if use_panel_map:
             from packing_list_engine import generate_tracked_blueprint_panel_map
             generate_tracked_blueprint_panel_map(
@@ -2014,6 +2040,22 @@ def packing_list_status(job_name):
                                     "color_index": cmap.get(s, len(shipment_info))}
             shipment_info[s]["count"] += 1
             shipment_info[s]["skids"].add(info.get("skid", ""))
+
+        # Merge in any shipments with 0 panels that were recorded in the registry
+        reg_path = _pl_registry_path(job_name)
+        if os.path.exists(reg_path):
+            try:
+                with open(reg_path) as f:
+                    reg = _json.load(f)
+                for label, rdata in reg.items():
+                    if label not in shipment_info:
+                        shipment_info[label] = {
+                            "count": 0,
+                            "skids": set(rdata.get("skids", [])),
+                            "color_index": cmap.get(label, rdata.get("color_index", len(shipment_info))),
+                        }
+            except Exception:
+                pass
 
         job["total_panels"] = len(state)
         _sk = lambda x: (int(x) if str(x).isdigit() else float('inf'), str(x))
