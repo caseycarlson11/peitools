@@ -269,9 +269,11 @@ Processes KPS packing list PDFs and annotates the job blueprint with colored hig
 4. Download or Publish the annotated blueprint
 
 ### Color coding
-- Each shipment gets a distinct color: green, yellow, cyan, orange, magenta, teal, purple, red
+- Each packing list (shipment) gets a **distinct** color: green, yellow, cyan, orange, magenta, teal, purple. **NEVER red** — red is reserved for the Panel Mapper's panel boxes (do not add red back to either palette).
+- A new packing list always gets a colour different from every existing one. The editor (`packing_list_editor.html`) uses `shipIdx(shipment)` which assigns any new shipment the lowest UNUSED index (and `ensureShipColors()` on load); the server assigns by first-seen order. Keep `_SHIPMENT_COLORS` (engine) and `SHIP_COLORS[]` (editor) the SAME order/length so indexes line up.
 - Colors used in: blueprint highlights, table row swatches, UI shipment stat cards, file list badges
-- Palette defined in `packing_list_engine.py → _SHIPMENT_COLORS` and `packing_list_tracker.html → SHIP_COLORS[]`
+- Palette defined in `packing_list_engine.py → _SHIPMENT_COLORS` and `templates/packing_list_editor.html / packing_list_tracker.html → SHIP_COLORS[]`
+- (Separate convention: "missing / not-in-table" packing-list markers are drawn red `#ff5050` on the PACKING LIST pane only — that's a not-found warning, not a shipment colour, and doesn't sit on the blueprint with the Panel Mapper boxes.)
 
 ### KPS Packing List / Skid Sheet Format
 

@@ -821,6 +821,8 @@ def ocr_region(pdf_path, page_index, rect_pts, scale=400/72):
 
 # --- Blueprint Annotator ---------------------------------------------------
 
+# No red — red is reserved for the Panel Mapper's panel boxes. Keep this list in the
+# same order as SHIP_COLORS in packing_list_editor.html so color indexes line up.
 _SHIPMENT_COLORS = [
     ((0.1, 0.95, 0.25), (0.0, 0.55, 0.1)),
     ((1.0, 0.92, 0.0),  (0.75, 0.60, 0.0)),
@@ -829,7 +831,6 @@ _SHIPMENT_COLORS = [
     ((0.85, 0.0, 0.85), (0.55, 0.0, 0.55)),
     ((0.0, 0.92, 0.85), (0.0, 0.55, 0.50)),
     ((0.75, 0.25, 1.0), (0.50, 0.0, 0.80)),
-    ((1.0, 0.35, 0.35), (0.75, 0.0, 0.0)),
 ]
 
 def _shipment_color(shipment_index):

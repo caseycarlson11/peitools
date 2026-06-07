@@ -282,7 +282,8 @@
   pdfjsLib.GlobalWorkerOptions.workerSrc =
     'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
-  const SHIP_COLORS = ['#18f23c','#ffd900','#00c6ff','#ff8800','#e000e0','#00e8d8','#b800ff','#ff4444'];
+  // No red — red is reserved for the Panel Mapper's panel boxes.
+  const SHIP_COLORS = ['#18f23c','#ffd900','#00c6ff','#ff8800','#e000e0','#00e8d8','#b800ff'];
   const shipColor = i => SHIP_COLORS[((i%SHIP_COLORS.length)+SHIP_COLORS.length)%SHIP_COLORS.length];
   // Return a shipment's colour index, assigning a fresh UNUSED one if it's new
   // (so every packing list gets a colour different from all the others).
