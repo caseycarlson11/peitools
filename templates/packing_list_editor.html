@@ -554,9 +554,8 @@
     // clicked never moves.
     confirmOnBlueprint(panel, located, source==='pl');
     crossHighlightPL(panel, source==='bp');
-    // Clicking a panel ON THE PACKING LIST is just a cross-reference — flash it on
-    // the blueprint, but don't pop the info/edit bar or arm placement.
-    if(source==='pl'){ selected=null; return; }
+    // Clicking a panel ON THE PACKING LIST: show the action bar so the user can
+    // place/edit missed or unlocated panels.
     showActionBar();
     // A panel that isn't on the prints yet: assume we want to place it — arm place
     // mode so the next click on the blueprint sets it (unless another button is used).
