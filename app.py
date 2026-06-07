@@ -1366,15 +1366,24 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             raw_panels = sum(len(v) for v in parsed.values())
             _pl_jobs[job_name].update({"message": f"Parsed {raw_panels} panels across {skid_count} skids…", "progress": 15})
 
+        panels_reassigned = 0
         for skid_num, panel_orders in parsed.items():
             for p, order_num in panel_orders.items():
                 if p not in delivery_state:
-                    delivery_state[p] = {"skid": skid_num, "shipment": shipment_label,
-                                         "order_num": order_num}
                     panels_added += 1
+                elif delivery_state[p].get("shipment") != shipment_label:
+                    # Panel exists from a prior shipment — reassign to this one so
+                    # the blueprint markup color matches the tracker's color for this shipment.
+                    panels_reassigned += 1
+                delivery_state[p] = {"skid": skid_num, "shipment": shipment_label,
+                                     "order_num": order_num}
 
         with _pl_jobs_lock:
-            _pl_jobs[job_name].update({"message": f"Added {panels_added} new panels — scanning blueprint…", "progress": 18})
+            msg = f"Added {panels_added} new panels"
+            if panels_reassigned:
+                msg += f", reassigned {panels_reassigned} to this shipment"
+            msg += " — scanning blueprint…"
+            _pl_jobs[job_name].update({"message": msg, "progress": 18})
 
         with open(_pl_state_path(job_name), "w") as f:
             _json.dump(delivery_state, f)
@@ -1468,10 +1477,14 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             pass
 
         located = sum(1 for p in delivery_state if p in panel_locations)
+        done_msg = f"Complete — {panels_added} new panels added"
+        if panels_reassigned:
+            done_msg += f", {panels_reassigned} reassigned to this shipment"
+        done_msg += f", {located} located on blueprint"
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({
                 "status": "done", "progress": 100,
-                "message": f"Complete — {panels_added} new panels added, {located} located on blueprint",
+                "message": done_msg,
                 "panels_added": panels_added, "total_panels": len(delivery_state),
                 "warnings": parse_warnings,
                 "located": located,
