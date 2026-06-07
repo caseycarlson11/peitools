@@ -298,10 +298,12 @@ function loadPackingLists() {
       allRow.style.display = '';
       document.getElementById('processAllBtn').style.display = '';
       listEl.innerHTML = '';
-      files.forEach(f=>{
+      files.forEach(entry=>{
+        // entry may be a string (legacy) or {name, modified} object
+        const f = typeof entry === 'object' ? entry.name : entry;
         const div = document.createElement('div');
         div.className = 'pl-item';
-        div.dataset.filename = f;   // filename stored on element — NOT passed via HTML attribute
+        div.dataset.filename = f;   // always a plain string
 
         // Highlight already-processed files with their shipment color
         const label = f.replace(/\.pdf$/i,'');

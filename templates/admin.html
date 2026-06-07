@@ -363,12 +363,16 @@ function buildJobCard(job, files) {
   return card;
 }
 
-function buildFileItem(job, cat, fname) {
+function buildFileItem(job, cat, f) {
+  // f may be a string (legacy) or {name, modified} object
+  const fname    = typeof f === 'object' ? f.name     : f;
+  const modified = typeof f === 'object' ? f.modified : '';
   const item = document.createElement('div');
   item.className = 'admin-file-item';
   item.id = `fi_${escId(job)}_${escId(cat)}_${escId(fname)}`;
   item.innerHTML = `
     <span class="admin-file-name">📄 ${fname}</span>
+    ${modified ? `<span style="font-size:.75rem;color:var(--text2);margin-left:auto;padding-right:8px">${modified}</span>` : ''}
     <button class="btn-del-file" onclick="deleteFile('${escJ(job)}','${escJ(cat)}','${escJ(fname)}')">✕ Remove</button>`;
   return item;
 }
