@@ -450,6 +450,7 @@ function processNextInQueue() {
         ok.classList.add('show');
         renderWarnings(data.warnings || []);
         renderStatus(data);
+        loadPackingLists();   // refresh list once at end (picks up new uploads + color dots)
         if (!isBatch && (data.panels_added ?? 0) === 0) showManualEntry();
       }).catch(()=>enableBtn());
     return;
@@ -502,11 +503,33 @@ function pollUntilDone(onDone) {
 }
 
 // ── Status ────────────────────────────────────────────────────────────────
+function refreshFileColors() {
+  document.querySelectorAll('#plList .pl-item').forEach(div => {
+    const f = div.dataset.filename || '';
+    const label = f.replace(/\.pdf$/i, '');
+    const idx = fileColorMap[label] ?? fileColorMap[f] ?? null;
+    if (idx === null) return;
+    const c = shipColor(idx);
+    div.style.borderLeft = `4px solid ${c}`;
+    let badge = div.querySelector('.file-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'file-badge';
+      badge.style.cssText = 'width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-right:2px;display:inline-block';
+      const nameEl = div.querySelector('.pl-name');
+      if (nameEl) div.insertBefore(badge, nameEl);
+    }
+    badge.style.background = c;
+  });
+}
+
 function loadStatus() {
   fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
     .then(r=>r.json()).then(data=>{
-      // Store file→color map for the file list
-      if (data.file_colors) fileColorMap = data.file_colors;
+      if (data.file_colors) {
+        fileColorMap = data.file_colors;
+        refreshFileColors();
+      }
       renderStatus(data);
     });
 }
@@ -515,12 +538,6 @@ function renderStatus(data) {
   const card = document.getElementById('statusCard');
   if (!data.total_panels && !data.has_output) { card.style.display='none'; return; }
   card.style.display = '';
-
-  // Store color map and refresh file colors
-  if (data.file_colors) {
-    fileColorMap = data.file_colors;
-    loadPackingLists();
-  }
 
   // ── Overall totals ──
   const shipments = data.shipments || [];
@@ -538,6 +555,13 @@ function renderStatus(data) {
       <div class="lbl">Shipments</div>
     </div>
   `;
+
+  // Update file color dots inline — do NOT re-call loadPackingLists() here,
+  // that causes a race condition that wipes the file list mid-render.
+  if (data.file_colors) {
+    fileColorMap = data.file_colors;
+    refreshFileColors();
+  }
 
   // ── Per-shipment colored cards ──
   document.getElementById('shipmentsWrap').innerHTML = shipments.map(s=>{
