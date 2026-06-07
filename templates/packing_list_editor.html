@@ -1380,12 +1380,15 @@
       delivery=d.delivery_state||{}; locations=d.panel_locations||{};
       tableCells=d.table_cells||tableCells;
       shipments=d.shipments||[]; shipIndex=d.file_colors||{};
+      ensureShipColors();
       pendingAdd={}; pendingRemove.clear(); pendingRenames=[];
       if(activeShip && !(activeShip in shipIndex)) activeShip=shipments.length?shipments[0].label:null;
       buildLegend();
       // reload the freshly regenerated tracked PDF so the viewer == the publishable doc
       if(d.regenerated) await reloadBlueprint(); else renderPanelBoxes();
-      toast(d.regenerated ? '✅ Saved — tracked blueprint updated' : `⚠ Saved, but PDF regen failed: ${d.regen_error||''}`);
+      // also refresh the PACKING LIST pane so its highlights reflect the saved state
+      if(plDoc) renderPlMarks();
+      toast(d.regenerated ? '✅ Saved — blueprint & packing list updated' : `⚠ Saved, but PDF regen failed: ${d.regen_error||''}`);
     }catch(e){ toast('⚠ '+e.message); }
     finally{ refreshStats(); }
   }
