@@ -142,9 +142,17 @@
 <div class="card" id="plCard" style="display:none">
   <div class="card-title">2 · Select Packing Lists</div>
 
-  <label class="pl-select-all" id="selectAllRow" style="display:none">
-    <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll()"> Select all
-  </label>
+  <div id="selectAllRow" style="display:none; margin-bottom:8px;">
+    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+      <label class="pl-select-all" style="margin:0">
+        <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll()"> Select all
+      </label>
+      <button class="btn btn-green" id="processAllBtn" onclick="doProcessAll()"
+              style="padding:6px 14px; font-size:.8rem; display:none">
+        ⚡ Process All
+      </button>
+    </div>
+  </div>
   <div class="pl-list" id="plList"><div class="pl-empty">Loading…</div></div>
 
   <button class="upload-toggle" onclick="toggleUpload()">＋ Upload a new packing list PDF</button>
@@ -244,6 +252,9 @@ let selectedServerPLs = [];
 let pollTimer         = null;
 let processQueue      = [];
 let fileColorMap      = {};  // filename -> color_index (from server)
+let batchTotal        = 0;   // total files in current batch run
+let batchDone         = 0;   // files completed so far
+let batchPanelsAdded  = 0;   // cumulative panels added across batch
 
 // ── Load jobs ──────────────────────────────────────────────────────────────
 fetch('/api/jobs').then(r=>r.json()).then(data=>{
@@ -285,7 +296,8 @@ function loadPackingLists() {
         document.getElementById('uploadSection').classList.add('open');
         return;
       }
-      allRow.style.display = 'flex';
+      allRow.style.display = '';
+      document.getElementById('processAllBtn').style.display = '';
       listEl.innerHTML = '';
       files.forEach(f=>{
         const div = document.createElement('div');
@@ -386,17 +398,38 @@ da.addEventListener('drop', e=>{
 });
 
 // ── Process ───────────────────────────────────────────────────────────────
+function doProcessAll() {
+  // Select all server PLs then process
+  document.getElementById('selectAllChk').checked = true;
+  toggleSelectAll();
+  doProcess();
+}
+
 function doProcess() {
   processQueue = [...selectedServerPLs];
+  batchTotal = processQueue.length + (selectedFile ? 1 : 0);
+  batchDone  = 0;
+  batchPanelsAdded = 0;
   startProgress();
   document.getElementById('uploadSuccess').classList.remove('show');
 
   if (selectedFile) {
+    batchDone++;
+    const batchLabel = batchTotal > 1 ? ` (1 of ${batchTotal})` : '';
+    document.getElementById('progressMsg').textContent = `Uploading${batchLabel}: ${selectedFile.name}…`;
     const label = document.getElementById('shipmentLabel').value || selectedFile.name;
     const fd = new FormData();
     fd.append('file', selectedFile); fd.append('label', label);
     fetch('/api/packing-list/upload/' + encodeURIComponent(selectedJob), {method:'POST', body:fd})
-      .then(r=>r.json()).then(d=>{ if(d.error){showErr(d.error);enableBtn();return;} pollUntilDone(processNextInQueue); })
+      .then(r=>r.json()).then(d=>{
+        if (d.error) { showErr(d.error); enableBtn(); return; }
+        pollUntilDone(()=>{
+          // accumulate panels from this upload before moving to queue
+          fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+            .then(r=>r.json()).then(s=>{ batchPanelsAdded += s.panels_added??0; processNextInQueue(); })
+            .catch(()=>processNextInQueue());
+        });
+      })
       .catch(e=>{showErr(String(e));enableBtn();});
   } else {
     processNextInQueue();
@@ -411,19 +444,29 @@ function processNextInQueue() {
         const took = `${Math.floor(elapsed/60)}:${String(elapsed%60).padStart(2,'0')}`;
         enableBtn();
         const ok = document.getElementById('uploadSuccess');
-        const added = data.panels_added ?? 0;
-        const warnSuffix = added === 0 ? ' ⚠ No new panels found — check the packing list format.' : '';
-        ok.textContent = `✅ Done in ${took} — ${added} new panels added, ${data.located||0} located on blueprint.${warnSuffix}`;
+        const lastAdded = data.panels_added ?? 0;
+        batchPanelsAdded += lastAdded;
+        const isBatch = batchTotal > 1;
+        let msg = `✅ Done in ${took} — `;
+        if (isBatch) {
+          msg += `${batchTotal} lists processed, ${batchPanelsAdded} new panels added total, ${data.located||0} located on blueprint.`;
+        } else {
+          msg += `${lastAdded} new panels added, ${data.located||0} located on blueprint.`;
+          if (lastAdded === 0) msg += ' ⚠ No new panels found — check the packing list format.';
+        }
+        ok.textContent = msg;
         ok.classList.add('show');
         renderWarnings(data.warnings || []);
         renderStatus(data);
-        if (added === 0) showManualEntry();
+        if (!isBatch && lastAdded === 0) showManualEntry();
       }).catch(()=>enableBtn());
     return;
   }
   const filename = processQueue.shift();
-  document.getElementById('progressMsg').textContent = `Processing: ${filename}…`;
-  document.getElementById('progressFill').style.width = '5%';
+  batchDone++;
+  const batchLabel = batchTotal > 1 ? ` (${batchDone} of ${batchTotal})` : '';
+  document.getElementById('progressMsg').textContent = `Processing${batchLabel}: ${filename}…`;
+  document.getElementById('progressFill').style.width = `${Math.round((batchDone-1)/batchTotal*80)+5}%`;
 
   fetch('/api/packing-list/process-file/' + encodeURIComponent(selectedJob), {
     method: 'POST',
@@ -436,7 +479,12 @@ function processNextInQueue() {
   })
   .then(d => {
     if (d.error) { showErr(d.error); enableBtn(); return; }
-    pollUntilDone(processNextInQueue);
+    pollUntilDone(()=>{
+      // accumulate panels from this file before moving to next
+      fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+        .then(r=>r.json()).then(s=>{ batchPanelsAdded += s.panels_added??0; processNextInQueue(); })
+        .catch(()=>processNextInQueue());
+    });
   })
   .catch(e => { showErr(String(e)); enableBtn(); });
 }
@@ -447,8 +495,18 @@ function pollUntilDone(onDone) {
     fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
       .then(r=>{ if(!r.ok) throw new Error('Server error '+r.status); return r.json(); })
       .then(data=>{
-        document.getElementById('progressFill').style.width = (data.progress||0)+'%';
-        document.getElementById('progressMsg').textContent  = data.message||'Processing…';
+        // Scale progress within the current file's slice of the overall batch
+        const fileSlice = batchTotal > 1 ? 1 / batchTotal : 1;
+        const baseProgress = batchTotal > 1 ? ((batchDone-1) / batchTotal * 100) : 0;
+        const scaledProgress = baseProgress + (data.progress||0) * fileSlice;
+        document.getElementById('progressFill').style.width = scaledProgress + '%';
+        // Show engine sub-step alongside batch position
+        if (batchTotal > 1) {
+          const batchLabel = `(${batchDone} of ${batchTotal}) `;
+          document.getElementById('progressMsg').textContent = batchLabel + (data.message||'Processing…');
+        } else {
+          document.getElementById('progressMsg').textContent = data.message||'Processing…';
+        }
         if (data.status==='done')  { clearInterval(pollTimer); onDone(); }
         if (data.status==='error') { clearInterval(pollTimer); showErr(data.message||'Error'); enableBtn(); }
       })
