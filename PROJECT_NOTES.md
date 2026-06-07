@@ -268,12 +268,18 @@ Processes KPS packing list PDFs and annotates the job blueprint with colored hig
 3. Each list is parsed and added cumulatively — previous shipment data is preserved
 4. Download or Publish the annotated blueprint
 
-### Color coding
-- Each packing list (shipment) gets a **distinct** color: green, yellow, cyan, orange, magenta, teal, purple. **NEVER red** — red is reserved for the Panel Mapper's panel boxes (do not add red back to either palette).
-- A new packing list always gets a colour different from every existing one. The editor (`packing_list_editor.html`) uses `shipIdx(shipment)` which assigns any new shipment the lowest UNUSED index (and `ensureShipColors()` on load); the server assigns by first-seen order. Keep `_SHIPMENT_COLORS` (engine) and `SHIP_COLORS[]` (editor) the SAME order/length so indexes line up.
-- Colors used in: blueprint highlights, table row swatches, UI shipment stat cards, file list badges
-- Palette defined in `packing_list_engine.py → _SHIPMENT_COLORS` and `templates/packing_list_editor.html / packing_list_tracker.html → SHIP_COLORS[]`
-- (Separate convention: "missing / not-in-table" packing-list markers are drawn red `#ff5050` on the PACKING LIST pane only — that's a not-found warning, not a shipment colour, and doesn't sit on the blueprint with the Panel Mapper boxes.)
+### Color coding  (READ THIS before touching shipment colors)
+**Rule:** a color is **assigned to a packing list when it is first processed, stored, and never changed.** The SAME stored color is used in the tracker UI, the editor, and the baked prints. **NEVER red** — red is reserved for the Panel Mapper's panel boxes. Do not hardcode a shipment to a specific color.
+
+- **Persistent map:** `Delivery Tracking/ship_colors.json` = `{shipment_label: color_index}`. `_pl_assign_colors(job, delivery_state)` (app.py) loads it, gives each NEW shipment the lowest UNUSED index (first-seen order), saves, and returns the map. Once assigned, an index never changes.
+- **Where it's read (all must agree):**
+  - `_run_pl_job` and the update-panels route call `_pl_assign_colors(...)` and pass it as `shipment_colors=` to `generate_tracked_blueprint` / `generate_tracked_blueprint_panel_map` (engine) → baked prints.
+  - `packing_list_status` builds `shipments`/`file_colors` from `_pl_assign_colors(...)` → tracker Delivery Status cards.
+  - `editor-data` calls `_pl_stats(state, _pl_assign_colors(...))` → `file_colors`; the editor seeds `shipIndex` from it (`shipIdx()` only fills gaps).
+  - Engine `generate_*` use the passed `shipment_colors` (fall back to first-seen only if none passed).
+- **Three palettes must stay IDENTICAL (same order, length, values, NO red):** `_SHIPMENT_COLORS` (packing_list_engine.py — exact RGB of the hex below), `SHIP_COLORS[]` in `packing_list_editor.html` AND `packing_list_tracker.html`. Order: `#18f23c green, #ffd900 yellow, #00c6ff cyan, #ff8800 orange, #e000e0 magenta, #00e8d8 teal, #b800ff purple`.
+- After deploying color changes, re-process each job once to create `ship_colors.json` and regenerate the PDF.
+- (Separate convention: "missing / not-in-table" packing-list markers are drawn red `#ff5050` on the PACKING LIST pane only — a not-found warning, not a shipment color, and not on the blueprint with the Panel Mapper boxes.)
 
 ### KPS Packing List / Skid Sheet Format
 

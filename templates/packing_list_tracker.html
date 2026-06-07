@@ -301,8 +301,9 @@ function onFileSelected(evt) {
   selectedFile = f;
   document.getElementById('fileChipName').textContent = f.name;
   document.getElementById('fileChip').classList.add('show');
-  if (!document.getElementById('shipmentLabel').value)
-    document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+  // Always match the label to the file just picked (so a new file = a new shipment,
+  // not merged into whatever label was left in the box). Edit it after if needed.
+  document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
   updateCount();
 }
 function clearFile() {
@@ -323,8 +324,8 @@ da.addEventListener('drop', e=>{
     selectedFile = f;
     document.getElementById('fileChipName').textContent = f.name;
     document.getElementById('fileChip').classList.add('show');
-    if (!document.getElementById('shipmentLabel').value)
-      document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+    // Match the label to the dropped file so it becomes its own shipment.
+    document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
     updateCount();
   }
 });
