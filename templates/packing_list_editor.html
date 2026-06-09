@@ -112,6 +112,18 @@
       text-align: center; font-weight: 700; font-size: .82rem; padding: .5rem .8rem; border-radius: 6px;
       margin-bottom: .4rem; box-shadow: 0 2px 12px rgba(0,0,0,.45); }
 
+    /* ── Blueprint search ── */
+    .bp-search { display:flex; align-items:center; gap:0; flex-shrink:0; }
+    .bp-search input { background:#0f1a2b; border:1px solid rgba(255,255,255,.18);
+      border-radius:6px 0 0 6px; color:#fff; font-family:inherit; font-size:.74rem;
+      padding:.28rem .45rem; width:84px; }
+    .bp-search input:focus { outline:none; border-color:#60b4f0; }
+    .bp-search input::placeholder { color:rgba(255,255,255,.28); }
+    .bp-search button { background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.18);
+      border-left:none; border-radius:0 6px 6px 0; color:rgba(255,255,255,.7); font-size:.78rem;
+      padding:.28rem .42rem; cursor:pointer; line-height:1; }
+    .bp-search button:hover { background:rgba(255,255,255,.2); color:#fff; }
+
     /* ── Add panel popup ── */
     #addPanelPopup { display:none; position:fixed; z-index:600; left:50%; top:38%;
       transform:translate(-50%,-50%);
@@ -240,6 +252,11 @@
       <div class="pane-head">
         <span class="lbl">Blueprint</span>
         <span class="pill" id="bpStat">—</span>
+        <div class="bp-search">
+          <input id="bpSearch" type="text" placeholder="Panel #" autocomplete="off" spellcheck="false"
+            onkeydown="if(event.key==='Enter'){event.preventDefault();searchPanel(this.value);}">
+          <button onclick="searchPanel($('bpSearch').value)" title="Find panel">↵</button>
+        </div>
         <span class="tb-hint">· double-click empty space to mark a new panel</span>
         <button class="ph-btn" onclick="printDoc('bp')" style="margin-left:auto">🖨 Print</button>
         <button class="ph-btn" data-share-btn onclick="toggleShare('bp',this)">🔗 Share</button>
@@ -983,7 +1000,7 @@
     rebuildShipmentsLocal();
     renderPanelBoxes();
     if(plDoc) renderPlMarks();
-    $('actionBar').classList.remove('show'); selected=null;
+    selectPanel(panel, 'bp');   // light it up so it's easy to spot after placing
     toast(`Placed panel ${panel} (skid ${skid||'?'}) — Save to apply`);
   }
   function cancelPlaceMode(){
@@ -1320,6 +1337,24 @@
     pendingAddClick=null; placeMode=null;
     document.body.style.cursor=''; hidePlaceBanner();
   }
+  // Select a panel AND scroll the blueprint to it (used by search + post-pin).
+  function jumpToPanel(panel){
+    selectPanel(panel, 'bp');   // adds .sel ring, draws yellow hl, cross-highlights PL
+    const loc=locations[panel];
+    if(loc) scrollBpToBBox(loc.page, loc.bbox);  // explicit scroll since 'bp' source doesn't
+  }
+  // Search the blueprint for a panel by number.
+  function searchPanel(query){
+    const q=(query||'').trim(); if(!q) return;
+    // Exact match → prefix match (case-insensitive)
+    const all=Object.keys({...locations,...delivery});
+    let panel = all.find(p=>p===q)
+              || all.find(p=>p.toLowerCase()===q.toLowerCase())
+              || all.find(p=>p.toLowerCase().startsWith(q.toLowerCase()));
+    if(!panel){ toast(`Panel "${q}" not found`); return; }
+    jumpToPanel(panel);
+  }
+
   // Scroll the blueprint viewer to center on a panel's location (or the nearest
   // placed panel by number, so the user can see the right area to click).
   function scrollBlueprintToPanel(panel){
