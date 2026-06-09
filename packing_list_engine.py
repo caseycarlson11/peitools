@@ -1174,12 +1174,29 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
         fill_c, stroke_c = _shipment_color(idx)
         page.draw_rect(fitz.Rect(rx0+PAD, ly+2, rx0+PAD+10, ly+LEGEND_ROW_H-2),
                        color=stroke_c, fill=fill_c, width=0)
-        label = ship if len(ship) <= 30 else ship[:30] + "..."
+        label = _legend_short(ship)
         page.insert_text((rx0+PAD+14, ly+LEGEND_ROW_H-3), label,
                          fontsize=7, color=(0.1,0.1,0.1), fontname="Helvetica")
 
     page.draw_rect(fitz.Rect(rx0, ry0, rx1, ry1), color=(0,0,0), fill=None, width=1.2)
     return cells
+
+
+def _legend_short(ship):
+    """Reduce a shipment label (filename stem) to just '#N  date' for the PDF legend."""
+    # Shipment number: '#5', 'Shipment 5', 'Shipment #5', or first bare number
+    nm = re.search(r'#\s*(\d+)|[Ss]hipment\s+#?\s*(\d+)', ship)
+    if nm:
+        num = '#' + next(g for g in nm.groups() if g is not None)
+    else:
+        nm2 = re.search(r'\b(\d+)\b', ship)
+        num = ('#' + nm2.group(1)) if nm2 else ''
+    # Date: MM/DD/YYYY, MM-DD-YYYY, MM.DD.YYYY, or YYYY-MM-DD
+    dm = re.search(r'\d{1,2}[./\-]\d{1,2}[./\-]\d{2,4}|\d{4}[./\-]\d{1,2}[./\-]\d{1,2}', ship)
+    date = dm.group(0) if dm else ''
+    if num and date:
+        return f'{num}  {date}'
+    return num or date or ship[:25]
 
 
 def _sort_key(panel_str):
