@@ -46,37 +46,147 @@ def _is_panel(txt):
 
 # --- Packing List Parser ---------------------------------------------------
 
-def parse_packing_list(pdf_path):
-    """Parse KPS packing list (up to 4 skid blocks per page, 2x2 grid).
 
-    Hybrid approach:
-    - Crops each quadrant and runs psm-6 plain-text OCR to reliably detect the
-      SKID number, expected panel count, and handwriting/not-shipping flags —
-      the same signals the old parser used, which work well on cropped images.
-    - Then runs hOCR on the same cropped image to get word positions.  Finds
-      the PANEL # column header and extracts only numbers that sit inside the
-      panel column — eliminating false order-number drops for small panels like
-      1, 3, 60 that are ≤99 and were missed by the old text heuristic.
+def _parse_half_text(all_words, x_lo, x_hi):
+    """Parse one half-page column of PDF words into {skid: {panel: order}}.
+    all_words: list of (x0,y0,x1,y1,text,...) from page.get_text('words').
+    Returns (results_dict, warnings_list) — both empty if no skid block found.
+    """
+    hw = [(w[0], w[1], w[4]) for w in all_words
+          if x_lo <= (w[0] + w[2]) / 2.0 < x_hi]
+    if not hw:
+        return {}, []
+    hw.sort(key=lambda w: (w[1], w[0]))
+
+    # Group into rows within a 5-pt vertical tolerance
+    rows = []   # each entry: [ref_y, [(x, text), ...]]
+    for (x, y, txt) in hw:
+        for row in reversed(rows):
+            if abs(y - row[0]) < 5:
+                row[1].append((x, txt))
+                break
+        else:
+            rows.append([y, [(x, txt)]])
+    for row in rows:
+        row[1].sort(key=lambda c: c[0])
+
+    def row_txt(r): return " ".join(c[1] for c in r[1])
+    full = " ".join(row_txt(r) for r in rows)
+    full = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", full)
+
+    skid_m = re.search(r"SKID\s*[#*]?\s*(\d+)", full, re.I)
+    if not skid_m:
+        return {}, []
+    skid_num = skid_m.group(1)
+
+    if re.search(r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b", full, re.I):
+        return {}, [f"SKIP:#{skid_num}: Not-shipping note detected — skid excluded."]
+
+    count_m  = re.search(r"\b(\d+)\s+PANELS\b", full, re.I)
+    expected = int(count_m.group(1)) if count_m else None
+
+    panel_col_x = None
+    for row in rows:
+        if re.search(r"PANEL\s*[#\s]", row_txt(row), re.I):
+            for (x, t) in row[1]:
+                if re.match(r"PANEL", t, re.I):
+                    panel_col_x = x
+                    break
+            if panel_col_x is not None:
+                break
+
+    if panel_col_x is None:
+        return {}, []
+
+    in_table    = False
+    panel_orders = {}
+    for row in rows:
+        rt = row_txt(row)
+        if not in_table:
+            if re.search(r"ORDER\s*[#\s]", rt, re.I):
+                in_table = True
+            continue
+        if re.search(r"\bPANELS\b", rt, re.I):
+            break
+        left  = [t for (x, t) in row[1] if x <  panel_col_x]
+        right = [t for (x, t) in row[1] if x >= panel_col_x]
+        if not left or not right:
+            continue
+        order_num = next((t for t in left if re.match(r"^\d+$", t)), "")
+        if not order_num:
+            continue
+        for tok in right:
+            m = re.match(r"^(\d+)([A-Za-z]?)$", tok)
+            if not m:
+                continue
+            normalized = str(int(m.group(1))) + m.group(2).upper()
+            if _is_panel(normalized):
+                panel_orders[normalized] = order_num
+
+    if not panel_orders:
+        return {}, []
+
+    warn = []
+    if expected is not None and len(panel_orders) < expected * 0.70:
+        warn.append(
+            f"#{skid_num}: Only {len(panel_orders)} of {expected} expected panels "
+            f"extracted — please verify."
+        )
+    return {skid_num: panel_orders}, warn
+
+
+def _parse_page_native(page):
+    """Try to extract packing list data using embedded PDF text — no OCR.
+    Returns (results, warnings) if page has structured text, else (None, None).
+    """
+    words = page.get_text("words")
+    if not words:
+        return None, None
+    if not re.search(r"\bSKID\b", " ".join(w[4] for w in words), re.I):
+        return None, None
+
+    pw = page.rect.width
+    results, warnings = {}, []
+    for x_lo, x_hi in [(0, pw / 2.0), (pw / 2.0, pw)]:
+        r, w2 = _parse_half_text(words, x_lo, x_hi)
+        results.update(r)
+        warnings.extend(w2)
+    return results, warnings
+
+
+def parse_packing_list(pdf_path):
+    """Parse a KPS packing list PDF.
+
+    Strategy:
+      1. Try native PDF text extraction (fast, perfect for digital KPS PDFs).
+      2. Fall back to Tesseract OCR only for pages with no embedded text.
 
     Returns:
-        results  : { "skid_num": ["panel1", ...], ... }
-        warnings : list of strings for skids needing human review.
-                   Warnings starting with SKIP: mean panels were excluded.
+        results  : { skid_num: {panel_str: order_num_str} }
+        warnings : list of strings; entries starting SKIP: mean skid was excluded.
     """
-    doc = fitz.open(pdf_path)
+    doc      = fitz.open(pdf_path)
     results  = {}
     warnings = []
 
     for pg_idx in range(doc.page_count):
         page = doc[pg_idx]
-        pix  = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
-        img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-        # Cap at 2400px on the long side — prevents Tesseract from hanging on
-        # high-res scans (e.g. iPad photos saved as PDF).
+
+        # ── Fast path: embedded text ──────────────────────────────────────────
+        nr, nw = _parse_page_native(page)
+        if nr is not None:
+            results.update(nr)
+            warnings.extend(nw)
+            continue
+
+        # ── Slow path: OCR (scanned / image-only PDF) ─────────────────────────
+        pix = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
+        img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
         MAX_DIM = 2400
         if img.width > MAX_DIM or img.height > MAX_DIM:
             scale = MAX_DIM / max(img.width, img.height)
-            img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
+            img = img.resize((int(img.width * scale), int(img.height * scale)),
+                             Image.LANCZOS)
         w, h = img.size
 
         quads = [("TL", (0,    0,    w//2, h//2)),
@@ -85,14 +195,13 @@ def parse_packing_list(pdf_path):
                  ("BR", (w//2, h//2, w,    h   ))]
 
         for qname, crop in quads:
-            tmp = f"/tmp/plq_{pg_idx}_{qname}.png"
+            tmp  = f"/tmp/plq_{pg_idx}_{qname}.png"
             img.crop(crop).save(tmp)
 
-            # ── Step 1: plain-text OCR for SKID, count, and not-shipping ──────
-            text = _tess(["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"], text=True)
+            text = _tess(["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
+                         text=True)
             if text is None:
                 continue
-            # Fix OCR artifact: "2/7" → "27"
             text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
 
             skid_m = re.search(r"SKID\s*[#*]?\s*(\d+)", text, re.I)
@@ -100,18 +209,16 @@ def parse_packing_list(pdf_path):
                 continue
             skid_num = skid_m.group(1)
 
-            # Not-shipping check from plain text
             if re.search(r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b", text, re.I):
-                warnings.append(f"SKIP:#{skid_num}: Not-shipping note detected — skid excluded.")
+                warnings.append(
+                    f"SKIP:#{skid_num}: Not-shipping note detected — skid excluded.")
                 continue
 
-            # Expected count and garbled-footer check from plain text
-            count_m  = re.search(r"\b(\d+)\s+PANELS\b", text, re.I)
-            expected = int(count_m.group(1)) if count_m else None
+            count_m           = re.search(r"\b(\d+)\s+PANELS\b", text, re.I)
+            expected          = int(count_m.group(1)) if count_m else None
             panels_kw_present = bool(re.search(r"\bPANELS\b", text, re.I))
 
             if expected is None and panels_kw_present:
-                # Footer garbled (handwriting) — exclude and flag
                 warnings.append(
                     f"SKIP:#{skid_num}: Panel count footer unreadable — "
                     f"possible handwriting or not-shipping note. "
@@ -119,15 +226,10 @@ def parse_packing_list(pdf_path):
                 )
                 continue
 
-            # ── Step 2: hOCR for word positions within this quadrant ──────────
-            # Returns {panel_str: order_num_str}
             panel_orders = _extract_panels_positional(tmp, skid_num)
-
-            # Fall back to text heuristic if positional extraction found nothing
             if not panel_orders:
                 panel_orders = {p: "" for p in _extract_panels(text)}
 
-            # ── Step 3: validate ──────────────────────────────────────────────
             if expected is not None and len(panel_orders) < expected * 0.70:
                 warnings.append(
                     f"#{skid_num}: Only {len(panel_orders)} of {expected} expected panels "
@@ -142,7 +244,6 @@ def parse_packing_list(pdf_path):
 
     doc.close()
     return results, warnings
-
 
 def _extract_panels_positional(img_path, skid_num):
     """Run hOCR on a quadrant image and extract panel numbers from the PANEL #
