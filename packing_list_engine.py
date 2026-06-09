@@ -648,8 +648,12 @@ def scan_packing_list_positions(pdf_path, cache_path=None, progress_cb=None):
         # footer (or the next header / a bounded fallback), within its page half.
         regions = []  # (hx, y_top, y_bot, x_max)
         for left in (True, False):
-            hs = sorted([(hy, hx) for (hy, hx) in panel_headers if (hx < W / 2) == left])
+            hs_all = sorted([(hy, hx) for (hy, hx) in panel_headers if (hx < W / 2) == left])
             fs = sorted([fy for (fy, fx0) in footers if (fx0 < W / 2) == left])
+            # "Panel" in the ACCESSORIES row (e.g. "750 Panel Clips, 700 Parapet Clips")
+            # appears BELOW the "N PANELS" footer and must not create a fake header region.
+            last_footer = max(fs) if fs else None
+            hs = [(hy, hx) for (hy, hx) in hs_all if last_footer is None or hy < last_footer]
             for i, (hy, hx) in enumerate(hs):
                 next_hy = hs[i + 1][0] if i + 1 < len(hs) else H
                 fbot = next((fy for fy in fs if hy < fy < next_hy), None)
@@ -1526,8 +1530,3 @@ def _legend_short(ship):
     if num and date:
         return f'{num}  {date}'
     return num or date or ship[:25]
-
-
-def _sort_key(panel_str):
-    m = re.match(r"(\d+)", panel_str)
-    return int(m.group(1)) if m else 0

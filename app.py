@@ -2445,6 +2445,24 @@ def packing_list_editor_data(job_name):
     """Everything the editor needs to render the blueprint with panel overlays."""
     state = _pl_load_state(job_name)
     locations = _pl_load_locations(job_name)
+
+    # Merge Panel Mapper panel locations as a fallback so the editor can cross-link
+    # panels that the packing-list DXF scan didn't locate (the red boxes visible on
+    # the blueprint come from the Panel Mapper scan; without this those panels show as
+    # "unlocated" in the editor even though their position is known).
+    pm_sess = _pm_load_session(job_name)
+    if pm_sess:
+        pm_locs_path = pm_sess.get("locs", "")
+        if pm_locs_path and os.path.isfile(pm_locs_path):
+            try:
+                with open(pm_locs_path) as f:
+                    pm_locs = _json.load(f)
+                for panel, loc in pm_locs.items():
+                    if panel not in locations:
+                        locations[panel] = loc
+            except Exception:
+                pass
+
     dims, bp = _pl_blueprint_dims(job_name)
     if not bp:
         return jsonify({"error": "No blueprint PDF found for this job."}), 404
