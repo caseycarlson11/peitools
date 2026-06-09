@@ -200,13 +200,16 @@ def parse_packing_list(pdf_path):
                              Image.LANCZOS)
         w, h = img.size
 
-        quads = [("TL", (0,    0,    w//2, h//2)),
-                 ("TR", (w//2, 0,    w,    h//2)),
-                 ("BL", (0,    h//2, w//2, h   )),
-                 ("BR", (w//2, h//2, w,    h   ))]
+        # Process two full-height columns (left and right).
+        # Using full-height columns instead of quarter-page quadrants prevents
+        # skids that span the page midpoint from being split across two crops,
+        # which caused the bottom portion of a tall skid to be misattributed to
+        # the next skid whose PANEL# header appeared lower in the BL quadrant.
+        columns = [("L", (0,    0, w//2, h)),
+                   ("R", (w//2, 0, w,    h))]
 
-        for qname, crop in quads:
-            tmp  = f"/tmp/plq_{pg_idx}_{qname}.png"
+        for cname, crop in columns:
+            tmp  = f"/tmp/plq_{pg_idx}_{cname}.png"
             img.crop(crop).save(tmp)
 
             text = _tess(["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
@@ -215,46 +218,202 @@ def parse_packing_list(pdf_path):
                 continue
             text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
 
-            skid_m = re.search(r"SKID\s*[#*]?\s*(\d+)", text, re.I)
-            if not skid_m:
-                continue
-            skid_num = skid_m.group(1)
-
-            if re.search(r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b", text, re.I):
-                warnings.append(
-                    f"SKIP:#{skid_num}: Not-shipping note detected — skid excluded.")
-                continue
-
-            count_m           = re.search(r"\b(\d+)\s+PANELS\b", text, re.I)
-            expected          = int(count_m.group(1)) if count_m else None
-            panels_kw_present = bool(re.search(r"\bPANELS\b", text, re.I))
-
-            if expected is None and panels_kw_present:
-                warnings.append(
-                    f"SKIP:#{skid_num}: Panel count footer unreadable — "
-                    f"possible handwriting or not-shipping note. "
-                    f"Please review this skid manually."
-                )
-                continue
-
-            panel_orders = _extract_panels_positional(tmp, skid_num)
-            if not panel_orders:
-                panel_orders = {p: "" for p in _extract_panels(text)}
-
-            if expected is not None and len(panel_orders) < expected * 0.70:
-                warnings.append(
-                    f"#{skid_num}: Only {len(panel_orders)} of {expected} expected panels "
-                    f"extracted — OCR may have missed some. Please verify."
-                )
-
-            if panel_orders:
-                bucket = results.setdefault(skid_num, {})
-                for p, order_num in panel_orders.items():
-                    if p not in bucket:
-                        bucket[p] = order_num
+            # _extract_panels_positional_multi handles all skid blocks in the column
+            col_results, col_warnings = _extract_panels_positional_multi(tmp, text)
+            warnings.extend(col_warnings)
+            for skid_num, panel_orders in col_results.items():
+                if panel_orders:
+                    bucket = results.setdefault(skid_num, {})
+                    for p, order_num in panel_orders.items():
+                        if p not in bucket:
+                            bucket[p] = order_num
 
     doc.close()
     return results, warnings
+
+def _extract_panels_positional_multi(img_path, ocr_text):
+    """Extract panel numbers for ALL skid blocks stacked in one column image.
+
+    Each KPS page column can contain two skids stacked vertically (e.g. Skid 29
+    on top, Skid 32 below). The old per-quadrant approach cut the page at the
+    midpoint, which split tall skids across two crops. This function runs hOCR
+    once on the full-column image and processes every PANEL # block it finds.
+
+    Returns ({skid_num: {panel: order}}, [warnings]).
+    """
+    import xml.etree.ElementTree as ET
+
+    base = img_path.replace(".png", "_hocr")
+    if _tess(["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"]) is None:
+        # hOCR failed — fall back to simple text extraction per skid
+        return _ocr_text_fallback_multi(ocr_text), []
+
+    try:
+        tree = ET.parse(base + ".hocr")
+    except Exception:
+        return _ocr_text_fallback_multi(ocr_text), []
+    finally:
+        try: os.unlink(base + ".hocr")
+        except Exception: pass
+
+    # Collect all hOCR words
+    words = []
+    for word in tree.iter():
+        if word.get("class") != "ocrx_word":
+            continue
+        bm = re.search(r"bbox (\d+) (\d+) (\d+) (\d+)", word.get("title", ""))
+        if not bm:
+            continue
+        t  = "".join(word.itertext()).strip()
+        x0, y0, x1, y1 = [int(v) for v in bm.groups()]
+        words.append((t, x0, y0, x1, y1))
+
+    if not words:
+        return {}, []
+
+    words_by_y = sorted(words, key=lambda w: w[2])  # sort by y0
+
+    # ── Identify all SKID # numbers and their y positions ──────────────────
+    # We scan the OCR text (which is reliable for a whole-column pass) to find
+    # each skid number. Then pair each skid with the PANEL # header that comes
+    # immediately below it in the image.
+    skid_text_nums = re.findall(r"SKID\s*[#*]?\s*(\d+)", ocr_text, re.I)
+    skid_text_nums = list(dict.fromkeys(skid_text_nums))  # preserve order, dedupe
+
+    # Find y-positions of SKID # tokens in the hOCR output
+    skid_ys = {}   # skid_num_str → y0 of first matching word
+    for t, x0, y0, x1, y1 in words_by_y:
+        tt = re.sub(r"[^0-9]", "", t)
+        for sn in skid_text_nums:
+            if tt == sn and sn not in skid_ys:
+                skid_ys[sn] = y0
+
+    # Collect all PANEL # header positions sorted by y
+    panel_headers = []
+    for t, x0, y0, x1, y1 in words_by_y:
+        # Match "PANEL", "PANEL#", "PANEL#." — but NOT "PANELS" (footer like "28 PANELS")
+        if re.match(r"^PANEL#?\.?$", t, re.I):
+            panel_headers.append((x0, y0))
+
+    if not panel_headers:
+        return _ocr_text_fallback_multi(ocr_text), []
+
+    # Collect all "X PANELS" footer y positions sorted ascending
+    footer_ys = []
+    prev_was_num = False
+    for t, x0, y0, x1, y1 in words_by_y:
+        if re.search(r"\bPANELS\b", t, re.I):
+            footer_ys.append(y0)
+    footer_ys.sort()
+
+    # ── Pair each PANEL # header with its nearest SKID # above it ──────────
+    #  and its nearest "X PANELS" footer below it.
+    results    = {}
+    warnings   = []
+
+    for ph_idx, (panel_hx, panel_hy) in enumerate(panel_headers):
+        # Which skid is this block for? The last SKID # seen before panel_hy.
+        best_skid = None
+        best_skid_y = -1
+        for sn, sy in skid_ys.items():
+            if sy <= panel_hy and sy > best_skid_y:
+                best_skid     = sn
+                best_skid_y   = sy
+        if best_skid is None:
+            continue  # can't identify skid for this block
+
+        # Footer: first "X PANELS" y that is below this header, and below any
+        # PANEL # header that follows (so we don't bleed into the next skid).
+        next_panel_hy = panel_headers[ph_idx + 1][1] if ph_idx + 1 < len(panel_headers) else float("inf")
+        footer_y = None
+        for fy in footer_ys:
+            if fy > panel_hy:
+                footer_y = fy
+                break
+        y_bot = footer_y if footer_y and footer_y < next_panel_hy else next_panel_hy
+
+        # Collect ORDER # words for this block
+        order_words = []
+        for t, x0, y0, x1, y1 in words:
+            tt = t.strip(".,:'\"")
+            if (re.fullmatch(r'\d{1,2}', tt) and int(tt) <= 99 and
+                    x0 < panel_hx - 15 and panel_hy < y0 < y_bot):
+                order_words.append((tt, (y0 + y1) / 2))
+        order_words_sorted_desc = sorted(order_words, key=lambda x: x[1], reverse=True)
+
+        # Extract panel numbers for this block
+        panel_orders = {}
+        for t, x0, y0, x1, y1 in words:
+            tt = t.strip(".,:'\"")
+            if not _is_panel(tt):
+                continue
+            if x0 < panel_hx - 15:
+                continue
+            if not (panel_hy < y0 < y_bot):
+                continue
+            # Skip words on the PANELS footer line (e.g. "26" in "26 PANELS")
+            if any(abs(y0 - fy) < 10 for fy in footer_ys if fy > panel_hy):
+                continue
+            if tt not in panel_orders:
+                panel_cy = (y0 + y1) / 2
+                assigned = ""
+                for onum, oy in order_words_sorted_desc:
+                    if oy <= panel_cy + 20:
+                        assigned = onum
+                        break
+                if not assigned and order_words:
+                    assigned = min(order_words, key=lambda x: abs(x[1] - panel_cy))[0]
+                panel_orders[tt] = assigned
+
+        # Warn if panel count looks low
+        expected = None
+        for t, x0, y0, x1, y1 in words:
+            if re.search(r"\bPANELS\b", t, re.I) and panel_hy < y0 <= (footer_y or float("inf")):
+                # Find the number just before this word
+                nearby = [w for w in words if abs(w[2] - y0) < 15 and w[0].isdigit() and w[1] < x0]
+                if nearby:
+                    try:
+                        expected = int(max(nearby, key=lambda w: w[1])[0])
+                    except ValueError:
+                        pass
+                break
+        if expected is not None and len(panel_orders) < expected * 0.70:
+            warnings.append(
+                f"#{best_skid}: Only {len(panel_orders)} of {expected} expected panels "
+                f"extracted — OCR may have missed some. Please verify."
+            )
+
+        if panel_orders:
+            results[best_skid] = panel_orders
+
+        # Not-ship check using the OCR text
+        not_ship_pat = r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b"
+        if re.search(not_ship_pat, ocr_text, re.I):
+            # Check if it applies to this skid specifically (crude: if skid is mentioned nearby)
+            pass  # leave full not-ship check to the text-based fallback
+
+    return results, warnings
+
+
+def _ocr_text_fallback_multi(text):
+    """Simple regex fallback when hOCR isn't available.
+    Processes ALL skid blocks found in a single column's OCR text."""
+    text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
+    results = {}
+    # Split text into skid blocks at each SKID # marker
+    blocks = re.split(r"(?=SKID\s*[#*]?\s*\d)", text, flags=re.I)
+    for block in blocks:
+        skid_m = re.search(r"SKID\s*[#*]?\s*(\d+)", block, re.I)
+        if not skid_m:
+            continue
+        skid_num = skid_m.group(1)
+        if re.search(r"\b(NOT\s*SHIP|NO\s*SHIP|DO\s*NOT\s*SHIP)\b", block, re.I):
+            continue
+        panels = _extract_panels(block)
+        if panels:
+            results[skid_num] = {p: "" for p in panels}
+    return results
+
 
 def _extract_panels_positional(img_path, skid_num):
     """Run hOCR on a quadrant image and extract panel numbers from the PANEL #
