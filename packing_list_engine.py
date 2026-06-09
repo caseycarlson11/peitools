@@ -181,6 +181,11 @@ def parse_packing_list(pdf_path):
     warnings = []
 
     for pg_idx in range(doc.page_count):
+        # Page 0 is always the KPS shipping list cover (address, trucking info,
+        # accessory counts) — it never contains skid/panel data.
+        if pg_idx == 0:
+            continue
+
         page = doc[pg_idx]
 
         # ── Fast path: embedded text ──────────────────────────────────────────
@@ -618,6 +623,11 @@ def scan_packing_list_positions(pdf_path, cache_path=None, progress_cb=None):
         W, H = page.rect.width, page.rect.height
         pages.append({"width": W, "height": H})
 
+        # Page 0 is always the KPS shipping list cover (address, trucking info,
+        # accessory counts) — it never contains skid/panel data.
+        if pg_idx == 0:
+            continue
+
         words = list(_ocr_page_words(page, f"pl{pg_idx}", scale))
 
         # A skid sheet has up to 4 skid blocks (2x2). Panels live ONLY in each
@@ -647,6 +657,7 @@ def scan_packing_list_positions(pdf_path, cache_path=None, progress_cb=None):
                 x_max = W * 0.49 if left else W * 0.99
                 regions.append((hx, hy, y_bot, x_max))
 
+        footer_ys = [fy for (fy, _) in footers]
         seen = set()  # de-dupe identical panel strings at near-identical spots
         for t, x0, y0, x1, y1 in words:
             tt = t.strip(".,:'\"")
@@ -654,6 +665,10 @@ def scan_packing_list_positions(pdf_path, cache_path=None, progress_cb=None):
                 continue
             val = int(re.match(r"(\d+)", tt).group(1))
             if not (1 <= val <= 700):
+                continue
+            # Skip numbers that sit on the same line as a "N PANELS" footer
+            # (e.g. the "26" in "26 PANELS" is the total count, not a panel #).
+            if any(abs(y0 - fy) < 10 for fy in footer_ys):
                 continue
             # Must sit inside a PANEL # column region (excludes ORDER #, SKID #,
             # dimensions and the footer count by construction).

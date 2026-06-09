@@ -2524,7 +2524,7 @@ def packing_list_pl_positions(job_name):
         from packing_list_engine import scan_packing_list_positions
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
         # v2 = PANEL #-column-aware scan (invalidates older full-page caches)
-        cache = os.path.join(_pl_tracking_dir(job_name), f"pl_pos_v2_{safe_name}.json")
+        cache = os.path.join(_pl_tracking_dir(job_name), f"pl_pos_v3_{safe_name}.json")
         os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
         data = scan_packing_list_positions(p, cache_path=cache)
         return jsonify(data)
@@ -2627,116 +2627,4 @@ def packing_list_update_panels(job_name):
     # otherwise fall back to the full original blueprint.
     regen_ok, regen_err = True, None
     table_cells = {}
-    try:
-        pm_sess     = _pm_load_session(job_name)
-        pm_scan_pdf = pm_sess.get("scan_pdf", "") if pm_sess else ""
-        use_panel_map = bool(pm_sess and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
-
-        ship_colors = _pl_assign_colors(job_name, state)
-        if use_panel_map:
-            from packing_list_engine import generate_tracked_blueprint_panel_map
-            generate_tracked_blueprint_panel_map(
-                pm_scan_pdf, locations, state, _pl_output_path(job_name), shipment_colors=ship_colors)
-            table_cells = {}
-        else:
-            from packing_list_engine import generate_tracked_blueprint
-            bp = _find_blueprint(job_name)
-            if bp:
-                table_cells = generate_tracked_blueprint(bp, state, locations, _pl_output_path(job_name),
-                                                         shipment_colors=ship_colors) or {}
-            else:
-                regen_ok, regen_err = False, "No blueprint PDF found"
-
-        try:
-            with open(_pl_cells_path(job_name), "w") as f:
-                _json.dump(table_cells, f)
-        except Exception:
-            pass
-    except Exception as e:
-        regen_ok, regen_err = False, str(e)
-
-    stats = _pl_stats(state, _pl_load_colors(job_name))
-    located = sum(1 for p in state if p in locations)
-    return jsonify({
-        "ok": True, "added": added, "removed": removed,
-        "located": located, "regenerated": regen_ok, "regen_error": regen_err,
-        "panel_locations": locations,
-        "delivery_state": state,
-        "table_cells": table_cells,
-        **stats,
-        "has_output": os.path.exists(_pl_output_path(job_name)),
-    })
-
-
-# ── Public document links (shareable without login) ──────────────────────────
-PL_DOCLINKS_FILE = os.path.join(JOBS_DIR, ".pl_doclinks.json")
-
-def _load_doclinks():
-    if os.path.exists(PL_DOCLINKS_FILE):
-        try:
-            with open(PL_DOCLINKS_FILE) as f:
-                return _json.load(f)
-        except Exception:
-            pass
-    return {}
-
-def _save_doclinks(d):
-    try:
-        with open(PL_DOCLINKS_FILE, "w") as f:
-            _json.dump(d, f)
-    except Exception:
-        pass
-
-
-@app.route("/api/packing-list/public-link/<path:job_name>", methods=["POST"])
-@login_required
-def packing_list_public_link(job_name):
-    """Create (or reuse) a public, login-free link to a document for SMS/email sharing."""
-    data = request.get_json(silent=True) or {}
-    kind = data.get("kind", "bp")
-    file = (data.get("file") or "").strip()
-    if kind not in ("bp", "pl"):
-        return jsonify({"error": "Bad document type"}), 400
-    if kind == "bp":
-        if not os.path.exists(_pl_output_path(job_name)):
-            return jsonify({"error": "No tracked blueprint yet — process a packing list first"}), 404
-    else:
-        if not file.lower().endswith(".pdf") or not _pl_safe_list_file(job_name, file):
-            return jsonify({"error": "Packing list not found"}), 404
-
-    rotate = bool(data.get("rotate"))
-    links = _load_doclinks()
-    want_file = file if kind == "pl" else ""
-    def _matches(v):
-        return v.get("job") == job_name and v.get("kind") == kind and (v.get("file") or "") == want_file
-    if rotate:
-        # "Change link" — revoke any previous link(s) for this document.
-        links = {t: v for t, v in links.items() if not _matches(v)}
-    else:
-        # One link per document — reuse the existing token if there is one.
-        for t, v in links.items():
-            if _matches(v):
-                return jsonify({"url": f"/p/{t}", "rotated": False})
-    token = secrets.token_urlsafe(12)
-    links[token] = {"job": job_name, "kind": kind, "file": want_file,
-                    "created": datetime.utcnow().isoformat()}
-    _save_doclinks(links)
-    return jsonify({"url": f"/p/{token}", "rotated": rotate})
-
-
-@app.route("/p/<token>")
-def public_doc(token):
-    """Serve a shared document with no login required."""
-    info = _load_doclinks().get(token)
-    if not info:
-        return "This link has expired or does not exist.", 404
-    job, kind, file = info["job"], info.get("kind", "bp"), info.get("file", "")
-    path = _pl_output_path(job) if kind == "bp" else _pl_safe_list_file(job, file)
-    if not path or not os.path.exists(path):
-        return "Document not found.", 404
-    dl = f"{job} Delivery Tracked.pdf" if kind == "bp" else file
-    return send_file(path, mimetype="application/pdf", as_attachment=False, download_name=dl)
-
-
-if __name__ == "__main__":
-    app.run(debug=True, host="0.0.0.0", port=5000, use_reloader=True)
+    try

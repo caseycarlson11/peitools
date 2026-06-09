@@ -108,6 +108,9 @@
     .plbox.plmarker:hover { box-shadow: 0 0 0 2px #fff; }
     .plmarker-resize { position: absolute; right: -5px; bottom: -5px; width: 11px; height: 11px;
       background: #fff; border: 1px solid #333; border-radius: 2px; cursor: nwse-resize; z-index: 6; }
+    .pl-divider { padding:.38rem .7rem; font-size:.71rem; font-weight:700; color:#fff;
+      border-left:4px solid #4a5568; background:rgba(255,255,255,.055); flex-shrink:0; align-self:stretch;
+      letter-spacing:.04em; text-transform:uppercase; margin:.6rem 0 .15rem; }
     .place-banner { position: sticky; top: 0; align-self: stretch; z-index: 30; background: #16a34a; color: #fff;
       text-align: center; font-weight: 700; font-size: .82rem; padding: .5rem .8rem; border-radius: 6px;
       margin-bottom: .4rem; box-shadow: 0 2px 12px rgba(0,0,0,.45); }
@@ -383,6 +386,7 @@
 
   // PL pane
   let plDoc = null, plPages = [], plPositions = [], plFile = '';
+  let plDocList = [];        // [{doc, colorIndex, file, pageOffset}] — set in "All" mode
   let plScale = 1.4, plRenderScale = 1.4;
   let plColorIndex = null;   // shipment colour index of the selected packing list
   let plAccounted = 0, plMissing = 0;  // panels in the table vs not, on this list
@@ -1033,11 +1037,16 @@
   // ── Packing list pane ──
   function fillPlSelect(files){
     const sel=$('plSelect');
+    if(files.length > 1){
+      const all=document.createElement('option'); all.value='__ALL__';
+      all.textContent='— All Packing Lists —'; sel.appendChild(all);
+    }
     files.forEach(f=>{ const o=document.createElement('option'); o.value=f; o.textContent=f; sel.appendChild(o); });
   }
   async function onPlChange(){
     plFile=$('plSelect').value;
-    plColorIndex = plFile ? plShipmentColorIndex(plFile) : null;
+    if(plFile==='__ALL__'){ await loadAllPl(); return; }
+    plDocList=[]; plColorIndex = plFile ? plShipmentColorIndex(plFile) : null;
     const viewer=$('plViewer');
     if(!plFile){ viewer.innerHTML='<div class="empty">Select a packing list to cross-reference.</div>'; plPositions=[]; setPlStat(); return; }
     viewer.innerHTML='<div class="loadbox"><div class="spinner"></div><span>Loading & scanning packing list…<br><small>(first open OCRs the file — may take a moment)</small></span></div>';
@@ -1057,6 +1066,64 @@
     }catch(e){
       viewer.innerHTML=`<div class="loadbox" style="color:#f87171">⚠ ${e.message}</div>`;
     }
+  }
+
+  // ── All Packing Lists mode ──
+  async function loadAllPl(){
+    const viewer=$('plViewer');
+    viewer.innerHTML='<div class="loadbox"><div class="spinner"></div><span>Loading all packing lists…<br><small>(first load OCRs each file — may take a moment)</small></span></div>';
+    plPositions=[]; plDoc=null; plDocList=[]; plPages=[]; plColorIndex=null;
+    $('plStat').textContent='';
+    try{
+      const files=Array.from($('plSelect').options).map(o=>o.value).filter(v=>v&&v!=='__ALL__');
+      let pageOffset=0; const list=[];
+      for(const file of files){
+        const url=`/api/packing-list/pl-file/${encodeURIComponent(JOB)}?file=${encodeURIComponent(file)}`;
+        const [doc, posR]=await Promise.all([
+          pdfjsLib.getDocument(url).promise,
+          fetch(`/api/packing-list/pl-positions/${encodeURIComponent(JOB)}?file=${encodeURIComponent(file)}`)
+        ]);
+        const ci=plShipmentColorIndex(file);
+        const pos=posR.ok ? await posR.json() : {positions:[]};
+        (pos.positions||[]).forEach((p,i)=>{
+          plPositions.push({...p, page:p.page+pageOffset, idx:plPositions.length, colorIndex:ci});
+        });
+        list.push({doc, file, colorIndex:ci, pageOffset});
+        pageOffset+=doc.numPages;
+      }
+      plDocList=list; plDoc=list.length>0 ? true : null;
+      await renderAllPl();
+      setPlStat();
+      if(selected) crossHighlightPL(selected.panel);
+    }catch(e){
+      viewer.innerHTML=`<div class="loadbox" style="color:#f87171">⚠ ${e.message}</div>`;
+    }
+  }
+  async function renderAllPl(){
+    const viewer=$('plViewer'); viewer.innerHTML=''; plPages=[];
+    for(const {doc, file, colorIndex, pageOffset} of plDocList){
+      const divider=document.createElement('div'); divider.className='pl-divider';
+      divider.style.borderLeftColor = colorIndex!=null ? shipColor(colorIndex) : '#4a5568';
+      divider.textContent = file.replace(/\.pdf$/i,'');
+      viewer.appendChild(divider);
+      for(let pi=1; pi<=doc.numPages; pi++){
+        const gpi=pageOffset+pi-1;
+        const page=await doc.getPage(pi);
+        const vp=page.getViewport({scale:plScale});
+        const base=page.getViewport({scale:1});
+        plPages[gpi]={w:base.width,h:base.height};
+        const wrap=document.createElement('div'); wrap.className='page-wrap'; wrap.id=`pl-page-${gpi}`; wrap.dataset.pi=gpi;
+        wrap.style.width=Math.round(vp.width)+'px'; wrap.style.height=Math.round(vp.height)+'px';
+        const canvas=document.createElement('canvas'); canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
+        const overlay=document.createElement('div'); overlay.className='overlay'; overlay.dataset.pi=gpi;
+        wrap.appendChild(canvas); wrap.appendChild(overlay);
+        const lbl=document.createElement('div'); lbl.className='page-label';
+        lbl.textContent=`${file.replace(/\.pdf$/i,'')} · Page ${pi}`;
+        viewer.appendChild(wrap); viewer.appendChild(lbl);
+        await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      }
+    }
+    plRenderScale=plScale; renderPlMarks();
   }
   async function renderPL(){
     const viewer=$('plViewer'); viewer.innerHTML=''; plPages=[];
@@ -1084,13 +1151,15 @@
   function renderPlMarks(){
     document.querySelectorAll('#plViewer .plbox').forEach(b=>b.remove());
     plAccounted = 0; plMissing = 0;
-    const listColor = plColorIndex!=null ? shipColor(plColorIndex) : '#9aa4b2';
+    const fallbackColor = plColorIndex!=null ? shipColor(plColorIndex) : '#9aa4b2';
     plPositions.forEach(q=>{
       if(dismissed.has(q.panel)) return;       // user deleted this mark
       const overlay=document.querySelector(`#plViewer .overlay[data-pi="${q.page}"]`);
       const dims=plPages[q.page]; if(!overlay||!dims) return;
       const [x0,y0,x1,y1]=q.bbox; const pad=1.5;
       const key=tablePanelKey(q.panel);        // present in the blueprint table?
+      // In "all" mode each entry carries its own shipment colour; single-list falls back.
+      const listColor = q.colorIndex!=null ? shipColor(q.colorIndex) : fallbackColor;
       const box=document.createElement('div');
       box.dataset.key=`${q.page}_${q.idx}`; box.dataset.panel=key||q.panel;
       Object.assign(box.style,{left:((x0-pad)/dims.w*100)+'%',top:((y0-pad)/dims.h*100)+'%',
@@ -1386,10 +1455,12 @@
   function setPlStat(){
     const stat=$('plStat'); if(!stat) return;
     if(!plFile){ stat.textContent=''; stat.style.background=''; stat.style.borderColor=''; return; }
-    const c = plColorIndex!=null ? shipColor(plColorIndex) : null;
+    const allMode = plDocList.length>0;
+    const c = !allMode && plColorIndex!=null ? shipColor(plColorIndex) : null;
     const miss = plMissing>0 ? ` · <span style="color:#ff7676">${plMissing} missing</span>` : ' · 0 missing';
+    const prefix = allMode ? 'All: ' : '';
     stat.innerHTML = (c?`<span style="display:inline-block;width:9px;height:9px;border-radius:50%;background:${c};margin-right:5px;vertical-align:middle"></span>`:'')
-                   + `${plAccounted} accounted${miss}`;
+                   + `${prefix}${plAccounted} accounted${miss}`;
     stat.style.background = c ? hexA(c,.22) : '';
     stat.style.borderColor = c || '';
     stat.style.color = '#fff';
@@ -1501,14 +1572,30 @@
   async function reRasterPL(){
     if(!plDoc || Math.abs(plScale-plRenderScale)<0.001) return;
     const target=plScale;
-    for(let pi=1; pi<=plDoc.numPages; pi++){
-      if(Math.abs(target-plScale)>0.001) return;
-      const wrap=document.getElementById(`pl-page-${pi-1}`); if(!wrap) continue;
-      const canvas=wrap.querySelector('canvas'); if(!canvas) continue;
-      const page=await plDoc.getPage(pi);
-      const vp=page.getViewport({scale:target});
-      canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
-      await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+    if(plDocList.length>0){
+      // All-packs mode: re-rasterize across all documents
+      for(const {doc, pageOffset} of plDocList){
+        for(let pi=1; pi<=doc.numPages; pi++){
+          if(Math.abs(target-plScale)>0.001) return;
+          const gpi=pageOffset+pi-1;
+          const wrap=document.getElementById(`pl-page-${gpi}`); if(!wrap) continue;
+          const canvas=wrap.querySelector('canvas'); if(!canvas) continue;
+          const page=await doc.getPage(pi);
+          const vp=page.getViewport({scale:target});
+          canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
+          await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+        }
+      }
+    } else {
+      for(let pi=1; pi<=plDoc.numPages; pi++){
+        if(Math.abs(target-plScale)>0.001) return;
+        const wrap=document.getElementById(`pl-page-${pi-1}`); if(!wrap) continue;
+        const canvas=wrap.querySelector('canvas'); if(!canvas) continue;
+        const page=await plDoc.getPage(pi);
+        const vp=page.getViewport({scale:target});
+        canvas.width=Math.round(vp.width); canvas.height=Math.round(vp.height);
+        await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;
+      }
     }
     plRenderScale=target;
   }
@@ -1667,7 +1754,7 @@
   let shareTarget='bp';
   function docUrl(which){
     if(which==='pl'){
-      if(!plFile) return null;
+      if(!plFile || plFile==='__ALL__') return null;
       return location.origin + '/api/packing-list/pl-file/' + encodeURIComponent(JOB) + '?file=' + encodeURIComponent(plFile);
     }
     return location.origin + '/api/packing-list/download/' + encodeURIComponent(JOB);
