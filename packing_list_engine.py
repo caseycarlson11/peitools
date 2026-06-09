@@ -1430,6 +1430,13 @@ def generate_panel_map_blueprint(blueprint_path, panel_locations, output_path,
     }
 
 
+def _sort_key(panel_str):
+    m = re.match(r'^(\d+)([A-Za-z]?)$', str(panel_str))
+    if m:
+        return (int(m.group(1)), m.group(2).upper())
+    return (float('inf'), str(panel_str))
+
+
 def _insert_delivery_table(page, panels, pw, ph, shipment_order):
     if not panels:
         return {}
