@@ -2128,6 +2128,31 @@ def packing_list_reset(job_name):
     return jsonify({"ok": True})
 
 
+@app.route("/api/packing-list/delete-file/<path:job_name>", methods=["POST"])
+@login_required
+def packing_list_delete_file(job_name):
+    """Delete one or more packing list PDFs from the Packing Lists folder."""
+    data      = request.get_json(silent=True) or {}
+    filenames = data.get("filenames", [])
+    if not filenames:
+        return jsonify({"error": "No filenames provided"}), 400
+    deleted, errors = [], []
+    for fname in filenames:
+        if not fname.lower().endswith(".pdf"):
+            errors.append(f"{fname}: not a PDF")
+            continue
+        path = safe_join(job_name, "Packing Lists", fname)
+        if not os.path.isfile(path):
+            errors.append(f"{fname}: not found")
+            continue
+        try:
+            os.unlink(path)
+            deleted.append(fname)
+        except Exception as e:
+            errors.append(f"{fname}: {e}")
+    return jsonify({"ok": True, "deleted": deleted, "errors": errors})
+
+
 @app.route("/api/packing-list/manual-panels/<path:job_name>", methods=["POST"])
 @login_required
 def packing_list_manual_panels(job_name):

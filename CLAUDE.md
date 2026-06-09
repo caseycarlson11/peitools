@@ -1,5 +1,9 @@
 This project is PEItools.com — an internal web toolset for Pacific Erectors Inc., a metal panel siding installation company operating in the Sacramento and Bay Area.
 
+## Working Rules
+
+- **Suggest better approaches proactively.** If Casey describes what he wants to accomplish and there is a better, more reliable, or simpler way to do it technically, suggest it before building the original approach. Explain it in plain language — no assumed coding knowledge. Describe what the difference is in terms of real-world outcome (faster, never fails, easier to maintain, etc.), not in terms of code mechanics.
+
 ## Company & Workflow
 
 Pacific Erectors installs metal deck and metal panel siding. The workflow:

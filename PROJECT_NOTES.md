@@ -1,5 +1,11 @@
 # PEItools.com — Project Notes
 
+## ⚠️ Global Collaboration Rule
+
+**Suggest better approaches proactively.** If Casey describes what he wants to accomplish and there is a better, more reliable, or simpler way to do it, suggest it first — before building what was asked. Explain it in plain language with no assumed coding knowledge. Focus on the real-world outcome: why is it faster, why does it never fail, why is it easier to maintain. Example: Casey asked for OCR to read KPS packing lists → the right answer was to read the embedded text directly (instant, never fails) and only use OCR as a fallback for scanned documents. That kind of suggestion should always come first.
+
+---
+
 ## ⚠️ Global Development Priority
 
 **This system is multi-project.** All code must be written with the assumption that many different jobs will be processed — each with their own blueprints, packing lists, fab sheets, and Panel Mapper data. Prints and packing lists follow the same format across jobs, but panel counts, sheet counts, panel numbering conventions, and file names will vary per job.

@@ -178,6 +178,10 @@
     <button class="btn btn-green" id="processBtn" onclick="doProcess()" disabled>
       ⚡ Process Selected (<span id="selectedCount">0</span>)
     </button>
+    <button class="btn" id="deleteBtn" onclick="doDeleteSelected()"
+            style="background:#c0392b; color:#fff; display:none; padding:6px 14px; font-size:.8rem">
+      🗑 Delete Selected
+    </button>
   </div>
 
   <div class="progress-wrap" id="progressWrap">
@@ -359,6 +363,30 @@ function updateCount() {
   const total = selectedServerPLs.length + (selectedFile ? 1 : 0);
   document.getElementById('selectedCount').textContent = total;
   document.getElementById('processBtn').disabled = total === 0;
+  const delBtn = document.getElementById('deleteBtn');
+  delBtn.style.display = selectedServerPLs.length > 0 ? '' : 'none';
+}
+
+// ── Delete selected packing lists ─────────────────────────────────────────
+function doDeleteSelected() {
+  if (!selectedServerPLs.length) return;
+  const names = selectedServerPLs.map(f => `• ${f}`).join('\n');
+  if (!confirm(`Delete ${selectedServerPLs.length} packing list(s)?\n\n${names}\n\nThis cannot be undone.`)) return;
+  fetch(`/api/packing-list/delete-file/${encodeURIComponent(selectedJob)}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({filenames: [...selectedServerPLs]})
+  })
+  .then(r => r.json())
+  .then(data => {
+    if (data.errors && data.errors.length) {
+      alert('Some files could not be deleted:\n' + data.errors.join('\n'));
+    }
+    selectedServerPLs = [];
+    updateCount();
+    loadPackingLists();
+  })
+  .catch(() => alert('Delete request failed.'));
 }
 
 // ── Upload toggle / file pick ─────────────────────────────────────────────
