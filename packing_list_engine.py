@@ -2,11 +2,26 @@
 Packing List Engine -- PEItools.com
 Parses KPS packing lists and annotates blueprint PDFs with delivery highlights.
 """
-import re, json, os, subprocess, logging
+import re, json, os, subprocess, logging, tempfile
 import fitz
 from PIL import Image
 
 log = logging.getLogger(__name__)
+
+_TESS_TIMEOUT = 15  # seconds per Tesseract call
+
+def _tess(args, text=False):
+    """Run Tesseract with a hard timeout; kill the process if it overruns.
+    Returns stdout string (text=True) or None on timeout/error."""
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout, _ = proc.communicate(timeout=_TESS_TIMEOUT)
+        return stdout.decode("utf-8", errors="replace") if text else True
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        logging.warning(f"Tesseract killed after {_TESS_TIMEOUT}s: {args[1] if len(args)>1 else ''}")
+        return None
 
 # ── Panel conventions (shared, project-agnostic) ────────────────────────────
 # KPS panel numbers: 1–3 digits with an optional letter suffix (e.g. 242R =
@@ -74,13 +89,8 @@ def parse_packing_list(pdf_path):
             img.crop(crop).save(tmp)
 
             # ── Step 1: plain-text OCR for SKID, count, and not-shipping ──────
-            try:
-                r = subprocess.run(
-                    ["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
-                    capture_output=True, text=True, timeout=60)
-                text = r.stdout
-            except subprocess.TimeoutExpired:
-                logging.warning(f"Tesseract timed out on {tmp} — skipping quadrant")
+            text = _tess(["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"], text=True)
+            if text is None:
                 continue
             # Fix OCR artifact: "2/7" → "27"
             text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
@@ -141,12 +151,7 @@ def _extract_panels_positional(img_path, skid_num):
     """
     import xml.etree.ElementTree as ET
     base = img_path.replace(".png", "_hocr")
-    try:
-        subprocess.run(
-            ["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"],
-            capture_output=True, timeout=60)
-    except subprocess.TimeoutExpired:
-        logging.warning(f"Tesseract hOCR timed out on {img_path}")
+    if _tess(["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"]) is None:
         return {}
     try:
         tree = ET.parse(base + ".hocr")
@@ -752,12 +757,7 @@ def _ocr_page_words(page, pg_idx, scale=300/72, min_conf=75):
     pix = page.get_pixmap(matrix=mat)
     tmp = f"/tmp/bpscan_{pg_idx}.png"
     pix.save(tmp)
-    try:
-        subprocess.run(
-            ["tesseract", tmp, f"/tmp/bphocr_{pg_idx}", "--psm", "12", "-l", "eng", "hocr"],
-            capture_output=True, timeout=120)
-    except subprocess.TimeoutExpired:
-        logging.warning(f"Tesseract timed out on blueprint page {pg_idx}")
+    if _tess(["tesseract", tmp, f"/tmp/bphocr_{pg_idx}", "--psm", "12", "-l", "eng", "hocr"]) is None:
         return []
     words = []
     try:
@@ -797,11 +797,7 @@ def ocr_region(pdf_path, page_index, rect_pts, scale=400/72):
         pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip)
         tmp  = tempfile.mktemp(suffix=".png"); base = tmp[:-4]
         pix.save(tmp)
-        try:
-            subprocess.run(["tesseract", tmp, base, "--psm", "11", "-l", "eng", "hocr"],
-                           capture_output=True, timeout=60)
-        except subprocess.TimeoutExpired:
-            logging.warning(f"Tesseract timed out on region OCR")
+        if _tess(["tesseract", tmp, base, "--psm", "11", "-l", "eng", "hocr"]) is None:
             return []
         seen, out = {}, []
         try:
