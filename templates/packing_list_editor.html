@@ -341,9 +341,34 @@
   // (panel_locations). Panels that were parsed but never found on the prints are
   // NOT highlighted. Returns the matching key, or null.
   function tablePanelKey(p){
-    const inPrints = k => delivery[k]!==undefined && locations[k]!==undefined;
+    const inD = k => delivery[k]!==undefined;
+    const inL = k => locations[k]!==undefined;
+    const inPrints = k => inD(k) && inL(k);
+
     if(inPrints(p)) return p;
-    const base=p.replace(/R$/i,'');
+
+    // Suffix mismatch: packing list has "440A" but Panel Mapper stored "440", or vice versa.
+    // We need the DELIVERY key (so delivery[key].shipment works) but the LOCATION can be
+    // found under the base number. Check both sides independently.
+    const noSuffix = p.replace(/[A-Za-z]$/, '');
+
+    if(noSuffix !== p){
+      // p has a letter suffix (e.g. "440A")
+      if(inPrints(noSuffix)) return noSuffix;           // both dicts use "440"
+      if(inD(p) && inL(noSuffix)) return p;             // delivery="440A", locs="440"
+      if(inD(noSuffix) && inL(p))  return noSuffix;     // delivery="440",  locs="440A"
+    } else {
+      // p has no suffix (e.g. "440") — look for a suffixed variant
+      for(const s of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'){
+        const ps = p + s;
+        if(inPrints(ps)) return ps;                     // both dicts use "440A"
+        if(inD(ps) && inL(p))  return ps;               // delivery="440A", locs="440"
+        if(inD(p)  && inL(ps)) return p;                // delivery="440",  locs="440A"
+      }
+    }
+
+    // Legacy R-suffix handling
+    const base = p.replace(/R$/i,'');
     if(inPrints(base)) return base;
     if(inPrints(base+'R')) return base+'R';
     return null;

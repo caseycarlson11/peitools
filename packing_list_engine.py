@@ -1001,6 +1001,15 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
     delivered = {p: (info["skid"], info.get("shipment", ""))
                  for p, info in delivery_state.items()}
 
+    # Suffix index: base_number → actual key in delivered
+    # Handles mismatches where Panel Mapper stores "440" but packing list has "440A"
+    # or vice versa (one trailing letter, case-insensitive).
+    _suffix_idx = {}
+    for _k in delivered:
+        _base = re.sub(r"[A-Za-z]$", "", _k)
+        if _base not in _suffix_idx:
+            _suffix_idx[_base] = _k   # first match wins
+
     # Group ALL panels by page
     page_all = {}
     for key, loc in all_locs.items():
@@ -1030,8 +1039,18 @@ def generate_tracked_blueprint_panel_map(scan_pdf, all_locs, delivery_state, out
             pad = 2.0
             rect = fitz.Rect(x0 - pad, y0 - pad, x1 + pad, y1 + pad)
 
-            if label in delivered:
-                skid_num, shipment = delivered[label]
+            # Resolve label → delivered key (exact match first, then suffix fallback)
+            _dl_key = label if label in delivered else None
+            if _dl_key is None:
+                # Try stripping a trailing letter ("440A" Panel Mapper → "440" in delivery)
+                _stripped = re.sub(r"[A-Za-z]$", "", label)
+                if _stripped != label and _stripped in delivered:
+                    _dl_key = _stripped
+                else:
+                    # Try adding a letter ("440" Panel Mapper → "440A" in delivery)
+                    _dl_key = _suffix_idx.get(label)
+            if _dl_key is not None:
+                skid_num, shipment = delivered[_dl_key]
                 fill_c, stroke_c = _shipment_color(shipment_order.get(shipment, 0))
                 opacity = 0.45
                 chip_color = fill_c
@@ -1097,9 +1116,15 @@ def generate_tracked_blueprint(blueprint_path, delivery_state, panel_locations, 
 
     page_panels = {}
     for panel_str, info in delivery_state.items():
-        if panel_str not in panel_locations:
-            continue
-        loc = panel_locations[panel_str]
+        loc_key = panel_str
+        if loc_key not in panel_locations:
+            # Fuzzy suffix match: "440A" in delivery → "440" in locations, or vice versa
+            _stripped = re.sub(r"[A-Za-z]$", "", panel_str)
+            if _stripped != panel_str and _stripped in panel_locations:
+                loc_key = _stripped
+            else:
+                continue
+        loc = panel_locations[loc_key]
         pg  = loc["page"]
         page_panels.setdefault(pg, []).append(
             (panel_str, info["skid"], info.get("shipment", ""), loc["bbox"]))

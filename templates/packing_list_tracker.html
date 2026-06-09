@@ -142,17 +142,6 @@
 <div class="card" id="plCard" style="display:none">
   <div class="card-title">2 · Select Packing Lists</div>
 
-  <div id="selectAllRow" style="display:none; margin-bottom:8px;">
-    <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
-      <label class="pl-select-all" style="margin:0">
-        <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll()"> Select all
-      </label>
-      <button class="btn btn-green" id="processAllBtn" onclick="doProcessAll()"
-              style="padding:6px 14px; font-size:.8rem; display:none">
-        ⚡ Process All
-      </button>
-    </div>
-  </div>
   <div class="pl-list" id="plList"><div class="pl-empty">Loading…</div></div>
 
   <button class="upload-toggle" onclick="toggleUpload()">＋ Upload a new packing list PDF</button>
@@ -286,9 +275,7 @@ function onJobChange() {
 // ── Load server packing lists ─────────────────────────────────────────────
 function loadPackingLists() {
   const listEl = document.getElementById('plList');
-  const allRow = document.getElementById('selectAllRow');
   listEl.innerHTML = '<div class="pl-empty">Loading…</div>';
-  allRow.style.display = 'none';
   selectedServerPLs = []; updateCount();
 
   fetch('/api/jobs/' + encodeURIComponent(selectedJob))
@@ -299,8 +286,6 @@ function loadPackingLists() {
         document.getElementById('uploadSection').classList.add('open');
         return;
       }
-      allRow.style.display = '';
-      document.getElementById('processAllBtn').style.display = '';
       listEl.innerHTML = '';
       files.forEach(entry=>{
         // entry may be a string (legacy) or {name, modified} object
@@ -341,21 +326,6 @@ function togglePL(chk) {
     selectedServerPLs = selectedServerPLs.filter(f => f !== filename);
     div.classList.remove('selected');
   }
-  updateCount();
-  const allChk = document.getElementById('selectAllChk');
-  if (allChk) allChk.checked = selectedServerPLs.length === document.querySelectorAll('.pl-item').length;
-}
-
-function toggleSelectAll() {
-  const checked = document.getElementById('selectAllChk').checked;
-  selectedServerPLs = [];
-  document.querySelectorAll('.pl-item').forEach(div=>{
-    const chk = div.querySelector('input');
-    const f   = div.dataset.filename;
-    chk.checked = checked;
-    div.classList.toggle('selected', checked);
-    if (checked) selectedServerPLs.push(f);
-  });
   updateCount();
 }
 
@@ -458,13 +428,6 @@ da.addEventListener('drop', e=>{
 });
 
 // ── Process ───────────────────────────────────────────────────────────────
-function doProcessAll() {
-  // Select all server PLs then process
-  document.getElementById('selectAllChk').checked = true;
-  toggleSelectAll();
-  doProcess();
-}
-
 function doProcess() {
   processQueue = [...selectedServerPLs];
   batchTotal = processQueue.length + (selectedFile ? 1 : 0);
