@@ -375,6 +375,13 @@ function doDeleteSelected() {
     `Remove delivery data for ${selectedServerPLs.length} shipment(s)?\n\n${names}\n\n` +
     `The PDF file(s) will stay — only the panel highlights and tracking data will be removed.`
   )) return;
+
+  // Show the existing progress bar + elapsed timer
+  startProgress();
+  document.getElementById('progressMsg').textContent = 'Unlinking shipment' +
+    (selectedServerPLs.length > 1 ? 's' : '') + ' and regenerating blueprint…';
+  document.getElementById('deleteBtn').disabled = true;
+
   fetch(`/api/packing-list/unlink/${encodeURIComponent(selectedJob)}`, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
@@ -382,15 +389,25 @@ function doDeleteSelected() {
   })
   .then(r => r.json())
   .then(data => {
+    enableBtn();
+    document.getElementById('deleteBtn').disabled = false;
     if (data.errors && data.errors.length) {
       alert('Some shipments could not be unlinked:\n' + data.errors.join('\n'));
+    } else {
+      const ok = document.getElementById('uploadSuccess');
+      ok.textContent = `✅ Unlinked ${(data.unlinked||[]).length} shipment(s) — blueprint updated.`;
+      ok.classList.add('show');
     }
     selectedServerPLs = [];
     updateCount();
     loadPackingLists();
     loadStatus();
   })
-  .catch(() => alert('Unlink request failed.'));
+  .catch(() => {
+    enableBtn();
+    document.getElementById('deleteBtn').disabled = false;
+    showErr('Unlink request failed.');
+  });
 }
 
 // ── Upload toggle / file pick ─────────────────────────────────────────────
