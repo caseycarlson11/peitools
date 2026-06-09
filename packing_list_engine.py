@@ -98,8 +98,9 @@ def _parse_half_text(all_words, x_lo, x_hi):
     if panel_col_x is None:
         return {}, []
 
-    in_table    = False
+    in_table     = False
     panel_orders = {}
+    last_order   = ""          # carry forward across continuation rows
     for row in rows:
         rt = row_txt(row)
         if not in_table:
@@ -110,11 +111,19 @@ def _parse_half_text(all_words, x_lo, x_hi):
             break
         left  = [t for (x, t) in row[1] if x <  panel_col_x]
         right = [t for (x, t) in row[1] if x >= panel_col_x]
-        if not left or not right:
+        if not right:
             continue
+        # Use the order number from this row if present; otherwise fall back to
+        # the last seen order number (handles PDF rows where panels wrap to a
+        # second line without repeating the order number, or where slight
+        # Y-coordinate misalignment splits a single visual row into two).
         order_num = next((t for t in left if re.match(r"^\d+$", t)), "")
-        if not order_num:
-            continue
+        if order_num:
+            last_order = order_num
+        elif last_order:
+            order_num = last_order
+        else:
+            continue          # no order number at all yet — skip
         for tok in right:
             m = re.match(r"^(\d+)([A-Za-z]?)$", tok)
             if not m:
