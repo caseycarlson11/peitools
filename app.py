@@ -2128,29 +2128,96 @@ def packing_list_reset(job_name):
     return jsonify({"ok": True})
 
 
-@app.route("/api/packing-list/delete-file/<path:job_name>", methods=["POST"])
+@app.route("/api/packing-list/unlink/<path:job_name>", methods=["POST"])
 @login_required
-def packing_list_delete_file(job_name):
-    """Delete one or more packing list PDFs from the Packing Lists folder."""
+def packing_list_unlink(job_name):
+    """Remove one or more shipments' tracking data from the job — panel highlights,
+    delivery state entries, registry entries, and color assignments — without
+    deleting the source PDF files.  Regenerates the tracked blueprint afterward."""
     data      = request.get_json(silent=True) or {}
     filenames = data.get("filenames", [])
     if not filenames:
         return jsonify({"error": "No filenames provided"}), 400
-    deleted, errors = [], []
+
+    # Derive shipment labels from filenames (label == filename minus .pdf extension)
+    labels_to_remove = set()
     for fname in filenames:
-        if not fname.lower().endswith(".pdf"):
-            errors.append(f"{fname}: not a PDF")
-            continue
-        path = safe_join(job_name, "Packing Lists", fname)
-        if not os.path.isfile(path):
-            errors.append(f"{fname}: not found")
-            continue
+        label = re.sub(r"\.pdf$", "", fname, flags=re.IGNORECASE).strip()
+        if label:
+            labels_to_remove.add(label)
+
+    if not labels_to_remove:
+        return jsonify({"error": "No valid shipment labels derived"}), 400
+
+    # ── Strip from delivery_state ─────────────────────────────────────────
+    delivery_state = {}
+    if os.path.exists(_pl_state_path(job_name)):
+        with open(_pl_state_path(job_name)) as f:
+            delivery_state = _json.load(f)
+    delivery_state = {p: v for p, v in delivery_state.items()
+                      if v.get("shipment") not in labels_to_remove}
+    with open(_pl_state_path(job_name), "w") as f:
+        _json.dump(delivery_state, f)
+
+    # ── Strip from shipment registry ──────────────────────────────────────
+    reg_path = _pl_registry_path(job_name)
+    if os.path.exists(reg_path):
+        with open(reg_path) as f:
+            reg = _json.load(f)
+        reg = {k: v for k, v in reg.items() if k not in labels_to_remove}
+        with open(reg_path, "w") as f:
+            _json.dump(reg, f)
+
+    # ── Strip from ship_colors ────────────────────────────────────────────
+    colors_path = _pl_colors_path(job_name)
+    if os.path.exists(colors_path):
+        with open(colors_path) as f:
+            cmap = _json.load(f)
+        cmap = {k: v for k, v in cmap.items() if k not in labels_to_remove}
+        with open(colors_path, "w") as f:
+            _json.dump(cmap, f)
+    else:
+        cmap = {}
+
+    # ── Rebuild ship_colors for remaining shipments ───────────────────────
+    ship_colors = _pl_assign_colors(job_name, delivery_state)
+
+    # ── Regenerate tracked blueprint ─────────────────────────────────────
+    if delivery_state:
         try:
-            os.unlink(path)
-            deleted.append(fname)
+            from packing_list_engine import generate_tracked_blueprint, generate_tracked_blueprint_panel_map
+            pm_sess      = _pm_load_session(job_name)
+            pm_locs_path = pm_sess.get("locs", "") if pm_sess else ""
+            pm_scan_pdf  = pm_sess.get("scan_pdf", "") if pm_sess else ""
+            use_panel_map = bool(pm_sess and pm_locs_path and os.path.isfile(pm_locs_path)
+                                 and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
+            if use_panel_map:
+                with open(pm_locs_path) as f:
+                    panel_locations = _json.load(f)
+                generate_tracked_blueprint_panel_map(
+                    pm_scan_pdf, panel_locations, delivery_state, _pl_output_path(job_name),
+                    shipment_colors=ship_colors)
+            else:
+                panel_locations = {}
+                if os.path.exists(_pl_cache_path(job_name)):
+                    with open(_pl_cache_path(job_name)) as f:
+                        panel_locations = _json.load(f)
+                blueprint_path = _find_blueprint(job_name)
+                if blueprint_path and panel_locations:
+                    generate_tracked_blueprint(
+                        blueprint_path, delivery_state, panel_locations, _pl_output_path(job_name),
+                        shipment_colors=ship_colors)
         except Exception as e:
-            errors.append(f"{fname}: {e}")
-    return jsonify({"ok": True, "deleted": deleted, "errors": errors})
+            logging.warning(f"packing_list_unlink: blueprint regen failed: {e}")
+    else:
+        # No shipments left — remove the output blueprint entirely
+        if os.path.exists(_pl_output_path(job_name)):
+            os.unlink(_pl_output_path(job_name))
+
+    with _pl_jobs_lock:
+        _pl_jobs.pop(job_name, None)
+
+    return jsonify({"ok": True, "unlinked": list(labels_to_remove)})
 
 
 @app.route("/api/packing-list/manual-panels/<path:job_name>", methods=["POST"])

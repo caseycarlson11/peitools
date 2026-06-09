@@ -180,7 +180,7 @@
     </button>
     <button class="btn" id="deleteBtn" onclick="doDeleteSelected()"
             style="background:#c0392b; color:#fff; display:none; padding:6px 14px; font-size:.8rem">
-      🗑 Delete Selected
+      ↩ Unlink Selected
     </button>
   </div>
 
@@ -367,12 +367,15 @@ function updateCount() {
   delBtn.style.display = selectedServerPLs.length > 0 ? '' : 'none';
 }
 
-// ── Delete selected packing lists ─────────────────────────────────────────
+// ── Unlink selected packing lists ─────────────────────────────────────────
 function doDeleteSelected() {
   if (!selectedServerPLs.length) return;
   const names = selectedServerPLs.map(f => `• ${f}`).join('\n');
-  if (!confirm(`Delete ${selectedServerPLs.length} packing list(s)?\n\n${names}\n\nThis cannot be undone.`)) return;
-  fetch(`/api/packing-list/delete-file/${encodeURIComponent(selectedJob)}`, {
+  if (!confirm(
+    `Remove delivery data for ${selectedServerPLs.length} shipment(s)?\n\n${names}\n\n` +
+    `The PDF file(s) will stay — only the panel highlights and tracking data will be removed.`
+  )) return;
+  fetch(`/api/packing-list/unlink/${encodeURIComponent(selectedJob)}`, {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({filenames: [...selectedServerPLs]})
@@ -380,13 +383,14 @@ function doDeleteSelected() {
   .then(r => r.json())
   .then(data => {
     if (data.errors && data.errors.length) {
-      alert('Some files could not be deleted:\n' + data.errors.join('\n'));
+      alert('Some shipments could not be unlinked:\n' + data.errors.join('\n'));
     }
     selectedServerPLs = [];
     updateCount();
     loadPackingLists();
+    loadStatus();
   })
-  .catch(() => alert('Delete request failed.'));
+  .catch(() => alert('Unlink request failed.'));
 }
 
 // ── Upload toggle / file pick ─────────────────────────────────────────────
