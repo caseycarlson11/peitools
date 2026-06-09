@@ -111,6 +111,27 @@
     .place-banner { position: sticky; top: 0; align-self: stretch; z-index: 30; background: #16a34a; color: #fff;
       text-align: center; font-weight: 700; font-size: .82rem; padding: .5rem .8rem; border-radius: 6px;
       margin-bottom: .4rem; box-shadow: 0 2px 12px rgba(0,0,0,.45); }
+
+    /* ── Add panel popup ── */
+    #addPanelPopup { display:none; position:fixed; z-index:600; left:50%; top:38%;
+      transform:translate(-50%,-50%);
+      background:#182236; border:1px solid rgba(255,255,255,.22);
+      border-radius:12px; padding:1.1rem 1.25rem; min-width:280px;
+      box-shadow:0 14px 40px rgba(0,0,0,.8); }
+    #addPanelPopup h4 { font-size:.83rem; font-weight:700; color:#60b4f0; margin-bottom:.8rem; }
+    .app-row { margin-bottom:.65rem; }
+    .app-row label { display:block; font-size:.67rem; color:rgba(255,255,255,.48); margin-bottom:.22rem;
+      letter-spacing:.05em; text-transform:uppercase; }
+    .app-row input { width:100%; background:#0f1a2b; border:1px solid rgba(255,255,255,.18);
+      border-radius:6px; color:#fff; font-family:inherit; font-size:.92rem; padding:.4rem .5rem; }
+    .app-row input:focus { outline:none; border-color:#60b4f0; }
+    .app-btns { display:flex; gap:.45rem; margin-top:.6rem; }
+    .app-btn { padding:.4rem .55rem; border-radius:7px; font-family:inherit;
+      font-size:.73rem; font-weight:600; cursor:pointer; border:1px solid rgba(255,255,255,.14);
+      background:rgba(255,255,255,.08); color:#fff; transition:background .12s; white-space:nowrap; }
+    .app-btn:hover { background:rgba(255,255,255,.18); }
+    .app-btn.confirm { background:linear-gradient(135deg,#14532d,#16a34a); border-color:#22c55e; }
+    .app-btn.pin     { background:linear-gradient(135deg,#1e3a8a,#2563eb); border-color:#60a5fa; }
     .pbox.pending-remove { border: 1.5px dashed #c9c9c9; background: rgba(150,150,150,.30); }
     .pbox.missed { border: 1.5px dashed rgba(255,80,80,.9); background: rgba(255,80,80,.10); }
     .pbox.missed.hidden { display: none; }
@@ -276,6 +297,26 @@
 
   <div id="toast"></div>
 
+  <!-- Add missing panel popup -->
+  <div id="addPanelPopup">
+    <h4>📋 Add Missing Panel</h4>
+    <div class="app-row">
+      <label>Panel #</label>
+      <input id="appPanelNum" type="text" placeholder="e.g. 382A" autocomplete="off" spellcheck="false"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();confirmAddPanel(false);}if(event.key==='Escape')cancelAddPanelPopup();">
+    </div>
+    <div class="app-row">
+      <label>Skid #</label>
+      <input id="appSkidNum" type="text" placeholder="e.g. 29" autocomplete="off"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();confirmAddPanel(false);}if(event.key==='Escape')cancelAddPanelPopup();">
+    </div>
+    <div class="app-btns">
+      <button class="app-btn confirm" onclick="confirmAddPanel(false)">✓ Add</button>
+      <button class="app-btn pin"     onclick="confirmAddPanel(true)">📍 Add &amp; pin</button>
+      <button class="app-btn"         onclick="cancelAddPanelPopup()">✕ Cancel</button>
+    </div>
+  </div>
+
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
   const JOB = {{ job_name | tojson }};
@@ -321,6 +362,7 @@
   let activeMarkerId = null;     // the marker currently being sized/moved
   let markerJustActivated = false;
   let selMarker = null;          // packing-list marker selected for the options popup
+  let pendingAddClick = null;    // {cx, cy, pi} — click position awaiting add-panel confirmation
 
   // PL pane
   let plDoc = null, plPages = [], plPositions = [], plFile = '';
@@ -1120,8 +1162,8 @@
     clearSelection();
     placeMode={plMissing:true};
     document.body.style.cursor='crosshair';
-    showPlaceBanner('pl','Click the PACKING LIST (right) to drop a marker');
-    toast('Click the packing list to drop a red marker');
+    showPlaceBanner('pl','Click the PACKING LIST (right) near the missing panel');
+    toast('Click the packing list near the missing panel — OCR will pre-fill the info');
   }
   // Click on the packing list while in "add missing panel" mode → drop a red marker.
   function onPlOverlayClick(e, overlay, pi){
@@ -1140,11 +1182,18 @@
       return;   // keep placeMode active
     }
     const dup = placeMode.plDup;
-    const panel = dup ? placeMode.panel : null;   // duplicate keeps the original number
-    markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid:'', assigned:false});
-    placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
-    renderPlMarks();
-    toast('Marker placed — click it for options');   // just set it; edit later by clicking
+    if(dup){
+      // Duplicate: drop a named marker immediately, edit later by clicking
+      const panel = placeMode.panel;
+      markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid:'', assigned:false});
+      placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+      renderPlMarks();
+      toast('Marker placed — click it for options');
+    } else {
+      // plMissing: show OCR-assisted popup so user can confirm/edit panel # and skid
+      placeMode=null; document.body.style.cursor=''; hidePlaceBanner();
+      showAddPanelPopup(cx, cy, pi);
+    }
   }
   // Duplicate → drop a blank red marker on the BLUEPRINT (panel + skid blank).
   function duplicatePanel(){
@@ -1201,6 +1250,74 @@
     markerJustActivated = true;   // so this same click doesn't immediately deactivate it
     renderPlMarks();
     toast('Drag the marker to move it, drag the corner to resize');
+  }
+
+  // ── OCR-assisted "Add missing panel" popup ──
+  function ocrNearestPanel(cx, cy, pi){
+    const PANEL_R = 85; // PDF pts search radius for panel number
+    let best = null, bestDist = PANEL_R;
+    plPositions.forEach(q => {
+      if(q.page !== pi) return;
+      const qx=(q.bbox[0]+q.bbox[2])/2, qy=(q.bbox[1]+q.bbox[3])/2;
+      const d=Math.sqrt((cx-qx)**2+(cy-qy)**2);
+      if(d < bestDist){ bestDist=d; best=q; }
+    });
+    if(!best) return {panel:'', skid:''};
+    // Look up skid: use delivery entry if present, else infer from nearby accounted panels
+    let skid='';
+    if(delivery[best.panel]){
+      skid = delivery[best.panel].skid || '';
+    } else {
+      const SKID_R=100;
+      const counts={};
+      plPositions.forEach(q2 => {
+        if(q2.page !== pi) return;
+        const dx2=((q2.bbox[0]+q2.bbox[2])/2)-cx;
+        const dy2=((q2.bbox[1]+q2.bbox[3])/2)-cy;
+        if(Math.sqrt(dx2**2+dy2**2) < SKID_R && delivery[q2.panel]){
+          const s=delivery[q2.panel].skid||'';
+          if(s) counts[s]=(counts[s]||0)+1;
+        }
+      });
+      const keys=Object.keys(counts);
+      if(keys.length) skid=keys.reduce((a,b)=>counts[a]>=counts[b]?a:b);
+    }
+    return {panel: best.panel, skid};
+  }
+  function showAddPanelPopup(cx, cy, pi){
+    pendingAddClick={cx, cy, pi};
+    const {panel, skid}=ocrNearestPanel(cx, cy, pi);
+    $('appPanelNum').value=panel;
+    $('appSkidNum').value=skid;
+    $('addPanelPopup').style.display='block';
+    setTimeout(()=>{ $('appPanelNum').focus(); $('appPanelNum').select(); }, 30);
+  }
+  function confirmAddPanel(andPin){
+    if(!pendingAddClick) return;
+    const panel=$('appPanelNum').value.trim();
+    const skid=$('appSkidNum').value.trim();
+    if(!panel){ $('appPanelNum').focus(); toast('Enter a panel number'); return; }
+    const {cx, cy, pi}=pendingAddClick;
+    const hw=10, hh=7, id=++markerSeq;
+    markers.push({id, page:pi, bbox:[cx-hw, cy-hh, cx+hw, cy+hh], panel, skid, assigned:true});
+    const shipment=plShipmentLabel()||activeShip||'Manual';
+    delivery[panel]={skid, shipment};
+    pendingAdd[panel]={panel, skid, shipment};
+    pendingRemove.delete(panel); dismissed.delete(panel);
+    rebuildShipmentsLocal(); renderPanelBoxes(); renderPlMarks();
+    cancelAddPanelPopup();
+    if(andPin){
+      selected={panel, kind:'new', page:null, bbox:null};
+      enterPlaceMode();
+      toast(`Panel ${panel} added — click the blueprint to pin its highlight`);
+    } else {
+      toast(`Panel ${panel} added (skid ${skid||'?'}) — Save to apply`);
+    }
+  }
+  function cancelAddPanelPopup(){
+    $('addPanelPopup').style.display='none';
+    pendingAddClick=null; placeMode=null;
+    document.body.style.cursor=''; hidePlaceBanner();
   }
 
   // Pane header: show the packing list's shipment colour + mark count.
@@ -1432,7 +1549,11 @@
   }
 
   document.addEventListener('keydown',e=>{
-    if(e.key==='Escape'){ if(placeMode){ cancelPlaceMode(); toast('Placement cancelled'); return; } clearSelection(); }
+    if(e.key==='Escape'){
+      if($('addPanelPopup').style.display!=='none'){ cancelAddPanelPopup(); return; }
+      if(placeMode){ cancelPlaceMode(); toast('Placement cancelled'); return; }
+      clearSelection();
+    }
     if((e.key==='Delete'||e.key==='Backspace') && selected && selected.kind==='delivered'){
       e.preventDefault(); deleteSelected();
     }
