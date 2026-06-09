@@ -364,7 +364,11 @@ function updateCount() {
   document.getElementById('selectedCount').textContent = total;
   document.getElementById('processBtn').disabled = total === 0;
   const delBtn = document.getElementById('deleteBtn');
-  delBtn.style.display = selectedServerPLs.length > 0 ? '' : 'none';
+  const anyProcessed = selectedServerPLs.some(f => {
+    const label = f.replace(/\.pdf$/i, '');
+    return fileColorMap[label] !== undefined || fileColorMap[f] !== undefined;
+  });
+  delBtn.style.display = anyProcessed ? '' : 'none';
 }
 
 // ── Unlink selected packing lists ─────────────────────────────────────────
