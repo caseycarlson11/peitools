@@ -2627,4 +2627,46 @@ def packing_list_update_panels(job_name):
     # otherwise fall back to the full original blueprint.
     regen_ok, regen_err = True, None
     table_cells = {}
-    try
+    try:
+        from packing_list_engine import generate_tracked_blueprint, generate_tracked_blueprint_panel_map
+        ship_colors = _pl_assign_colors(job_name, state)
+        pm_sess = _pm_load_session(job_name)
+        pm_locs_path = pm_sess.get("locs", "") if pm_sess else ""
+        pm_scan_pdf  = pm_sess.get("scan_pdf", "") if pm_sess else ""
+        use_panel_map = bool(pm_sess and pm_locs_path and os.path.isfile(pm_locs_path)
+                             and pm_scan_pdf and os.path.isfile(pm_scan_pdf))
+        if use_panel_map:
+            with open(pm_locs_path) as f:
+                panel_locations_pm = _json.load(f)
+            merged_locations = dict(panel_locations_pm)
+            merged_locations.update(locations)
+            generate_tracked_blueprint_panel_map(
+                pm_scan_pdf, merged_locations, state, _pl_output_path(job_name),
+                shipment_colors=ship_colors)
+        else:
+            blueprint_path = _find_blueprint(job_name)
+            if blueprint_path and locations:
+                generate_tracked_blueprint(
+                    blueprint_path, state, locations, _pl_output_path(job_name),
+                    shipment_colors=ship_colors)
+    except Exception as e:
+        regen_ok = False
+        regen_err = str(e)
+
+    stats = _pl_stats(state, _pl_assign_colors(job_name, state))
+    return jsonify({
+        "ok": True,
+        "added": added,
+        "removed": removed,
+        "regenerated": regen_ok,
+        "regen_error": regen_err,
+        "delivery_state": state,
+        "panel_locations": locations,
+        "table_cells": table_cells,
+        "shipments": stats.get("shipments", []),
+        "file_colors": stats.get("file_colors", {}),
+    })
+
+
+if __name__ == "__main__":
+    app.run(debug=True)
