@@ -348,9 +348,25 @@ function updateCount() {
 }
 
 function toggleSelectAll(masterChk) {
-  document.querySelectorAll('#plList .pl-item input[type=checkbox]').forEach(chk => {
-    if (chk.checked !== masterChk.checked) { chk.checked = masterChk.checked; togglePL(chk); }
-  });
+  const items = document.querySelectorAll('#plList .pl-item');
+  if (masterChk.checked) {
+    selectedServerPLs = [];
+    items.forEach(div => {
+      const chk = div.querySelector('input[type=checkbox]');
+      if (chk) chk.checked = true;
+      div.classList.add('selected');
+      const f = div.dataset.filename;
+      if (f && !selectedServerPLs.includes(f)) selectedServerPLs.push(f);
+    });
+  } else {
+    items.forEach(div => {
+      const chk = div.querySelector('input[type=checkbox]');
+      if (chk) chk.checked = false;
+      div.classList.remove('selected');
+    });
+    selectedServerPLs = [];
+  }
+  updateCount();
 }
 
 // Keep the master checkbox in sync when individual items are toggled
