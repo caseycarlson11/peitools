@@ -1266,6 +1266,16 @@ import json as _json
 
 _pl_jobs      = {}
 _pl_jobs_lock = _threading.Lock()
+# Per-job file locks — serialise delivery_state read-modify-write so processing
+# multiple packing lists simultaneously doesn't cause threads to clobber each other.
+_pl_file_locks      = {}
+_pl_file_locks_meta = _threading.Lock()
+
+def _pl_get_file_lock(job_name):
+    with _pl_file_locks_meta:
+        if job_name not in _pl_file_locks:
+            _pl_file_locks[job_name] = _threading.Lock()
+        return _pl_file_locks[job_name]
 
 def _pl_tracking_dir(job_name):  return safe_join(job_name, "Delivery Tracking")
 def _pl_dxf_dir(job_name):
@@ -1351,11 +1361,6 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
                                          generate_tracked_blueprint)
         os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
 
-        delivery_state = {}
-        if os.path.exists(_pl_state_path(job_name)):
-            with open(_pl_state_path(job_name)) as f:
-                delivery_state = _json.load(f)
-
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"message": "Parsing packing list...", "progress": 10})
 
@@ -1366,17 +1371,31 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             raw_panels = sum(len(v) for v in parsed.values())
             _pl_jobs[job_name].update({"message": f"Parsed {raw_panels} panels across {skid_count} skids…", "progress": 15})
 
+        # Serialise state read-modify-write: if multiple packing lists are processed
+        # simultaneously each thread must hold the per-job lock while touching the
+        # delivery_state file or it will clobber the other threads' panels.
+        _file_lock = _pl_get_file_lock(job_name)
         panels_reassigned = 0
-        for skid_num, panel_orders in parsed.items():
-            for p, order_num in panel_orders.items():
-                if p not in delivery_state:
-                    panels_added += 1
-                elif delivery_state[p].get("shipment") != shipment_label:
-                    # Panel exists from a prior shipment — reassign to this one so
-                    # the blueprint markup color matches the tracker's color for this shipment.
-                    panels_reassigned += 1
-                delivery_state[p] = {"skid": skid_num, "shipment": shipment_label,
-                                     "order_num": order_num}
+        with _file_lock:
+            delivery_state = {}
+            if os.path.exists(_pl_state_path(job_name)):
+                with open(_pl_state_path(job_name)) as f:
+                    delivery_state = _json.load(f)
+
+            for skid_num, panel_orders in parsed.items():
+                for p, order_num in panel_orders.items():
+                    if p not in delivery_state:
+                        panels_added += 1
+                    elif delivery_state[p].get("shipment") != shipment_label:
+                        # Panel exists from a prior shipment — reassign to this one so
+                        # the blueprint markup color matches the tracker's color for this shipment.
+                        panels_reassigned += 1
+                    delivery_state[p] = {"skid": skid_num, "shipment": shipment_label,
+                                         "order_num": order_num}
+
+            os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+            with open(_pl_state_path(job_name), "w") as f:
+                _json.dump(delivery_state, f)
 
         with _pl_jobs_lock:
             msg = f"Added {panels_added} new panels"
@@ -1384,9 +1403,6 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
                 msg += f", reassigned {panels_reassigned} to this shipment"
             msg += " — scanning blueprint…"
             _pl_jobs[job_name].update({"message": msg, "progress": 18})
-
-        with open(_pl_state_path(job_name), "w") as f:
-            _json.dump(delivery_state, f)
 
         # ── Use Panel Mapper session if one exists ───────────────────────────
         # The Panel Mapper has already located every panel precisely.  Prefer
@@ -1444,22 +1460,28 @@ def _run_pl_job(job_name, packing_list_path, shipment_label):
             panel_locations = scan_blueprint_panels(
                 blueprint_path, _pl_cache_path(job_name), progress_cb, dxf_dir=dxf_dir)
 
-        # Re-apply manual corrections
-        corr = _pl_load_corrections(job_name)
-        if any(corr.get(k) for k in ("deletions", "renames", "additions")):
-            _apply_corrections(delivery_state, panel_locations, corr)
-            with open(_pl_state_path(job_name), "w") as f:
-                _json.dump(delivery_state, f)
-            if not use_panel_map:
-                with open(_pl_cache_path(job_name), "w") as f:
-                    _json.dump(panel_locations, f)
+        # Re-read delivery_state under the lock so we incorporate any panels that
+        # sibling threads wrote while we were scanning the blueprint.
+        with _file_lock:
+            if os.path.exists(_pl_state_path(job_name)):
+                with open(_pl_state_path(job_name)) as f:
+                    delivery_state = _json.load(f)
+
+            corr = _pl_load_corrections(job_name)
+            if any(corr.get(k) for k in ("deletions", "renames", "additions")):
+                _apply_corrections(delivery_state, panel_locations, corr)
+                with open(_pl_state_path(job_name), "w") as f:
+                    _json.dump(delivery_state, f)
+                if not use_panel_map:
+                    with open(_pl_cache_path(job_name), "w") as f:
+                        _json.dump(panel_locations, f)
+
+            # Lock in color for this shipment even if it has 0 panels
+            ship_colors = _pl_assign_colors(job_name, delivery_state, extra_shipments=[shipment_label])
+            _pl_record_shipment(job_name, shipment_label, list(parsed.keys()), ship_colors)
 
         with _pl_jobs_lock:
             _pl_jobs[job_name].update({"progress": 85, "message": "Generating annotated blueprint..."})
-
-        # Lock in color for this shipment even if it has 0 panels
-        ship_colors = _pl_assign_colors(job_name, delivery_state, extra_shipments=[shipment_label])
-        _pl_record_shipment(job_name, shipment_label, list(parsed.keys()), ship_colors)
         if use_panel_map:
             from packing_list_engine import generate_tracked_blueprint_panel_map
             generate_tracked_blueprint_panel_map(
@@ -2542,7 +2564,7 @@ def packing_list_pl_positions(job_name):
         from packing_list_engine import scan_packing_list_positions
         safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", filename)
         # v2 = PANEL #-column-aware scan (invalidates older full-page caches)
-        cache = os.path.join(_pl_tracking_dir(job_name), f"pl_pos_v3_{safe_name}.json")
+        cache = os.path.join(_pl_tracking_dir(job_name), f"pl_pos_v4_{safe_name}.json")
         os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
         data = scan_packing_list_positions(p, cache_path=cache)
         return jsonify(data)
