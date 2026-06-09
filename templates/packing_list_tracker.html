@@ -402,6 +402,12 @@ function doDeleteSelected() {
       ok.textContent = `✅ Unlinked ${(data.unlinked||[]).length} shipment(s) — blueprint updated.`;
       ok.classList.add('show');
     }
+    // Remove unlinked shipments from fileColorMap immediately so the
+    // re-rendered file list shows no color dot before loadStatus() returns.
+    (data.unlinked || []).forEach(label => {
+      delete fileColorMap[label];
+      delete fileColorMap[label + '.pdf'];
+    });
     selectedServerPLs = [];
     updateCount();
     loadPackingLists();

@@ -2347,6 +2347,20 @@ def _pl_load_state(job_name):
     return {}
 
 def _pl_load_locations(job_name):
+    """Return panel locations for a job.
+    Preference order:
+      1. Live Panel Mapper locs (always current — user may have edited since last process)
+      2. DXF scan cache (panel_locations_v2.json) — fallback when no Panel Mapper session
+    """
+    pm_sess = _pm_load_session(job_name)
+    if pm_sess:
+        locs_path = pm_sess.get("locs", "")
+        if locs_path and os.path.isfile(locs_path):
+            try:
+                with open(locs_path) as f:
+                    return _json.load(f)
+            except Exception:
+                pass
     if os.path.exists(_pl_cache_path(job_name)):
         with open(_pl_cache_path(job_name)) as f:
             return _json.load(f)
@@ -2468,7 +2482,8 @@ def packing_list_editor_data(job_name):
             po_path = safe_join(job_name, "Panel Mapper", po_name)
             if os.path.isfile(po_path):
                 from urllib.parse import quote as _uq
-                panels_only_url = f"/files/{_uq(job_name)}/Panel Mapper/{_uq(po_name)}"
+                import time as _time
+                panels_only_url = f"/files/{_uq(job_name)}/Panel Mapper/{_uq(po_name)}?t={int(_time.time())}"
 
     stats = _pl_stats(state, _pl_assign_colors(job_name, state))
     return jsonify({
