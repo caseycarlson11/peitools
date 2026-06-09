@@ -2347,20 +2347,6 @@ def _pl_load_state(job_name):
     return {}
 
 def _pl_load_locations(job_name):
-    """Return panel locations for a job.
-    Preference order:
-      1. Live Panel Mapper locs (always current — user may have edited since last process)
-      2. DXF scan cache (panel_locations_v2.json) — fallback when no Panel Mapper session
-    """
-    pm_sess = _pm_load_session(job_name)
-    if pm_sess:
-        locs_path = pm_sess.get("locs", "")
-        if locs_path and os.path.isfile(locs_path):
-            try:
-                with open(locs_path) as f:
-                    return _json.load(f)
-            except Exception:
-                pass
     if os.path.exists(_pl_cache_path(job_name)):
         with open(_pl_cache_path(job_name)) as f:
             return _json.load(f)
