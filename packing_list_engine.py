@@ -56,6 +56,12 @@ def parse_packing_list(pdf_path):
         page = doc[pg_idx]
         pix  = page.get_pixmap(matrix=fitz.Matrix(300/72, 300/72))
         img  = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+        # Cap at 2400px on the long side — prevents Tesseract from hanging on
+        # high-res scans (e.g. iPad photos saved as PDF).
+        MAX_DIM = 2400
+        if img.width > MAX_DIM or img.height > MAX_DIM:
+            scale = MAX_DIM / max(img.width, img.height)
+            img = img.resize((int(img.width * scale), int(img.height * scale)), Image.LANCZOS)
         w, h = img.size
 
         quads = [("TL", (0,    0,    w//2, h//2)),
@@ -68,10 +74,14 @@ def parse_packing_list(pdf_path):
             img.crop(crop).save(tmp)
 
             # ── Step 1: plain-text OCR for SKID, count, and not-shipping ──────
-            r = subprocess.run(
-                ["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
-                capture_output=True, text=True)
-            text = r.stdout
+            try:
+                r = subprocess.run(
+                    ["tesseract", tmp, "stdout", "--psm", "6", "-l", "eng"],
+                    capture_output=True, text=True, timeout=60)
+                text = r.stdout
+            except subprocess.TimeoutExpired:
+                logging.warning(f"Tesseract timed out on {tmp} — skipping quadrant")
+                continue
             # Fix OCR artifact: "2/7" → "27"
             text = re.sub(r"(?<!\d)(\d)/(\d{1,2})(?!\d)", r"\1\2", text)
 
@@ -131,9 +141,13 @@ def _extract_panels_positional(img_path, skid_num):
     """
     import xml.etree.ElementTree as ET
     base = img_path.replace(".png", "_hocr")
-    subprocess.run(
-        ["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"],
-        capture_output=True)
+    try:
+        subprocess.run(
+            ["tesseract", img_path, base, "--psm", "6", "-l", "eng", "hocr"],
+            capture_output=True, timeout=60)
+    except subprocess.TimeoutExpired:
+        logging.warning(f"Tesseract hOCR timed out on {img_path}")
+        return {}
     try:
         tree = ET.parse(base + ".hocr")
     except Exception:
@@ -738,9 +752,13 @@ def _ocr_page_words(page, pg_idx, scale=300/72, min_conf=75):
     pix = page.get_pixmap(matrix=mat)
     tmp = f"/tmp/bpscan_{pg_idx}.png"
     pix.save(tmp)
-    subprocess.run(
-        ["tesseract", tmp, f"/tmp/bphocr_{pg_idx}", "--psm", "12", "-l", "eng", "hocr"],
-        capture_output=True)
+    try:
+        subprocess.run(
+            ["tesseract", tmp, f"/tmp/bphocr_{pg_idx}", "--psm", "12", "-l", "eng", "hocr"],
+            capture_output=True, timeout=120)
+    except subprocess.TimeoutExpired:
+        logging.warning(f"Tesseract timed out on blueprint page {pg_idx}")
+        return []
     words = []
     try:
         tree = ET.parse(f"/tmp/bphocr_{pg_idx}.hocr")
@@ -779,8 +797,12 @@ def ocr_region(pdf_path, page_index, rect_pts, scale=400/72):
         pix  = page.get_pixmap(matrix=fitz.Matrix(scale, scale), clip=clip)
         tmp  = tempfile.mktemp(suffix=".png"); base = tmp[:-4]
         pix.save(tmp)
-        subprocess.run(["tesseract", tmp, base, "--psm", "11", "-l", "eng", "hocr"],
-                       capture_output=True)
+        try:
+            subprocess.run(["tesseract", tmp, base, "--psm", "11", "-l", "eng", "hocr"],
+                           capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            logging.warning(f"Tesseract timed out on region OCR")
+            return []
         seen, out = {}, []
         try:
             tree = ET.parse(base + ".hocr")
