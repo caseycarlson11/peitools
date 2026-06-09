@@ -1309,6 +1309,7 @@
     if(andPin){
       selected={panel, kind:'new', page:null, bbox:null};
       enterPlaceMode();
+      scrollBlueprintToPanel(panel);
       toast(`Panel ${panel} added — click the blueprint to pin its highlight`);
     } else {
       toast(`Panel ${panel} added (skid ${skid||'?'}) — Save to apply`);
@@ -1318,6 +1319,32 @@
     $('addPanelPopup').style.display='none';
     pendingAddClick=null; placeMode=null;
     document.body.style.cursor=''; hidePlaceBanner();
+  }
+  // Scroll the blueprint viewer to center on a panel's location (or the nearest
+  // placed panel by number, so the user can see the right area to click).
+  function scrollBlueprintToPanel(panel){
+    let loc = locations[panel];
+    if(!loc){
+      const base=parseInt(panel);
+      if(isNaN(base)) return;
+      let bestDist=Infinity, bestLoc=null;
+      Object.keys(locations).forEach(p=>{
+        const b=parseInt(p);
+        if(!isNaN(b) && Math.abs(b-base)<bestDist){ bestDist=Math.abs(b-base); bestLoc=locations[p]; }
+      });
+      if(!bestLoc) return;
+      loc=bestLoc;
+    }
+    const viewer=$('bpViewer');
+    const wrap=viewer.querySelector(`.page-wrap[data-pi="${loc.page}"]`);
+    if(!wrap) return;
+    const dims=bpPages[loc.page]; if(!dims) return;
+    const [x0,y0,x1,y1]=loc.bbox;
+    const relX=(x0+x1)/2/dims.w, relY=(y0+y1)/2/dims.h;
+    const vr=viewer.getBoundingClientRect(), wr=wrap.getBoundingClientRect();
+    const absX=wr.left-vr.left+viewer.scrollLeft+relX*wrap.offsetWidth;
+    const absY=wr.top -vr.top +viewer.scrollTop +relY*wrap.offsetHeight;
+    viewer.scrollTo({left:absX-viewer.clientWidth/2, top:absY-viewer.clientHeight/2, behavior:'smooth'});
   }
 
   // Pane header: show the packing list's shipment colour + mark count.
