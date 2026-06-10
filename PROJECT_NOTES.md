@@ -101,8 +101,23 @@ PEItools.com/
 │   ├── sheet_editor.html
 │   ├── panel_sheet_mapper.html
 │   ├── packing_list_tracker.html  # Packing List Tracker (extends base.html)
+│   ├── packing_list_editor.html   # Cross-reference editor (standalone)
+│   ├── panel_print_mapper.html
+│   ├── panel_map_editor.html      # Panel editor (standalone)
 │   ├── blueprint_hyperlinks.html
-│   └── blueprint_hyperlinks_editor.html
+│   ├── blueprint_hyperlinks_editor.html
+│   ├── pt_base.html               # Panel Tracking base — header + job tab bar
+│   ├── panel_tracking.html        # Panel Tracking job picker + Overview (extends pt_base)
+│   ├── pt_map.html                # PT Panel Map tab (copy of panel_print_mapper)
+│   ├── pt_map_editor.html         # PT panel editor (copy of panel_map_editor)
+│   ├── pt_deliveries.html         # PT Deliveries tab (copy of packing_list_tracker)
+│   ├── pt_review.html             # PT Review tab (copy of packing_list_editor) + ?panel= deep link
+│   ├── pt_documents.html          # PT Documents tab (copy of blueprints) + View/Edit panel chooser
+│   ├── pt_fab.html                # PT Fab Sheets tab (copy of sheet_editor, job preloaded)
+│   ├── public_links.html          # Public Links admin tool (extends base.html)
+│   ├── public_doc_view.html       # PUBLIC PDF viewer (?goto= bookmark jump, ?panel= zoom)
+│   ├── public_sheet_view.html     # PUBLIC spreadsheet viewer (links + View/Edit chooser)
+│   └── public_job_page.html       # PUBLIC job landing page (lists live docs)
 └── BlueprintLinker/
     ├── callout_engine.py
     ├── callout_engine_v1_backup.py
@@ -160,6 +175,22 @@ PEItools.com/
 | `/api/jobs/<job>/sheets-url` | GET/POST the linked Google Sheets URL for a job | Login required |
 | `/files/<path>` | Serve a job file | Login required |
 | `/cad-files/<path>` | Serve a DXF/CAD file | Login required |
+| `/panel-tracking` | Panel Tracking job picker | Login required |
+| `/panel-tracking/<job>` | Panel Tracking Overview (stats, steps, shipments, public links, Panel Data + Fab Sheets cards) | Login required |
+| `/panel-tracking/<job>/map` | PT Panel Map tab | Login required |
+| `/panel-tracking/<job>/map/editor` | PT panel editor | Login required |
+| `/panel-tracking/<job>/deliveries` | PT Deliveries tab | Login required |
+| `/panel-tracking/<job>/review` | PT Review & Fix tab — supports `?panel=N` (zoom + select) | Login required |
+| `/panel-tracking/<job>/documents` | PT Documents tab | Login required |
+| `/panel-tracking/<job>/fab` | PT Fab Sheets tab | Login required |
+| `/public-links` | Public Links admin tool | Login required |
+| `/api/public-links/<job>` | Slot states + candidates + counts for a job | Login required |
+| `/api/public-links/<job>/publish` | Designate/swap the doc behind a slot (creates link first time) | Login required |
+| `/api/public-links/<job>/rotate` | NEW link for a slot — old link dies instantly | Login required |
+| `/api/public-links/<job>/disable` | Kill a slot's link without replacement | Login required |
+| `/pl/<token>` | PUBLIC viewer for a slot (PDF / spreadsheet / job page) | Public (token) |
+| `/pl/<token>/file` | PUBLIC raw file (`?dl=1` = download) | Public (token) |
+| `/pl/<token>/panels` | PUBLIC panel locations (panels_only slot only — powers `?panel=` zoom) | Public (token) |
 
 ---
 
@@ -229,8 +260,12 @@ PEItools.com/
       <Job Name>.xlsx             Panel data spreadsheet (Panel #, Sheet #, Order #, Packing List, Date Delivered)
       <Job Name>_overrides.json   Persistent manual cell edits keyed by {panel: {col_header: value}}
       <Job Name>_sheets_url.json  Linked Google Sheets URL for this job ({"url": "https://..."})
+    Public Links/             <- Public Links merged-PDF cache (auto-created)
+      All Packing Lists.pdf       Auto-merged combined doc (+ .meta.json mtime signature)
+      All Fab Sheets.pdf          Auto-merged combined doc (+ .meta.json mtime signature)
   .shares.json
   .compass_shares.json
+  .public_links.json          <- Public Links store: {job: {slot: {token, file, published}}}
 ```
 
 ### Current jobs on server
@@ -610,3 +645,111 @@ and `templates/panel_map_editor.html` (standalone PDF.js editor).
   via `/files/<job>/Panel Mapper/<file>`.
 - Map page indices line up with the source because the full-merge merges the marked pages back
   into the *source document the user loaded* (original, or a prior Panel Mapper full doc).
+
+---
+
+## Panel Tracking (combined tool)
+
+`/panel-tracking` — one job-centric tool combining the Packing List Tracker, Document Viewer,
+Fab Sheet Editor and Panel Print Mapper. Pick a job once; a persistent tab bar
+(Overview · Panel Map · Deliveries · Review · Documents · Fab Sheets) follows you everywhere.
+
+**Architecture:** completely NEW page copies (see `pt_*.html` templates) that consume the SAME
+existing APIs and the SAME stored job data (`ship_colors.json`, `delivery_state.json`, panel
+locations). The four original tools were not modified and still work standalone. Because the
+data store is shared, shipment colors are guaranteed identical between Panel Tracking and the
+standalone tools.
+
+**Overview page** (`panel_tracking.html`):
+- Stats row (panels delivered / skids / shipments) + 4 step cards (Map → Track → Review →
+  Documents) that detect job progress and show a "next step" hint.
+- Shipments & Colors card — colored chips driven by `color_index` from
+  `/api/packing-list/status/<job>` (uses the standard `SHIP_COLORS` palette — keep IDENTICAL
+  to the other copies, NO red).
+- Panel Data (left) + Fab Sheets (right) cards side-by-side (`.half-row` grid, stacks on
+  phones). Panel Data holds the **📊 Open Spreadsheet** button → the job's PUBLIC spreadsheet
+  link (hidden until that slot is live). Subtitle: "Find your panel — Link to Fab, Packing or
+  Prints."
+- Public Links card (read-only) — all six slots with live link + Copy/Open, via
+  `/api/public-links/<job>`. Managing/publishing happens in the Public Links tool.
+
+**Cross-links inside the tool:** Deliveries' "Review & Fix" button → PT Review (not the
+standalone editor). PT map setup/editor link to each other under `/panel-tracking/<job>/...`.
+Documents' spreadsheet panel-number cells open the View/Edit chooser (see Public Links below);
+its Packing List cells link to the packing list PDF.
+
+**Review Publish (full-set merge):** the Review tab's 📌 Publish calls
+`POST /api/pt/publish-prints/<job>` (NOT the old numbered-copy publish). It merges the
+marked-up (delivery-tracked) pages back into the FULL print set — each tracked page replaces
+its original at its position (`_pm_merge_full(src_pdf, tracked, session pages, dest)`; tracked
+page *i* = sorted(pages)[*i*]). Output: stable file `Blueprints/<Job> - Marked-Up Prints.pdf`,
+OVERWRITTEN each publish. It then points the public `prints` slot at that file (token created
+on first publish, NEVER changed by publishing) — so the public Marked-Up Prints link instantly
+serves the new doc. With no Panel Mapper session, the tracked doc already covers the full set
+and is copied as-is. The standalone tracker's old publish (numbered "N - <Job> Delivery
+Tracked.pdf") is untouched.
+
+**Review deep link:** `/panel-tracking/<job>/review?panel=N` — after the blueprint renders,
+`deepLinkFromUrl()` zooms to 220% (if below) and `selectPanel(key,'pl')` centers + flashes the
+panel. Resolves duplicate-instance keys (`211#2`) by prefix; panels in the delivery table but
+not yet placed get selected with placement armed.
+
+---
+
+## Public Links
+
+`/public-links` — one PERMANENT public (no-login) link per document slot, per job. The token
+IS the access: anyone with the link can view; rotating the token kills the old link instantly.
+
+**Six slots:**
+
+| Slot | Content | Updated |
+|------|---------|---------|
+| `prints` | Marked-Up Prints — hand-picked PDF from Blueprints/Panel Mapper folders | on Publish (swap) |
+| `panels_only` | Panels-Only Prints — hand-picked PDF | on Publish (swap) |
+| `packing_lists` | ONE combined PDF of every packing list (bookmark per source file) | AUTO when folder changes |
+| `fab_sheets` | ONE combined PDF of every fab sheet | AUTO when folder changes |
+| `spreadsheet` | Job spreadsheet in a viewer + Download + Open-in-Google-Sheets | AUTO (serves current xlsx) |
+| `job_page` | Public landing page with buttons for every live doc above | live state |
+
+**Core rules:**
+- **Publish = swap the document behind the link. The LINK NEVER CHANGES.** First publish
+  creates the token; later publishes only change what it serves.
+- **New Link** = rotate token → old link 404s immediately (access kill switch).
+- **Disable** = kill without replacement; the chosen file is remembered, so re-publishing
+  restores the same doc under a fresh link.
+- Store: `<JOBS_DIR>/.public_links.json` = `{job: {slot: {token, file, published}}}`.
+  Tokens are `secrets.token_urlsafe(16)`.
+- Merged PDFs cached in `<job>/Public Links/` with an mtime-signature `.meta.json`; rebuilt
+  automatically on the next request after the source folder changes (`_pub_merged_pdf`).
+
+**Public viewers (standalone templates, no login):**
+- `public_doc_view.html` — PDF.js continuous viewer. Pages are rasterized at the CURRENT page
+  width × devicePixelRatio and re-rasterized on zoom (debounced, `MAX_CANVAS_W` memory cap) —
+  crisp at any zoom. Page wrappers get `aspect-ratio` up front so jumps land accurately before
+  rendering. `?goto=<bookmark title>` scrolls to a source file inside a combined doc (outline
+  match: exact → startswith). `?panel=N` (panels_only slot) fetches `/pl/<token>/panels`,
+  zooms to 2× screen width, drops a pulsing yellow `.panel-hl` box and centers the panel.
+- `public_sheet_view.html` — SheetJS table. Header-name-based linking: "Panel Number" and
+  "Packing List" columns. Packing List cells → packing_lists public link with `?goto=`.
+  Panel cells: logged OUT → panels_only public link `?panel=` (plain text if not live);
+  logged IN + panels_only live → **View/Edit chooser** popup (View = public print zoomed,
+  Edit = PT Review zoomed); logged IN without public print → straight to Review.
+  "Open in Google Sheets" copies TSV to clipboard + opens the job's linked sheet
+  (`_sheets_url.json`) or sheets.new.
+- `public_job_page.html` — branded button list of the job's live docs.
+
+**View/Edit chooser also in `pt_documents.html`:** panel-number cells are `a.plink`
+(href = Review, the fallback if JS fails); a delegated click handler fetches
+`/api/public-links/<job>` once per job and shows the chooser when panels_only is live.
+
+**`/pl/<token>/panels`:** public, but ONLY answers for the panels_only slot's current token
+(404 for everything else). Returns the same merged panel→{page,bbox} map the Review editor
+uses (`_pl_load_locations` + Panel Mapper session locs), so highlights line up — which also
+means the published panels_only PDF should be the Panel Mapper's `panels_only` output.
+
+**Gotchas:**
+- app.py changes need a server reload — `deploy_quick.bat` handles it (`kill -HUP 1` to
+  gunicorn, falls back to `docker restart`). Templates alone hot-reload.
+- The Overview "Open Spreadsheet" button and all chooser View options hide/skip when the
+  relevant slot isn't LIVE — publish the slot in Public Links first.

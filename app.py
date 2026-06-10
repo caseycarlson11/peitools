@@ -3090,6 +3090,48 @@ def public_link_file(token):
                      download_name=os.path.basename(path))
 
 
+@app.route("/api/pt/publish-prints/<path:job_name>", methods=["POST"])
+@login_required
+def pt_publish_prints(job_name):
+    """Review-tab Publish: merge the marked-up (delivery-tracked) pages back into
+    the FULL print set — each marked page replaces its original page. The result
+    is saved under a stable name in Blueprints (overwritten each publish) and the
+    public 'Marked-Up Prints' link is pointed at it (the LINK never changes)."""
+    import shutil
+    tracked = _pl_output_path(job_name)
+    if not os.path.exists(tracked):
+        return jsonify({"error": "No marked-up prints to publish yet"}), 404
+    bp_dir = safe_join(job_name, "Blueprints")
+    os.makedirs(bp_dir, exist_ok=True)
+    dest = os.path.join(bp_dir, f"{job_name} - Marked-Up Prints.pdf")
+
+    sess = _pm_load_session(job_name)
+    src = (sess or {}).get("src_pdf") or ""
+    pages = (sess or {}).get("pages") or []
+    try:
+        if sess and src and os.path.isfile(src) and pages:
+            # tracked page i corresponds to sorted(pages)[i] (scan order)
+            _pm_merge_full(src, tracked, pages, dest)
+        else:
+            # No Panel Mapper session: the tracked doc already covers the full set
+            shutil.copy2(tracked, dest)
+    except Exception as e:
+        return jsonify({"error": f"Could not build the full print set: {e}"}), 500
+
+    # Swap the document behind the public Marked-Up Prints link (same link;
+    # created on first publish)
+    data = _pub_load()
+    info = data.setdefault(job_name, {}).setdefault("prints", {})
+    info["file"] = f"Blueprints/{os.path.basename(dest)}"
+    if not info.get("token"):
+        info["token"] = secrets.token_urlsafe(16)
+    now = datetime.now()
+    info["published"] = f"{now.month}/{now.day}/{now.year % 100} {now:%H:%M}"
+    _pub_save(data)
+    return jsonify({"ok": True, "filename": os.path.basename(dest),
+                    "url": request.url_root.rstrip("/") + "/pl/" + info["token"]})
+
+
 @app.route("/pl/<token>/panels")
 def public_link_panels(token):
     """Panel locations for the public Panels-Only viewer (?panel= zoom).

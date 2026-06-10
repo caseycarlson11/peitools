@@ -1707,9 +1707,11 @@
     }
     const btn=$('publishBtn'); btn.disabled=true; btn.textContent='Publishing…';
     try{
-      const r=await fetch(`/api/packing-list/publish/${encodeURIComponent(JOB)}`,{method:'POST'});
+      // Merges the marked-up pages back into the FULL print set (each marked page
+      // replaces its original) and swaps it behind the public Marked-Up Prints link.
+      const r=await fetch(`/api/pt/publish-prints/${encodeURIComponent(JOB)}`,{method:'POST'});
       const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Publish failed');
-      toast(`✅ Published as "${d.filename}"`);
+      toast(`✅ Published "${d.filename}" — full print set updated, public link unchanged`);
     }catch(e){ toast('⚠ '+e.message); }
     finally{ btn.disabled=false; btn.textContent='📌 Publish'; }
   }
