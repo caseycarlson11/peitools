@@ -51,6 +51,21 @@
     .ship-dot { width: 11px; height: 11px; border-radius: 50%; flex-shrink: 0; }
     .ship-chip .ct { color: rgba(255,255,255,.45); font-weight: 700; }
 
+    /* ── Fix Missed results modal — sized to fit all the data ── */
+    .fixmodal { display: none; position: fixed; inset: 0; z-index: 300;
+      background: rgba(4,8,16,.72); align-items: center; justify-content: center; }
+    .fixmodal.open { display: flex; }
+    .fixmodal-box { background: #0f1a2b; border: 1px solid rgba(255,255,255,.18);
+      border-radius: 14px; width: min(760px, 94vw); max-height: 88vh;
+      display: flex; flex-direction: column; box-shadow: 0 18px 60px rgba(0,0,0,.6); }
+    .fixmodal-title { font-weight: 800; font-size: 1rem; padding: 14px 18px;
+      border-bottom: 1px solid rgba(255,255,255,.1); flex-shrink: 0; }
+    .fixmodal-body { flex: 1; overflow: auto; margin: 0; padding: 14px 18px;
+      font-family: inherit; font-size: .9rem; line-height: 1.6;
+      white-space: pre-wrap; word-break: break-word; color: #dbe6f3; }
+    .fixmodal-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,.1);
+      display: flex; justify-content: flex-end; flex-shrink: 0; }
+
     /* ── Main split ── */
     .main { display: flex; flex: 1; overflow: hidden; }
     .pane { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
@@ -318,6 +333,15 @@
 
   <div id="toast"></div>
 
+  <!-- Fix Missed results modal -->
+  <div class="fixmodal" id="fixModal">
+    <div class="fixmodal-box">
+      <div class="fixmodal-title">🔧 Fix Missed — Results</div>
+      <pre class="fixmodal-body" id="fixModalBody"></pre>
+      <div class="fixmodal-foot"><button class="tb-btn blue" onclick="closeFixModal()">OK</button></div>
+    </div>
+  </div>
+
   <!-- Add missing panel popup -->
   <div id="addPanelPopup">
     <h4>📋 Add Missing Panel</h4>
@@ -463,6 +487,14 @@
       buildLegend();
       buildShipSelect();
       fillPlSelect(d.packing_lists || []);
+
+      // Auto-load the packing lists by default (All when there are several) —
+      // runs in parallel with the blueprint render below.
+      const _plFiles = d.packing_lists || [];
+      if(_plFiles.length){
+        $('plSelect').value = _plFiles.length > 1 ? '__ALL__' : _plFiles[0];
+        onPlChange();
+      }
 
       $('bpLoad').textContent = 'Rendering blueprint…';
       // Prefer panels_only.pdf (Panel Mapper output) — its page indices match
@@ -1696,7 +1728,7 @@
     const remove=[...pendingRemove];
     const renames=pendingRenames;
     if(!add.length && !remove.length && !renames.length) return;
-    const btn=$('saveBtn'); btn.disabled=true; btn.textContent='Saving…';
+    const btn=$('saveBtn'); const stopClock=btnClock(btn,'💾 Saving…');
     try{
       const r=await fetch(`/api/packing-list/update-panels/${encodeURIComponent(JOB)}`,{
         method:'POST',headers:{'Content-Type':'application/json'},
@@ -1716,14 +1748,38 @@
       if(plDoc) renderPlMarks();
       toast(d.regenerated ? '✅ Saved — blueprint & packing list updated' : `⚠ Saved, but PDF regen failed: ${d.regen_error||''}`);
     }catch(e){ toast('⚠ '+e.message); }
-    finally{ refreshStats(); }
+    finally{ stopClock(); refreshStats(); }   // refreshStats restores the Save label
+  }
+
+  // ── Fix Missed results modal ──
+  let _fixReload = false;
+  function showFixModal(text, reloadAfter){
+    _fixReload = !!reloadAfter;
+    $('fixModalBody').textContent = text;
+    $('fixModal').classList.add('open');
+  }
+  function closeFixModal(){
+    $('fixModal').classList.remove('open');
+    if(_fixReload){ _fixReload=false; location.reload(); }   // pull the fixed data + PDF
+  }
+
+  // ── Elapsed clock on a busy button — every long action visibly ticks so
+  //    you can tell it's working (returns a stop function) ──
+  function btnClock(btn, label){
+    const t0=Date.now();
+    btn.disabled=true;
+    const tick=()=>{ const s=Math.floor((Date.now()-t0)/1000);
+      btn.textContent=`${label} ${Math.floor(s/60)}:${String(s%60).padStart(2,'0')}`; };
+    tick();
+    const iv=setInterval(tick, 1000);
+    return ()=>clearInterval(iv);
   }
 
   async function fixMissed(){
     if(Object.keys(pendingAdd).length||pendingRemove.size||pendingRenames.length){
       toast('Save your changes first, then run Fix Missed'); return;
     }
-    const btn=$('fixBtn'); btn.disabled=true; btn.textContent='🔧 Fixing…';
+    const btn=$('fixBtn'); const stopClock=btnClock(btn,'🔧 Fixing…');
     try{
       const r=await fetch(`/api/pt/fix-missed/${encodeURIComponent(JOB)}`,{method:'POST'});
       const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Fix failed');
@@ -1740,10 +1796,9 @@
         lines.push(`✋ PLACE BY HAND (${d.unresolved.length}):\n` +
                    d.unresolved.map(u=>`   ${u.panel} — ${u.reason}`).join('\n'));
       if(!lines.length) lines.push('Nothing to fix — every panel in the table is on the prints. 🎉');
-      alert('FIX MISSED — RESULTS\n\n' + lines.join('\n\n'));
-      if(d.placed.length || d.renamed.length) location.reload();   // pull the fixed data + PDF
+      showFixModal(lines.join('\n\n'), d.placed.length || d.renamed.length);
     }catch(e){ toast('⚠ '+e.message); }
-    finally{ btn.disabled=false; btn.textContent='🔧 Fix Missed'; }
+    finally{ stopClock(); btn.disabled=false; btn.textContent='🔧 Fix Missed'; }
   }
 
   async function publish(){
@@ -1751,7 +1806,7 @@
       if(!confirm('You have unsaved changes. Save them first, then publish?')) return;
       await saveChanges();
     }
-    const btn=$('publishBtn'); btn.disabled=true; btn.textContent='Publishing…';
+    const btn=$('publishBtn'); const stopClock=btnClock(btn,'📌 Publishing…');
     try{
       // Merges the marked-up pages back into the FULL print set (each marked page
       // replaces its original) and swaps it behind the public Marked-Up Prints link.
@@ -1759,7 +1814,7 @@
       const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Publish failed');
       toast(`✅ Published "${d.filename}" — full print set updated, public link unchanged`);
     }catch(e){ toast('⚠ '+e.message); }
-    finally{ btn.disabled=false; btn.textContent='📌 Publish'; }
+    finally{ stopClock(); btn.disabled=false; btn.textContent='📌 Publish'; }
   }
 
   document.addEventListener('keydown',e=>{

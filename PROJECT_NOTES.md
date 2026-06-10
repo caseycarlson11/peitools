@@ -702,6 +702,14 @@ manual Save). Idempotent — a second run finds nothing new. Phase 2 idea (not b
 Claude-API vision suggester for the unresolved leftovers — costs per run, needs an API key,
 and should only ever SUGGEST boxes for human confirmation, never auto-bake.
 
+**Busy-button clock (UI rule):** every long-running action in the Review tab shows a live
+elapsed clock on its button (`btnClock(btn, label)` in `pt_review.html` — ticks
+"label 0:05" each second, returns a stop fn called in `finally`). Wired to 💾 Save Changes,
+📌 Publish, and 🔧 Fix Missed. RULE for future work: ANY action that makes the user wait
+(OCR, PDF regen, merges, API calls) must show a ticking clock or progress indicator so it's
+obvious the tool is working — reuse `btnClock` (or the page's progress bar + timer pattern
+used by Deliveries/Panel Map).
+
 **Review deep link:** `/panel-tracking/<job>/review?panel=N` — after the blueprint renders,
 `deepLinkFromUrl()` zooms to 220% (if below) and `selectPanel(key,'pl')` centers + flashes the
 panel. Resolves duplicate-instance keys (`211#2`) by prefix; panels in the delivery table but

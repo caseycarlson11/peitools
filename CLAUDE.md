@@ -130,6 +130,8 @@ Panel Map/            <- Panel Print Mapper working files: session.json, locs ca
 
 ## Key Technical Notes
 
+- **UI rule: any action that makes the user wait (OCR, PDF regen, merges, processing) must show a ticking elapsed clock or progress indicator** so it's obvious the tool is working. In `pt_review.html` reuse `btnClock(btn, label)` (Save/Publish/Fix Missed already use it); other pages use their progress-bar + elapsed-timer pattern.
+
 - KPS blueprint callout circles: bisected circles with format N/Dx (e.g., 1/D5) — top half = detail number (1–9), bottom half = D-page reference (D1–D23)
 - Blueprint Hyperlinks OCR engine: detects circles geometrically, OCRs bottom half only (speed-first approach), links to D-pages detected by largest-font text scan
 - Field Compass pins: placed using inverse transform math (rotation + scale + pan) so pins stay fixed to document coordinates at any zoom/rotate/pan
