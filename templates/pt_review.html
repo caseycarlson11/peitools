@@ -54,8 +54,8 @@
     /* ── Main split ── */
     .main { display: flex; flex: 1; overflow: hidden; }
     .pane { display: flex; flex-direction: column; overflow: hidden; height: 100%; }
-    .pane.left  { flex: 1 1 0; min-width: 0; }
-    .pane.right { flex: 1 1 0; min-width: 0; background: #0a1018;
+    .pane.left  { flex: 0 0 66.666%; min-width: 0; }   /* default split: 2/3 blueprint */
+    .pane.right { flex: 1 1 0; min-width: 0; background: #0a1018;  /* … 1/3 packing list */
       border-left: 1px solid rgba(255,255,255,.12); }
     .divider { width: 6px; background: #1a2540; cursor: col-resize; flex-shrink: 0; }
     .divider:hover { background: #2d8bef; }
@@ -468,6 +468,13 @@
       // panel_locations exactly. Fall back to tracked_blueprint when not available.
       const bpUrl = _panelsOnlyUrl || trackedUrl();
       bpDoc = await pdfjsLib.getDocument(bpUrl).promise;
+      // Default zoom: fit the page width to the blueprint pane
+      try{
+        const base=(await bpDoc.getPage(1)).getViewport({scale:1});
+        const w=$('bpViewer').clientWidth - 26;   // padding + scrollbar
+        if(w>50) bpScale=Math.max(0.4, Math.min(4, w/base.width));
+        const zl=$('zoomLabel'); if(zl) zl.textContent=Math.round(bpScale*100)+'%';
+      }catch(_){}
       await renderBlueprint();
       refreshStats();
       deepLinkFromUrl();   // ?panel=NNN — zoom into and select that panel
@@ -1052,6 +1059,15 @@
   }
 
   // ── Packing list pane ──
+  // Default zoom: fit the page width to the (1/3) packing-list pane
+  async function fitPlWidth(doc){
+    try{
+      const base=(await doc.getPage(1)).getViewport({scale:1});
+      const w=$('plViewer').clientWidth - 26;   // padding + scrollbar
+      if(w>50) plScale=Math.max(0.5, Math.min(5, w/base.width));
+    }catch(_){}
+  }
+
   function fillPlSelect(files){
     const sel=$('plSelect');
     if(files.length > 1){
@@ -1077,6 +1093,7 @@
       plDoc=doc;
       const pos = posR.ok ? await posR.json() : {positions:[]};
       plPositions = (pos.positions||[]).map((p,i)=>({...p, idx:i}));
+      await fitPlWidth(plDoc);
       await renderPL();
       setPlStat();
       if(selected) crossHighlightPL(selected.panel);
@@ -1109,6 +1126,7 @@
         pageOffset+=doc.numPages;
       }
       plDocList=list; plDoc=list.length>0 ? true : null;
+      if(list.length) await fitPlWidth(list[0].doc);
       await renderAllPl();
       setPlStat();
       if(selected) crossHighlightPL(selected.panel);
