@@ -470,9 +470,26 @@
       bpDoc = await pdfjsLib.getDocument(bpUrl).promise;
       await renderBlueprint();
       refreshStats();
+      deepLinkFromUrl();   // ?panel=NNN — zoom into and select that panel
     } catch(e){
       $('bpViewer').innerHTML = `<div class="loadbox" style="color:#f87171">⚠ ${e.message}</div>`;
     }
+  }
+
+  // ── Deep link: /review?panel=NNN (e.g. from the spreadsheet's panel column).
+  // Zooms the blueprint in and centres/selects the panel.
+  function deepLinkFromUrl(){
+    const q = new URLSearchParams(location.search).get('panel');
+    if(!q) return;
+    const want = q.trim();
+    // Exact key first, then duplicate-instance keys like "211#2", then a panel
+    // that's only in the delivery table (not yet placed on the prints).
+    let key = locations[want] ? want
+            : Object.keys(locations).find(k => k.split('#')[0] === want);
+    if(!key && delivery[want] !== undefined) key = want;
+    if(!key){ toast(`Panel ${want} is not on this job's prints or delivery table`); return; }
+    if(bpScale < 2.2) applyBpScale(2.2, null);   // zoom in before centring
+    selectPanel(key, 'pl');                      // 'pl' source ⇒ blueprint pane scrolls to it
   }
 
   // ── Legend / shipment picker ──

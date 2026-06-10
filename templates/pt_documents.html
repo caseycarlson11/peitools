@@ -875,7 +875,7 @@ async function viewSpreadsheet(fname) {
     const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
     if (!data.length) { scroll.innerHTML = '<p style="color:var(--text2);padding:20px;">No data.</p>'; return; }
     _currentSheetHeaders = data[0].map(h => String(h ?? ''));
-    const editorBase = `/panel-map/editor/${encodeURIComponent(currentJob)}`;
+    const reviewBase = `/panel-tracking/${encodeURIComponent(currentJob)}/review`;
     const plBase = `/files/${encodeURIComponent(currentJob)}/Packing Lists/`;
     let html = '<table><thead><tr>';
     data[0].forEach(h => { html += `<th>${h ?? ''}</th>`; });
@@ -885,9 +885,9 @@ async function viewSpreadsheet(fname) {
       html += `<tr data-panel="${panelVal.replace(/"/g,'&quot;')}">`;
       data[r].forEach((c, ci) => {
         if (ci === 0 && c !== '') {
-          // Panel Number — link only, not directly editable (use Panel Mapper)
-          const href = `${editorBase}?panel=${encodeURIComponent(String(c))}`;
-          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Panel Mapper">${c}</a></td>`;
+          // Panel Number — opens Review & Fix zoomed in on this panel
+          const href = `${reviewBase}?panel=${encodeURIComponent(String(c))}`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Review &amp; Fix">${c}</a></td>`;
         } else if (ci === 3 && c !== '') {
           // Packing List — link only, not directly editable
           const href = `${plBase}${encodeURIComponent(String(c) + '.pdf')}`;
