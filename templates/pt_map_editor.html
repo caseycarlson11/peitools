@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Panel Editor — {{ job_name }}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+    :root{ --blue:#60b4f0; --green:#3fb950; --red:#f85149; --bg:#0d1117;
+           --surface:#161b22; --border:#30363d; --text:#e6edf3; --text2:#8b949e; }
+    body{ font-family:'Inter',system-ui,sans-serif; background:#525659; color:var(--text);
+          height:100vh; display:flex; flex-direction:column; overflow:hidden; }
+    .ed-head{ display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+              padding:10px 16px; background:var(--surface); border-bottom:1px solid var(--border); }
+    .ed-head a.home{ color:var(--text2); text-decoration:none; font-weight:600; font-size:.85rem; }
+    .ed-head a.home:hover{ color:var(--text); }
+    .ed-title{ font-weight:700; font-size:.95rem; }
+    .ed-title span{ color:var(--text2); font-weight:400; margin-left:6px; }
+    .ed-head .sp{ flex:1; }
+    .ed-hint{ color:var(--text2); font-size:.78rem; width:100%; }
+    .btn{ display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px;
+          border:1px solid var(--border); background:var(--surface); color:var(--text);
+          font:inherit; font-size:.85rem; font-weight:600; cursor:pointer; text-decoration:none; }
+    .btn:hover{ border-color:var(--blue); }
+    .btn-green{ background:var(--green); border-color:var(--green); color:#06210f; }
+    .btn-green.dirty{ animation:pulse 1.4s infinite; }
+    .btn-blue{ background:var(--blue); border-color:var(--blue); color:#06210f; }
+    .btn.active{ background:var(--blue); border-color:var(--blue); color:#06210f; }
+    .btn:disabled{ opacity:.45; cursor:not-allowed; }
+    .btn kbd{ font-family:inherit; font-size:.72em; font-weight:700; opacity:.75;
+              border:1px solid currentColor; border-radius:3px; padding:0 4px; margin-left:5px; }
+    .spin{ display:inline-block; width:12px; height:12px; vertical-align:-2px;
+           border:2px solid rgba(0,0,0,.3); border-top-color:#06210f; border-radius:50%;
+           animation:spin .7s linear infinite; }
+    @keyframes spin{ to{ transform:rotate(360deg); } }
+    @keyframes pulse{ 0%,100%{box-shadow:0 0 0 0 rgba(63,185,80,.5);} 50%{box-shadow:0 0 0 6px rgba(63,185,80,0);} }
+    .zoom{ display:flex; align-items:center; gap:6px; color:var(--text2); font-size:.8rem; }
+    .zoom input{ width:120px; accent-color:var(--blue); }
+
+    .ed-body{ flex:1; overflow:auto; overscroll-behavior:contain; padding:20px 0; }
+    .ed-body.hand{ cursor:grab; }
+    .ed-body.hand.grabbing{ cursor:grabbing; }
+    .ed-body.hand .ovl{ pointer-events:none; }   /* drag over boxes without selecting */
+    .ed-page{ position:relative; margin:0 auto 18px; width:var(--pw,1000px);
+              background:#fff; box-shadow:0 4px 18px rgba(0,0,0,.45); }
+    .ed-page canvas{ display:block; width:100%; height:auto; }
+    .ovl{ position:absolute; inset:0; }
+    .ovl.adding, .ovl.selecting{ cursor:crosshair; }
+    .ovl .pm-selrect{ position:absolute; border:1.6px dashed var(--blue);
+                      background:rgba(96,180,240,.18); pointer-events:none; }
+    .pbox{ position:absolute; border:1.6px solid var(--red); background:rgba(248,81,73,.18);
+           border-radius:2px; cursor:pointer; }
+    .pbox:hover{ background:rgba(248,81,73,.32); }
+    .pbox.sel{ border-color:var(--blue); background:rgba(96,180,240,.35); box-shadow:0 0 0 2px var(--blue); }
+    .pbox.dup{ border-style:double; border-width:3px; }       /* a tracked duplicate instance */
+    .pbox.flash{ border-color:#ffd400 !important; box-shadow:0 0 0 3px rgba(255,212,0,.8) !important; }
+    .pbox.ghost{ border:2px dashed #ffd400; background:rgba(255,212,0,.22); box-shadow:0 0 0 3px rgba(255,212,0,.45); }
+    .pbox.ghost .plabel{ color:#7a5d00; border-color:#ffd400; }
+    /* duplicate choice dialog */
+    /* non-blocking panel pinned to the top-right so the document stays usable */
+    .ed-dialog{ display:none; position:fixed; top:62px; right:16px; z-index:1200; }
+    .ed-dialog.open{ display:block; }
+    .ed-dialog-box{ background:var(--surface); border:1px solid var(--green); border-radius:12px;
+                    padding:15px; width:330px; max-width:92vw; display:flex; flex-direction:column;
+                    gap:8px; box-shadow:0 12px 40px rgba(0,0,0,.65); }
+    .ed-dialog-title{ font-weight:700; font-size:.95rem; }
+    .ed-dialog-msg{ color:var(--text2); font-size:.82rem; margin-bottom:4px; }
+    .ed-dialog-box .btn{ justify-content:flex-start; }
+    /* chip sits above-and-to-the-right of the box — matches the generated PDF/document viewer */
+    .plabel{ position:absolute; bottom:100%; left:100%; white-space:nowrap;
+             background:#fff; color:var(--red); border:1px solid var(--red); border-radius:2px;
+             font-size:var(--lblpx,7px); font-weight:800; padding:0 1px; line-height:1.25;
+             transform:translate(2px,1px); }
+
+    .ed-actionbar{ position:fixed; left:50%; transform:translateX(-50%); bottom:18px;
+                   display:none; align-items:center; gap:5px; z-index:50; cursor:move;
+                   background:var(--surface); border:1px solid var(--border); border-radius:8px;
+                   padding:5px 7px; box-shadow:0 6px 20px rgba(0,0,0,.5); }
+    .ed-actionbar.show{ display:flex; }
+    .ed-actionbar .lbl{ font-weight:700; font-size:.74rem; margin-right:2px; }
+    .ed-actionbar .btn{ cursor:pointer; }
+    .ed-actionbar .btn{ padding:3px 8px; font-size:.74rem; border-radius:6px; }
+    .ser-counter{ display:none; position:fixed; z-index:55; align-items:center; gap:8px;
+                  background:var(--surface); border:1px solid var(--green); border-radius:8px;
+                  padding:5px 8px; box-shadow:0 6px 18px rgba(0,0,0,.5); }
+    .ser-counter.show{ display:flex; }
+    .ser-counter .ser-num{ min-width:56px; text-align:center; font-weight:800; font-size:1.1rem;
+                           color:var(--green); cursor:text; }
+    .ser-step{ width:32px; height:32px; border:1px solid var(--border); background:#11151c;
+               color:var(--text); border-radius:6px; font-size:1rem; cursor:pointer;
+               user-select:none; touch-action:none; }
+    .ser-step:hover{ border-color:var(--green); }
+    .ser-step:active{ background:var(--green); color:#06210f; }
+    .ed-banner{ display:none; background:var(--green); color:#06210f; font-weight:700;
+                font-size:.85rem; text-align:center; padding:8px 12px; }
+    .ed-banner.show{ display:block; }
+    .toast{ position:fixed; top:14px; left:50%; transform:translateX(-50%); z-index:60;
+            background:var(--surface); border:1px solid var(--border); border-radius:8px;
+            padding:8px 16px; font-size:.85rem; display:none; }
+    .toast.show{ display:block; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+</head>
+<body>
+  <div class="ed-head">
+    <a class="home" href="/panel-tracking/{{ job_name }}/map">‹ Panel Tracking · Panel Map</a>
+    <div class="ed-title">Panel Editor <span id="bpName"></span></div>
+    <div class="sp"></div>
+    <button class="btn" id="addBtn" onclick="toggleAdd()" title="Add a missing panel (shortcut: A)">➕ Add Missing Panel <kbd>A</kbd></button>
+    <button class="btn" id="seriesBtn" onclick="toggleSeries()" title="Place consecutive panels with one click each (shortcut: S)">🔢 Add Panel Series <kbd>S</kbd></button>
+    <button class="btn" id="multiBtn" onclick="toggleMulti()" title="Drag a box around panel numbers to read them (shortcut: M)">▦ Select Multiple Panels <kbd>M</kbd></button>
+    <button class="btn" id="handBtn" onclick="toggleHand()" title="Hand tool — drag the document (shortcut: H)">✋ Hand <kbd>H</kbd></button>
+    <div class="zoom">Size <input type="range" id="zoom" min="600" max="5000" step="50" value="1000" oninput="setZoom(this.value)"></div>
+    <button class="btn" id="undoBtn" onclick="undo()" title="Undo last change (shortcut: Ctrl+Z)" disabled>↶ Undo <kbd>Ctrl+Z</kbd></button>
+    <button class="btn btn-green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
+    <div class="ed-hint" id="hint">Click a panel to rename or delete it. Click “Add Panel”, then click on a sheet to add a missing one.</div>
+  </div>
+
+  <div class="ed-banner" id="addBanner">📍 Click on the print where the panel belongs, then type its number. Click “Add Missing Panel” again to stop.</div>
+  <div class="ed-banner" id="seriesBanner"></div>
+  <div class="ed-banner" id="multiBanner">▦ Drag a box around a group of panel numbers, then release to read them. (Click “Select Multiple Panels” or Esc to stop.)</div>
+  <div class="ed-body" id="body"><div style="padding:40px;text-align:center;color:#ccc">Loading…</div></div>
+
+  <div class="ed-actionbar" id="actionBar">
+    <span class="lbl" id="selLabel">Panel</span>
+    <button class="btn btn-blue" onclick="renameSelected()">✎ Change #</button>
+    <button class="btn" id="moveBtn" onclick="armMove()">✥ Move</button>
+    <button class="btn" id="resizeBtn" onclick="armResize()">⤡ Resize</button>
+    <button class="btn" id="findOtherBtn" onclick="findOther()" style="display:none">🔎 Find Other</button>
+    <button class="btn" onclick="deleteSelected()">🗑 Delete</button>
+    <button class="btn" onclick="clearSel()">Done</button>
+  </div>
+
+  <div class="ed-dialog" id="dupDialog">
+    <div class="ed-dialog-box">
+      <div class="ed-dialog-title" id="dupTitle">Panel already exists</div>
+      <div class="ed-dialog-msg">This panel number is already placed. Look around the document, then choose.</div>
+      <button class="btn" onclick="dupShowOther()"><kbd>1</kbd> 🔎 Show the other instance (jump &amp; highlight)</button>
+      <button class="btn btn-blue" onclick="dupChoose('sheet')"><kbd>2</kbd> 📄 Same panel — shown on another sheet</button>
+      <button class="btn btn-blue" onclick="dupChoose('dup')"><kbd>3</kbd> 🔁 A different panel with the same number</button>
+      <button class="btn" onclick="dupChoose(null)"><kbd>4</kbd> ✕ Cancel — added by mistake</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <div class="ser-counter" id="seriesCounter">
+    <button class="ser-step" id="serDown" title="Lower the number (hold to go fast, or ↓)">▼</button>
+    <span class="ser-num" id="serNum" title="Click to type a number">—</span>
+    <button class="ser-step" id="serUp" title="Raise the number (hold to go fast, or ↑)">▲</button>
+  </div>
+
+<script>
+const JOB = {{ job_name|tojson }};
+const $ = id => document.getElementById(id);
+pdfjsLib.GlobalWorkerOptions.workerSrc =
+  'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+let pdfDoc = null;
+let dims   = [];            // [{w,h}] per page
+let locs   = {};            // panel -> {page, bbox}  (working copy)
+let dirty  = false;
+let addMode = false;
+let selPanel = null;
+let seriesMode = false;     // "Add Panel Series" active
+let seriesNext = null;      // next number to drop in the series
+let multiSelectMode = false;// "Select Multiple Panels" (drag-to-OCR) active
+let selBoxEl   = null;      // the box element of the selected panel (for popup placement)
+let _barPos    = null;      // user-dragged popup position (sticky once moved)
+let armedMode  = null;      // 'move' | 'resize' | null
+let undoStack  = [];        // JSON snapshots of locs for Undo
+let savedSnapshot = '{}';   // locs at last load/save (to compute dirty)
+let curBp      = '';        // blueprint filename (for download URLs)
+
+function toast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(t._t); t._t=setTimeout(()=>t.classList.remove('show'), 2200); }
+
+function setDirty(v){
+  dirty = v;
+  const b=$('saveBtn'); b.disabled=!v; b.classList.toggle('dirty', v);
+  b.textContent = v ? '💾 Save Changes *' : '💾 Save Changes';
+}
+function recomputeDirty(){ setDirty(JSON.stringify(locs) !== savedSnapshot); }
+
+function pushUndo(){
+  undoStack.push({ locs: JSON.stringify(locs), series: seriesNext });   // also remember the series counter
+  if(undoStack.length > 60) undoStack.shift();
+  updateUndoBtn();
+}
+function updateUndoBtn(){ const b=$('undoBtn'); if(b) b.disabled = undoStack.length===0; }
+function undo(){
+  if(!undoStack.length) return;
+  const snap = undoStack.pop();
+  locs = JSON.parse(snap.locs);
+  seriesNext = snap.series;                 // rewind the Add-Panel-Series number too
+  clearSel(); drawBoxes(); recomputeDirty(); updateUndoBtn(); updateSeriesBanner(); updateSeriesCounter();
+  toast('Undid last change.');
+}
+
+function setZoom(v){ document.documentElement.style.setProperty('--pw', v+'px'); scheduleRerender(); }
+
+async function load(){
+  let data;
+  try{
+    const r = await fetch('/api/panel-map/editor-data/'+encodeURIComponent(JOB));
+    data = await r.json();
+    if(data.error){ $('body').innerHTML='<div style="padding:40px;text-align:center">'+data.error+'</div>'; return; }
+  }catch(e){ $('body').innerHTML='<div style="padding:40px;text-align:center">Could not load.</div>'; return; }
+
+  dims = data.pages || [];
+  locs = data.panel_locations || {};
+  savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
+  curBp = data.blueprint || '';
+  $('bpName').textContent = curBp;
+  refreshDownloadLinks();
+
+  pdfDoc = await pdfjsLib.getDocument('/api/panel-map/base/'+encodeURIComponent(JOB)).promise;
+  buildPages();
+
+  // If opened with ?panel=<number> (e.g. from Spreadsheet viewer), scroll to and select that panel
+  const urlPanel = new URLSearchParams(location.search).get('panel');
+  if(urlPanel){
+    const keys = instancesOf(urlPanel);
+    if(keys.length){
+      // Small delay lets the browser compute layout for all page divs
+      setTimeout(()=>{
+        const key = keys[0];
+        const box = document.querySelector('.pbox[data-panel="'+CSS.escape(key)+'"]');
+        if(box){
+          selectPanel(key, box);
+          box.classList.add('flash'); _flashKey = key;
+          centerOnBox(box);
+          toast('Panel ' + urlPanel + ' — click to edit or delete.');
+        } else {
+          toast('Panel ' + urlPanel + ' not visible yet — try scrolling.');
+        }
+      }, 200);
+    } else {
+      setTimeout(()=>toast('Panel ' + urlPanel + ' not found in this job.'), 500);
+    }
+  }
+}
+
+const DPR = Math.min(window.devicePixelRatio || 1, 2);   // crispness multiplier
+const RENDER_CAP = 4200;   // max canvas width (px) to bound memory
+let obs = null;
+const renderJobs = {};     // pi -> in-flight render token
+
+function pageCssWidth(){
+  const pg = document.querySelector('.ed-page');
+  return pg ? pg.clientWidth : 1000;
+}
+
+function buildPages(){
+  const body = $('body'); body.innerHTML='';
+  if(obs) obs.disconnect();
+  obs = new IntersectionObserver((ents)=>{
+    ents.forEach(en=>{ if(en.isIntersecting){ const c=en.target.querySelector('canvas');
+      renderPageCanvas(parseInt(en.target.dataset.pi,10), c); } });
+  }, {root: body, rootMargin:'800px 0px'});
+
+  for(let pi=0; pi<dims.length; pi++){
+    const wrap = document.createElement('div');
+    wrap.className='ed-page'; wrap.dataset.pi=pi;
+    const d = dims[pi];
+    wrap.style.aspectRatio = (d.w && d.h) ? (d.w+' / '+d.h) : 'auto';
+    const ovl = document.createElement('div'); ovl.className='ovl'; ovl.dataset.pi=pi;
+    ovl.addEventListener('click', (e)=>onOverlayClick(e, pi));
+    ovl.addEventListener('pointerdown', (e)=>onSelectStart(e, pi));
+    wrap.innerHTML = '<canvas></canvas>';
+    wrap.appendChild(ovl);
+    body.appendChild(wrap);
+    obs.observe(wrap);
+  }
+  updateLabelScale();
+  drawBoxes();
+}
+
+// Rasterize a page at the CURRENT on-screen size × device pixel ratio, so it
+// stays sharp at any zoom — the same approach the native PDF viewer uses.
+async function renderPageCanvas(pi, canvas){
+  const base = dims[pi];
+  const targetW = Math.min(Math.round(pageCssWidth() * DPR), RENDER_CAP);
+  if(canvas.dataset.w && Math.abs((+canvas.dataset.w) - targetW) < 32) return;  // already sharp enough
+  const token = (renderJobs[pi] = (renderJobs[pi]||0) + 1);
+  const page = await pdfDoc.getPage(pi+1);
+  if(token !== renderJobs[pi]) return;   // superseded by a newer zoom
+  const vp = page.getViewport({scale: targetW / (base.w || page.getViewport({scale:1}).width)});
+  canvas.width = vp.width; canvas.height = vp.height;
+  await page.render({canvasContext:canvas.getContext('2d'), viewport:vp}).promise;
+  canvas.dataset.w = targetW;
+}
+
+// Number labels are sized in screen px; scale them to the current zoom so they
+// look like the small chips on the PDF (≈7 PDF-points) instead of fixed 10px.
+function updateLabelScale(){
+  if(!dims[0]) return;
+  const scale = pageCssWidth() / (dims[0].w || 1000);   // px per PDF point
+  const px = Math.max(3, Math.min(16, 7 * scale));
+  document.documentElement.style.setProperty('--lblpx', px + 'px');
+}
+
+// After a zoom change, re-rasterize the visible pages crisply (debounced).
+let zoomTimer = null;
+function scheduleRerender(){
+  updateLabelScale();
+  positionActionBar();
+  clearTimeout(zoomTimer);
+  zoomTimer = setTimeout(()=>{
+    document.querySelectorAll('.ed-page').forEach(wrap=>{
+      const r = wrap.getBoundingClientRect();
+      if(r.bottom > -400 && r.top < window.innerHeight + 400){
+        renderPageCanvas(parseInt(wrap.dataset.pi,10), wrap.querySelector('canvas'));
+      }
+    });
+  }, 200);
+}
+
+function ovlOf(pi){ return document.querySelector('.ovl[data-pi="'+pi+'"]'); }
+
+// ── Instances: a number can be placed more than once (same panel on multiple
+// sheets, or two different panels sharing a number). Extra instances are stored
+// under unique keys (e.g. "211#2") but display + report the real number. ──
+function labelOf(key){ const l = locs[key]; return (l && l.label) ? l.label : key; }
+function numberExists(n){ for(const k in locs){ if(labelOf(k) === n) return true; } return false; }
+function instancesOf(n){ const a=[]; for(const k in locs){ if(labelOf(k) === n) a.push(k); } return a; }
+function freeKey(n){
+  if(!(n in locs)) return n;
+  let i = 2; while((n + '#' + i) in locs) i++;
+  return n + '#' + i;
+}
+
+let _dupResolve  = null;
+let _dupNumber   = null;
+let _dupViewIdx  = 0;        // 0 = the panel you're assigning, 1..n = each existing instance
+let _pendingPlace = null;    // {page, bbox} where the new panel would go
+let _ghostEl     = null;     // temporary marker at the placement spot
+
+function makeGhost(){
+  removeGhost();
+  if(!_pendingPlace) return;
+  const ovl = ovlOf(_pendingPlace.page), d = dims[_pendingPlace.page];
+  if(!ovl || !d) return;
+  const g = document.createElement('div'); g.className = 'pbox ghost';
+  g.innerHTML = '<div class="plabel">' + (_dupNumber || '') + '?</div>';
+  setBoxRect(g, _pendingPlace.bbox, d);
+  ovl.appendChild(g); _ghostEl = g;
+}
+function removeGhost(){ if(_ghostEl){ _ghostEl.remove(); _ghostEl = null; } }
+
+function askDuplicate(n){
+  _dupNumber = n; _dupViewIdx = 0;
+  makeGhost();
+  $('dupTitle').textContent = 'Panel ' + n + ' is already placed';
+  $('dupDialog').classList.add('open');
+  return new Promise(res => { _dupResolve = res; });
+}
+function dupChoose(val){
+  $('dupDialog').classList.remove('open');
+  removeGhost();
+  _dupNumber = null; _pendingPlace = null;
+  const r = _dupResolve; _dupResolve = null;
+  if(r) r(val);
+}
+// Toggle between the panel you're assigning and the existing instance(s) — back and forth.
+function dupShowOther(){
+  if(_dupNumber == null) return;
+  const keys = instancesOf(_dupNumber);
+  if(!keys.length){ toast('No existing instance found.'); return; }
+  _dupViewIdx = (_dupViewIdx + 1) % (keys.length + 1);
+  if(_dupViewIdx === 0){                 // back to the panel you're assigning
+    clearFlash();
+    if(_ghostEl) centerOnBox(_ghostEl);
+    toast('Back to the panel you’re assigning.');
+    return;
+  }
+  const key = keys[_dupViewIdx - 1];
+  const box = document.querySelector('.pbox[data-panel="' + CSS.escape(key) + '"]');
+  if(!box){ toast('Could not locate it.'); return; }
+  clearFlash();
+  box.classList.add('flash'); _flashKey = key;
+  centerOnBox(box);
+  const pg = locs[key] && locs[key].page;
+  toast('Showing ' + _dupNumber + (pg != null ? (' on page ' + (pg+1)) : '') +
+        (keys.length > 1 ? ' (' + _dupViewIdx + ' of ' + keys.length + ')' : ''));
+}
+
+let _flashKey = null;
+function clearFlash(){ document.querySelectorAll('.pbox.flash').forEach(b=>b.classList.remove('flash')); _flashKey=null; }
+function centerOnBox(box){
+  const pane = $('body');
+  const r = box.getBoundingClientRect(), pr = pane.getBoundingClientRect();
+  pane.scrollTop  += (r.top  + r.height/2) - (pr.top  + pr.height/2);
+  pane.scrollLeft += (r.left + r.width/2)  - (pr.left + pr.width/2);
+}
+function findOther(){
+  if(selPanel == null) return;
+  const label = labelOf(selPanel);
+  const keys = instancesOf(label);
+  if(keys.length < 2){ toast('No other instance of ' + label + '.'); return; }
+  const idx = keys.indexOf(selPanel);
+  const targetKey = keys[(idx + 1) % keys.length];
+  const box = document.querySelector('.pbox[data-panel="' + CSS.escape(targetKey) + '"]');
+  if(!box){ toast('Could not locate the other instance.'); return; }
+  clearFlash();
+  box.classList.add('flash'); _flashKey = targetKey;
+  centerOnBox(box);
+  const pg = (locs[targetKey] && locs[targetKey].page);
+  toast('Showing ' + label + ' on page ' + ((pg!=null?pg+1:'?')));
+}
+
+function setBoxRect(box, bbox, d){
+  const [x0,y0,x1,y1] = bbox; const pad=2;
+  box.style.left   = ((x0-pad)/d.w*100)+'%';
+  box.style.top    = ((y0-pad)/d.h*100)+'%';
+  box.style.width  = ((x1-x0+pad*2)/d.w*100)+'%';
+  box.style.height = ((y1-y0+pad*2)/d.h*100)+'%';
+}
+
+function drawBoxes(){
+  document.querySelectorAll('.ovl').forEach(o=>o.querySelectorAll('.pbox').forEach(b=>b.remove()));
+  for(const panel in locs){
+    const loc = locs[panel]; const d = dims[loc.page]; const ovl = ovlOf(loc.page);
+    if(!d || !ovl) continue;
+    const box = document.createElement('div');
+    box.className='pbox' + (panel===selPanel ? ' sel' : '') + (loc.rel ? ' dup' : '') + (panel===_flashKey ? ' flash' : '');
+    box.dataset.panel = panel;
+    box.dataset.label = labelOf(panel);
+    setBoxRect(box, loc.bbox, d);
+    const lab = document.createElement('div'); lab.className='plabel'; lab.textContent = labelOf(panel);
+    box.appendChild(lab);
+    box.onclick = (e)=>{ if(addMode || seriesMode || multiSelectMode) return; e.stopPropagation(); selectPanel(panel, box); };
+    box.addEventListener('pointerdown', (e)=>onBoxPointerDown(e, panel, box));
+    ovl.appendChild(box);
+  }
+}
+
+// Drag to move or resize the selected highlight (armed via the Move/Resize buttons).
+function onBoxPointerDown(e, panel, box){
+  if((armedMode!=='move' && armedMode!=='resize') || panel!==selPanel) return;
+  e.preventDefault(); e.stopPropagation();
+  const pi = locs[panel].page, d = dims[pi];
+  const ovlRect = ovlOf(pi).getBoundingClientRect();
+  const sx = e.clientX, sy = e.clientY, orig = locs[panel].bbox.slice(), mode = armedMode;
+  let nb = orig.slice(), moved = false;
+  try{ box.setPointerCapture(e.pointerId); }catch(_){}
+  const mv = (ev)=>{
+    moved = true;
+    const dxp = (ev.clientX-sx)/ovlRect.width*d.w, dyp = (ev.clientY-sy)/ovlRect.height*d.h;
+    if(mode==='move') nb = [orig[0]+dxp, orig[1]+dyp, orig[2]+dxp, orig[3]+dyp];
+    else nb = [orig[0], orig[1], Math.max(orig[0]+3, orig[2]+dxp), Math.max(orig[1]+3, orig[3]+dyp)];
+    setBoxRect(box, nb, d);
+  };
+  const up = ()=>{
+    box.removeEventListener('pointermove', mv);
+    box.removeEventListener('pointerup', up);
+    box.removeEventListener('pointercancel', up);
+    if(moved){ pushUndo(); locs[panel].bbox = nb; recomputeDirty(); drawBoxes(); selectPanel(panel); }
+  };
+  box.addEventListener('pointermove', mv);
+  box.addEventListener('pointerup', up);
+  box.addEventListener('pointercancel', up);
+}
+
+function armMove(){   if(selPanel==null) return; armedMode = (armedMode==='move')   ? null : 'move';
+  toast(armedMode==='move'   ? 'Drag the panel to move it.'   : ''); updateManipUI(); }
+function armResize(){ if(selPanel==null) return; armedMode = (armedMode==='resize') ? null : 'resize';
+  toast(armedMode==='resize' ? 'Drag the panel to resize it.' : ''); updateManipUI(); }
+
+function updateManipUI(){
+  const mb=$('moveBtn'), rb=$('resizeBtn');
+  if(mb) mb.classList.toggle('active', armedMode==='move');
+  if(rb) rb.classList.toggle('active', armedMode==='resize');
+  // Don't switch to a move icon — the default cursor keeps the panel visible while dragging.
+  if(selBoxEl) selBoxEl.style.cursor = armedMode==='resize' ? 'nwse-resize' : 'default';
+}
+
+function selectPanel(panel, boxEl){
+  if(panel !== selPanel){ armedMode = null; clearFlash(); }
+  selPanel = panel;
+  selBoxEl = boxEl || document.querySelector('.pbox[data-panel="'+CSS.escape(panel)+'"]');
+  document.querySelectorAll('.pbox').forEach(b=>b.classList.toggle('sel', b.dataset.panel===panel));
+  const label = labelOf(panel);
+  $('selLabel').textContent = 'Panel ' + label;
+  const fb = $('findOtherBtn'); if(fb) fb.style.display = (instancesOf(label).length > 1) ? '' : 'none';
+  $('actionBar').classList.add('show');
+  updateManipUI();
+  positionActionBar();
+}
+
+// Float the popup well BELOW the panel (or wherever the user dragged it).
+function positionActionBar(){
+  const bar = $('actionBar'); if(!selBoxEl || !bar.classList.contains('show')) return;
+  const bw = bar.offsetWidth || 360, bh = bar.offsetHeight || 40;
+  let left, top;
+  if(_barPos){                                   // user dragged it — keep their spot
+    left = _barPos.left; top = _barPos.top;
+  } else {
+    const r = selBoxEl.getBoundingClientRect();
+    left = r.left + r.width/2 - bw/2;
+    top  = r.bottom + bh * 2 + 8;                 // ~2 popup-heights below the panel
+    if(top + bh > window.innerHeight - 8) top = r.top - bh - 8;   // flip above if no room
+  }
+  left = Math.max(8, Math.min(window.innerWidth - bw - 8, left));
+  top  = Math.max(8, Math.min(window.innerHeight - bh - 8, top));
+  bar.style.left = left + 'px';
+  bar.style.top = top + 'px';
+  bar.style.bottom = 'auto';
+  bar.style.transform = 'none';
+}
+
+// Let the user drag the popup (anywhere except a button).
+(function initBarDrag(){
+  const bar = $('actionBar'); if(!bar) return;
+  bar.addEventListener('pointerdown', (e)=>{
+    if(e.target.closest('.btn')) return;         // pressing a button shouldn't drag
+    e.preventDefault();
+    const r = bar.getBoundingClientRect();
+    const ox = e.clientX - r.left, oy = e.clientY - r.top;
+    try{ bar.setPointerCapture(e.pointerId); }catch(_){}
+    const mv = (ev)=>{
+      _barPos = { left: ev.clientX - ox, top: ev.clientY - oy };
+      bar.style.left = _barPos.left + 'px'; bar.style.top = _barPos.top + 'px';
+      bar.style.bottom = 'auto'; bar.style.transform = 'none';
+    };
+    const up = ()=>{ bar.removeEventListener('pointermove', mv);
+      bar.removeEventListener('pointerup', up); bar.removeEventListener('pointercancel', up); };
+    bar.addEventListener('pointermove', mv);
+    bar.addEventListener('pointerup', up);
+    bar.addEventListener('pointercancel', up);
+  });
+})();
+
+function clearSel(){ selPanel=null; selBoxEl=null; armedMode=null; clearFlash();
+  document.querySelectorAll('.pbox.sel').forEach(b=>b.classList.remove('sel'));
+  $('actionBar').classList.remove('show'); updateManipUI(); }
+
+async function renameSelected(){
+  if(selPanel==null) return;
+  const cur = labelOf(selPanel);
+  const v = prompt('New panel number for "'+cur+'":', cur);
+  if(v==null) return;
+  const nn = String(v).trim();
+  if(!nn || nn===cur) return;
+  const loc = locs[selPanel];
+  if(numberExists(nn)){
+    // Show the same 4-option duplicate dialog used by Add Panel Series
+    _pendingPlace = { page: loc.page, bbox: loc.bbox };
+    const rel = await askDuplicate(nn);
+    if(rel == null) return;   // Cancel — keep original number
+    pushUndo();
+    const oldKey = selPanel;
+    delete locs[oldKey];
+    const newKey = freeKey(nn);
+    locs[newKey] = { page: loc.page, bbox: loc.bbox, label: nn, rel };
+    selPanel = newKey;
+    setDirty(true); drawBoxes(); selectPanel(newKey);
+    toast('Renamed to ' + nn + ' (' + (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    const oldKey = selPanel;
+    delete locs[oldKey];
+    locs[nn] = { page: loc.page, bbox: loc.bbox };
+    selPanel = nn; setDirty(true); drawBoxes(); selectPanel(nn);
+  }
+}
+
+function deleteSelected(){
+  if(selPanel==null) return;
+  pushUndo();
+  delete locs[selPanel]; setDirty(true); clearSel(); drawBoxes();
+}
+
+function toggleAdd(){
+  addMode = !addMode;
+  if(addMode && handMode) toggleHand();        // add and hand are mutually exclusive
+  if(addMode && seriesMode) toggleSeries();    // add and series are mutually exclusive
+  if(addMode && multiSelectMode) toggleMulti();
+  $('addBtn').classList.toggle('active', addMode);
+  $('addBanner').classList.toggle('show', addMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
+  $('hint').textContent = addMode
+    ? 'ADD MODE: click anywhere on a sheet to drop a new panel, then type its number.'
+    : 'Click a panel to rename or delete it. Click “Add Missing Panel”, then click on a sheet to add a missing one.';
+}
+
+function toggleSeries(){
+  seriesMode = !seriesMode;
+  if(seriesMode){
+    if(addMode) toggleAdd();
+    if(handMode) toggleHand();
+    if(multiSelectMode) toggleMulti();
+    if(seriesNext == null){
+      const v = prompt('Starting panel number for the series:');
+      const n = parseInt(String(v || '').trim(), 10);
+      if(isNaN(n)){ seriesMode = false; }   // cancelled → don't enter the mode
+      else seriesNext = Math.max(1, n);
+    }
+  }
+  $('seriesBtn').classList.toggle('active', seriesMode);
+  $('seriesBanner').classList.toggle('show', seriesMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('adding', addMode || seriesMode));
+  updateSeriesBanner();
+  updateSeriesCounter();
+}
+function updateSeriesBanner(){
+  $('seriesBanner').textContent = !seriesMode ? '' :
+    (seriesNext == null
+      ? '🔢 Series mode: click the FIRST panel on the print and enter its number.'
+      : '🔢 Series mode: click to drop panel ' + seriesNext + '. Use ▲▼ or ↑↓ to change it.');
+}
+
+// Live series-number counter shown right under the Add Panel Series button.
+function updateSeriesCounter(){
+  const w = $('seriesCounter');
+  if(seriesMode && seriesNext != null){
+    $('serNum').textContent = seriesNext;
+    const r = $('seriesBtn').getBoundingClientRect();
+    w.style.left = r.left + 'px';
+    w.style.top  = (r.bottom + 5) + 'px';
+    w.classList.add('show');
+  } else {
+    w.classList.remove('show');
+  }
+}
+function bumpSeries(delta){
+  if(!seriesMode) return;
+  seriesNext = Math.max(1, (seriesNext == null ? 1 : seriesNext) + delta);
+  updateSeriesCounter(); updateSeriesBanner();
+}
+let _serRep = null;
+function serRepeatStart(delta){
+  bumpSeries(delta);
+  let speed = 260;
+  const run = ()=>{ bumpSeries(delta); speed = Math.max(25, speed - 25); _serRep = setTimeout(run, speed); };
+  _serRep = setTimeout(run, 420);   // hold past this and it starts accelerating
+}
+function serRepeatStop(){ if(_serRep){ clearTimeout(_serRep); _serRep = null; } }
+(function initSeriesCounter(){
+  const up = $('serUp'), dn = $('serDown'), num = $('serNum');
+  const wire = (el, delta)=>{
+    if(!el) return;
+    el.addEventListener('pointerdown', (e)=>{ e.preventDefault(); serRepeatStart(delta); });
+    ['pointerup','pointerleave','pointercancel'].forEach(ev=>el.addEventListener(ev, serRepeatStop));
+  };
+  wire(up, 1); wire(dn, -1);
+  if(num) num.addEventListener('click', ()=>{
+    const v = prompt('Set the series number:', seriesNext == null ? '' : seriesNext);
+    if(v == null) return;
+    const n = parseInt(String(v).trim(), 10);
+    if(!isNaN(n)){ seriesNext = Math.max(1, n); updateSeriesCounter(); updateSeriesBanner(); }
+  });
+  window.addEventListener('resize', ()=>{ if(seriesMode) updateSeriesCounter(); });
+})();
+
+function pageXY(e, pi){
+  const ovl = ovlOf(pi); const rect = ovl.getBoundingClientRect(); const d = dims[pi];
+  return [ (e.clientX-rect.left)/rect.width*d.w, (e.clientY-rect.top)/rect.height*d.h ];
+}
+
+async function onOverlayClick(e, pi){
+  if(multiSelectMode) return;   // handled by drag-select
+  if($('dupDialog').classList.contains('open')) return;   // wait for the choice first
+  if(seriesMode){ placeSeries(e, pi); return; }
+  if(!addMode) return;
+  const [x,y] = pageXY(e, pi);
+  const v = prompt('Panel number to add here:');
+  if(v==null) return;
+  const nn = String(v).trim(); if(!nn) return;
+  const bbox = [x-9, y-6, x+9, y+6];
+  if(numberExists(nn)){
+    _pendingPlace = { page: pi, bbox };
+    const rel = await askDuplicate(nn);     // 'sheet' | 'dup' | null
+    if(rel == null) return;                 // added by mistake → cancel
+    pushUndo();
+    locs[freeKey(nn)] = { page: pi, bbox, label: nn, rel };
+    setDirty(true); drawBoxes();
+    toast('Added another ' + nn + ' (' +
+          (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    locs[nn] = { page: pi, bbox };
+    setDirty(true); drawBoxes(); toast('Added panel ' + nn);   // stays red (not selected)
+  }
+}
+
+async function placeSeries(e, pi){
+  const [x,y] = pageXY(e, pi);
+  const bbox = [x-9, y-6, x+9, y+6];
+  // figure out which number this click is for (without advancing yet)
+  let num;
+  if(seriesNext == null){
+    const v = prompt('Starting panel number for the series:');
+    if(v == null) return;
+    const n = parseInt(String(v).trim(), 10);
+    if(isNaN(n)){ toast('Enter a whole number to start the series.'); return; }
+    num = n;
+  } else {
+    num = seriesNext;
+  }
+  const nn = String(num);
+
+  if(numberExists(nn)){
+    // Don't overwrite the existing one — ask what this is.
+    _pendingPlace = { page: pi, bbox };
+    const rel = await askDuplicate(nn);
+    if(rel == null) return;                              // by mistake → don't place or advance
+    pushUndo();                                          // snapshot keeps the current series number
+    locs[freeKey(nn)] = { page: pi, bbox, label: nn, rel };
+    toast('Added another ' + nn + ' (' +
+          (rel==='sheet' ? 'same panel, another sheet' : 'duplicate number') + ').');
+  } else {
+    pushUndo();
+    locs[nn] = { page: pi, bbox };
+  }
+  seriesNext = num + 1;                                  // advance after placing
+  setDirty(true); drawBoxes(); updateSeriesBanner(); updateSeriesCounter();
+}
+
+/* ── Select Multiple Panels: drag a box, OCR the numbers inside ─────────── */
+function toggleMulti(){
+  multiSelectMode = !multiSelectMode;
+  if(multiSelectMode){
+    if(addMode) toggleAdd();
+    if(seriesMode) toggleSeries();
+    if(handMode) toggleHand();
+    clearSel();
+  }
+  $('multiBtn').classList.toggle('active', multiSelectMode);
+  $('multiBanner').classList.toggle('show', multiSelectMode);
+  document.querySelectorAll('.ovl').forEach(o=>o.classList.toggle('selecting', multiSelectMode));
+}
+
+function onSelectStart(e, pi){
+  if(!multiSelectMode) return;
+  e.preventDefault(); e.stopPropagation();
+  const ovl = ovlOf(pi); const ovlRect = ovl.getBoundingClientRect();
+  const sx = e.clientX - ovlRect.left, sy = e.clientY - ovlRect.top;
+  const rectEl = document.createElement('div'); rectEl.className = 'pm-selrect';
+  rectEl.style.left = sx + 'px'; rectEl.style.top = sy + 'px';
+  ovl.appendChild(rectEl);
+  try{ ovl.setPointerCapture(e.pointerId); }catch(_){}
+  const mv = (ev)=>{
+    const cx = ev.clientX - ovlRect.left, cy = ev.clientY - ovlRect.top;
+    rectEl.style.left = Math.min(sx,cx) + 'px'; rectEl.style.top = Math.min(sy,cy) + 'px';
+    rectEl.style.width = Math.abs(cx-sx) + 'px'; rectEl.style.height = Math.abs(cy-sy) + 'px';
+  };
+  const up = (ev)=>{
+    ovl.removeEventListener('pointermove', mv);
+    ovl.removeEventListener('pointerup', up);
+    ovl.removeEventListener('pointercancel', up);
+    const cx = ev.clientX - ovlRect.left, cy = ev.clientY - ovlRect.top;
+    rectEl.remove();
+    const d = dims[pi];
+    const x0 = Math.min(sx,cx)/ovlRect.width*d.w,  y0 = Math.min(sy,cy)/ovlRect.height*d.h;
+    const x1 = Math.max(sx,cx)/ovlRect.width*d.w,  y1 = Math.max(sy,cy)/ovlRect.height*d.h;
+    if(x1-x0 < 4 || y1-y0 < 4) return;   // ignore tiny drags / stray clicks
+    ocrRegion(pi, [x0,y0,x1,y1]);
+  };
+  ovl.addEventListener('pointermove', mv);
+  ovl.addEventListener('pointerup', up);
+  ovl.addEventListener('pointercancel', up);
+}
+
+async function ocrRegion(pi, bbox){
+  toast('Reading numbers…');
+  try{
+    const r = await fetch('/api/panel-map/ocr-region/'+encodeURIComponent(JOB), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ page: pi, bbox })
+    });
+    const d = await r.json();
+    if(d.error){ toast(d.error); return; }
+    const found = d.panels || [];
+    if(!found.length){ toast('No panel numbers found in that area.'); return; }
+    pushUndo();
+    let added = 0; const nums = [];
+    found.forEach(p=>{
+      nums.push(p.panel);
+      if(!(p.panel in locs)){ locs[p.panel] = { page: pi, bbox: p.bbox }; added++; }
+    });
+    recomputeDirty(); drawBoxes();
+    toast('Found ' + nums.join(', ') + ' — added ' + added +
+          (added < nums.length ? ' (others already existed)' : '') + '. Undo if wrong.');
+  }catch(e){ toast('Could not read that area.'); }
+}
+
+function refreshDownloadLinks(){
+  const t = '&t=' + Date.now();
+  const bp = encodeURIComponent(curBp);
+  const j = encodeURIComponent(JOB);
+  const m = $('dlMarkedBtn'), f = $('dlFullBtn');
+  if(m) m.href = '/api/panel-map/download/' + j + '?blueprint=' + bp + t;
+  if(f) f.href = '/api/panel-map/download-full/' + j + '?blueprint=' + bp + t;
+}
+
+function changeSummary(before){
+  let added=0, removed=0, moved=0;
+  for(const k in locs){
+    if(!(k in before)) added++;
+    else if(JSON.stringify(locs[k].bbox) !== JSON.stringify(before[k].bbox)) moved++;
+  }
+  for(const k in before){ if(!(k in locs)) removed++; }
+  const parts = [];
+  if(added)   parts.push('+' + added + ' added');
+  if(removed) parts.push(removed + ' deleted');
+  if(moved)   parts.push(moved + ' moved/resized');
+  return parts.length ? parts.join(', ') : 'no changes';
+}
+
+async function saveChanges(){
+  const before = JSON.parse(savedSnapshot || '{}');
+  const btn = $('saveBtn'); btn.disabled = true;
+  const t0 = Date.now();
+  const fmt = ()=>{ const s = Math.floor((Date.now()-t0)/1000), m = Math.floor(s/60);
+                    return m > 0 ? (m + 'm ' + (s%60) + 's') : (s + 's'); };
+  btn.innerHTML = '<span class="spin"></span> Saving… <span id="saveElapsed">0s</span>';
+  const tick = setInterval(()=>{ const e = $('saveElapsed'); if(e) e.textContent = fmt(); }, 250);
+  try{
+    const r = await fetch('/api/panel-map/update/'+encodeURIComponent(JOB), {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ locations: locs })
+    });
+    const d = await r.json();
+    clearInterval(tick);
+    if(d.error){ toast('Save failed: '+d.error); setDirty(true); return; }   // setDirty restores the button label
+    const summary = changeSummary(before);
+    const elapsed = fmt();
+    locs = d.panel_locations || locs;
+    savedSnapshot = JSON.stringify(locs); undoStack = []; updateUndoBtn();
+    setDirty(false); drawBoxes(); refreshDownloadLinks();
+    toast('Saved ' + d.count + ' panels — ' + summary + ' in ' + elapsed + '. Both documents regenerated.');
+  }catch(e){ clearInterval(tick); toast('Save failed.'); setDirty(true); }
+}
+
+/* Hand tool + scroll-to-zoom (the rest of the page is untouched) */
+let handMode = false;
+function toggleHand(){
+  handMode = !handMode;
+  if(handMode && multiSelectMode) toggleMulti();   // hand disables overlay pointer events
+  $('handBtn').classList.toggle('active', handMode);
+  $('body').classList.toggle('hand', handMode);
+}
+(function setupZoomPan(){
+  const pane = $('body');
+  pane.addEventListener('wheel', (e)=>{
+    if(!(e.ctrlKey || e.metaKey)) return;   // plain scroll = navigate; Ctrl+scroll = zoom
+    e.preventDefault();
+    const cur = parseInt(document.documentElement.style.getPropertyValue('--pw')) || 1000;
+    const step = Math.max(80, Math.round(cur * 0.12));   // proportional zoom steps
+    const w = Math.max(500, Math.min(5000, cur + (e.deltaY < 0 ? step : -step)));
+    if(w === cur) return;
+    const ratio = w / cur;
+    // Keep the point under the cursor fixed so it zooms in place (no page jump).
+    const pr = pane.getBoundingClientRect();
+    const ox = e.clientX - pr.left, oy = e.clientY - pr.top;     // cursor within the pane
+    const cx = pane.scrollLeft + ox, cy = pane.scrollTop + oy;   // content point under cursor
+    document.documentElement.style.setProperty('--pw', w + 'px');
+    const z = $('zoom'); if(z){ z.value = Math.max(+z.min, Math.min(+z.max, w)); }
+    pane.scrollLeft = cx * ratio - ox;
+    pane.scrollTop  = cy * ratio - oy;
+    scheduleRerender();
+  }, {passive:false});
+  let drag=false, sx, sy, sl, st;
+  pane.addEventListener('pointerdown', (e)=>{
+    if(!handMode) return;
+    drag=true; sx=e.clientX; sy=e.clientY; sl=pane.scrollLeft; st=pane.scrollTop;
+    pane.classList.add('grabbing');
+    try{ pane.setPointerCapture(e.pointerId); }catch(_){}
+    e.preventDefault();
+  });
+  pane.addEventListener('pointermove', (e)=>{
+    if(!drag) return;
+    pane.scrollLeft = sl - (e.clientX - sx);
+    pane.scrollTop  = st - (e.clientY - sy);
+  });
+  const end = ()=>{ drag=false; pane.classList.remove('grabbing'); };
+  pane.addEventListener('pointerup', end);
+  pane.addEventListener('pointercancel', end);
+})();
+
+document.addEventListener('keydown', (e)=>{
+  // While the duplicate panel is open, 1–4 drive its buttons (other keys keep native behavior).
+  if($('dupDialog').classList.contains('open')){
+    if(e.key === '1'){ e.preventDefault(); dupShowOther(); }
+    else if(e.key === '2'){ e.preventDefault(); dupChoose('sheet'); }
+    else if(e.key === '3'){ e.preventDefault(); dupChoose('dup'); }
+    else if(e.key === '4' || e.key === 'Escape'){ e.preventDefault(); dupChoose(null); }
+    return;
+  }
+  if((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z'){ e.preventDefault(); undo(); return; }
+  if(seriesMode && (e.key === 'ArrowUp' || e.key === 'ArrowDown')){
+    e.preventDefault(); bumpSeries(e.key === 'ArrowUp' ? 1 : -1); return;   // OS key-repeat = fast scroll
+  }
+  if(e.key === 'Escape'){
+    if(multiSelectMode) toggleMulti();
+    else if(seriesMode) toggleSeries();
+    else if(addMode) toggleAdd();
+    else clearSel();
+    return;
+  }
+  // Single-key mode shortcuts — ignore with modifiers or while typing in a field.
+  if(e.ctrlKey || e.metaKey || e.altKey) return;
+  const tag = (e.target && e.target.tagName) || '';
+  if(tag === 'INPUT' || tag === 'TEXTAREA' || (e.target && e.target.isContentEditable)) return;
+  const k = e.key.toLowerCase();
+  if(k === 'a'){ e.preventDefault(); toggleAdd(); }
+  else if(k === 's'){ e.preventDefault(); toggleSeries(); }
+  else if(k === 'm'){ e.preventDefault(); toggleMulti(); }
+  else if(k === 'h'){ e.preventDefault(); toggleHand(); }
+});
+// keep the popup pinned to the panel while scrolling the document
+$('body').addEventListener('scroll', ()=>{ if(selPanel!=null) positionActionBar(); }, {passive:true});
+
+window.addEventListener('beforeunload', (e)=>{ if(dirty){ e.preventDefault(); e.returnValue=''; } });
+load();
+</script>
+</body>
+</html>

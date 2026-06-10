@@ -1,0 +1,762 @@
+{% extends "pt_base.html" %}
+{% block title %}Deliveries — {{ pt_job }}{% endblock %}
+
+{% block extra_style %}
+    /* ── File list ── */
+    .pl-list { display:flex; flex-direction:column; gap:6px; margin:4px 0 12px; }
+    .pl-item {
+      display:flex; align-items:center; gap:10px;
+      background:var(--surface); border:1px solid var(--border);
+      border-radius:8px; padding:10px 14px; cursor:pointer;
+      transition:border-color .15s, background .15s;
+    }
+    .pl-item:hover   { border-color:var(--blue); background:rgba(96,180,240,.06); }
+    .pl-item.selected{ border-color:var(--green); background:rgba(63,185,80,.08); }
+    .pl-item input[type=checkbox] { accent-color:var(--green); width:16px; height:16px; flex-shrink:0; cursor:pointer; }
+    .pl-item .pl-name { font-size:.88rem; font-weight:600; flex:1; }
+    .pl-empty { color:var(--text2); font-size:.85rem; padding:8px 0; }
+
+    .pl-select-all {
+      display:flex; align-items:center; gap:8px;
+      color:var(--text2); font-size:.8rem; cursor:pointer; margin-bottom:6px;
+    }
+    .pl-select-all input { accent-color:var(--green); width:14px; height:14px; cursor:pointer; }
+
+    /* ── Upload toggle ── */
+    .upload-toggle {
+      display:inline-flex; align-items:center; gap:6px;
+      color:var(--blue); font-size:.82rem; cursor:pointer;
+      background:none; border:none; font-family:inherit; margin-top:4px;
+    }
+    .upload-toggle:hover { text-decoration:underline; }
+    .upload-section { display:none; margin-top:14px; padding-top:14px; border-top:1px solid var(--border); }
+    .upload-section.open { display:block; }
+
+    /* ── Drop area ── */
+    .drop-area {
+      border:2px dashed var(--border); border-radius:10px; padding:24px 20px;
+      text-align:center; cursor:pointer; transition:all .2s; margin:10px 0;
+    }
+    .drop-area:hover, .drop-area.drag-over { border-color:var(--green); background:rgba(63,185,80,.06); }
+    .drop-area .icon { font-size:1.8rem; margin-bottom:6px; }
+    .drop-area p { color:var(--text2); font-size:.84rem; line-height:1.5; }
+    .drop-area strong { color:var(--text); }
+
+    .label-row { display:flex; gap:10px; align-items:center; margin-bottom:12px; }
+    .label-row label { color:var(--text2); font-size:.84rem; white-space:nowrap; }
+
+    .file-chip {
+      display:none; align-items:center; gap:8px;
+      background:rgba(63,185,80,.08); border:1px solid rgba(63,185,80,.25);
+      border-radius:7px; padding:7px 12px; font-size:.84rem; margin:8px 0;
+    }
+    .file-chip.show { display:flex; }
+    .file-chip span { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:var(--text); }
+    .file-chip button { background:none; border:none; color:var(--text2); cursor:pointer; }
+    .file-chip button:hover { color:var(--text); }
+
+    /* ── Overall totals ── */
+    .totals-row { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .total-box { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:12px 16px; text-align:center; min-width:90px; }
+    .total-box .num { font-size:1.5rem; font-weight:800; color:var(--text); }
+    .total-box .lbl { font-size:.70rem; color:var(--text2); margin-top:2px; }
+
+    /* ── Per-shipment cards ── */
+    .shipment-card {
+      border-radius:10px; padding:14px 16px; margin-bottom:10px;
+      border-left:5px solid; background:rgba(28,34,48,.7);
+    }
+    .shipment-header { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+    .shipment-dot { width:12px; height:12px; border-radius:50%; flex-shrink:0; }
+    .shipment-name { font-size:.9rem; font-weight:700; }
+    .shipment-stats { display:flex; gap:16px; flex-wrap:wrap; }
+    .shipment-stat { text-align:center; }
+    .shipment-stat .n { font-size:1.3rem; font-weight:800; }
+    .shipment-stat .l { font-size:.68rem; color:var(--text2); }
+    .shipment-skids { font-size:.76rem; color:var(--text2); margin-top:6px; }
+
+    /* ── Action buttons ── */
+    .btn-download { background:var(--blue);   color:#0d1117; }
+    .btn-download:hover { opacity:.88; }
+    .btn-publish  { background:#9e6a03; color:#fff; border:1px solid #d29922; }
+    .btn-publish:hover { background:#b07a04; }
+    .btn-view     { background:var(--surface); color:var(--blue); border:1px solid var(--blue); }
+    .btn-view:hover { background:rgba(96,180,240,.1); }
+    .publish-note { color:#d29922; font-size:.82rem; margin-top:8px; display:none; }
+    .publish-note.show { display:block; }
+    .alert-warn { background:rgba(210,153,34,.12); border:1px solid rgba(210,153,34,.4); color:#d29922; }
+    .warn-item { font-size:.83rem; padding:4px 0; border-bottom:1px solid rgba(210,153,34,.2); }
+    .warn-item:last-child { border-bottom:none; }
+    .warn-skip { color:#f85149; }
+
+    /* ── Manual entry ── */
+    .manual-entry-box {
+      margin-top:12px; padding:14px 16px;
+      background:rgba(0,232,216,.07); border:1px solid rgba(0,232,216,.3);
+      border-radius:10px;
+    }
+    .manual-entry-box h4 { color:#00e8d8; font-size:.84rem; margin:0 0 10px; }
+    .manual-label-row { display:flex; gap:8px; align-items:center; margin-bottom:10px; }
+    .manual-label-row label { color:var(--text2); font-size:.82rem; white-space:nowrap; }
+    .manual-row { display:flex; gap:8px; margin-bottom:8px; align-items:flex-start; }
+    .manual-skid {
+      width:70px; flex-shrink:0; background:var(--surface); border:1px solid var(--border);
+      border-radius:6px; color:var(--text); padding:6px 8px; font-size:.84rem;
+    }
+    .manual-panels {
+      flex:1; resize:vertical; background:var(--surface); border:1px solid var(--border);
+      border-radius:6px; color:var(--text); padding:6px 8px;
+      font-family:monospace; font-size:.84rem; min-height:52px;
+    }
+    .manual-row-del {
+      background:none; border:none; color:var(--text2); cursor:pointer;
+      font-size:1rem; padding:4px; margin-top:2px;
+    }
+    .manual-row-del:hover { color:#f85149; }
+    .manual-btn-row { display:flex; gap:8px; margin-top:10px; flex-wrap:wrap; }
+    .btn-add-row {
+      background:none; border:1px solid var(--border); color:var(--text2);
+      border-radius:6px; padding:6px 12px; font-size:.8rem; cursor:pointer;
+    }
+    .btn-add-row:hover { border-color:#00e8d8; color:#00e8d8; }
+    .btn-apply-manual {
+      background:#00e8d8; color:#0d1117; border:none; border-radius:6px;
+      padding:7px 18px; font-size:.84rem; font-weight:700; cursor:pointer;
+    }
+    .btn-apply-manual:disabled { opacity:.5; cursor:default; }
+{% endblock %}
+
+{% block content %}
+<h1 class="page-heading">📦 Deliveries</h1>
+<p class="page-subtitle">Select packing lists from the job folder — delivered panels are highlighted on the blueprint by shipment color.</p>
+
+<!-- Step 2 -->
+<div class="card" id="plCard">
+  <div class="card-title">1 · Select Packing Lists</div>
+
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;padding:0 2px">
+    <input type="checkbox" id="selectAllChk" style="accent-color:var(--green);width:16px;height:16px;cursor:pointer" onchange="toggleSelectAll(this)">
+    <label for="selectAllChk" style="font-size:.82rem;color:var(--text2);cursor:pointer;user-select:none">Select all</label>
+  </div>
+  <div class="pl-list" id="plList"><div class="pl-empty">Loading…</div></div>
+
+  <button class="upload-toggle" onclick="toggleUpload()">＋ Upload a new packing list PDF</button>
+  <div class="upload-section" id="uploadSection">
+    <div class="label-row">
+      <label>Shipment label:</label>
+      <input type="text" id="shipmentLabel" placeholder="e.g. Shipment #5 Site 4.15.24" style="flex:1">
+    </div>
+    <div class="drop-area" id="dropArea">
+      <div class="icon">📄</div>
+      <p><strong>Click or drag a packing list PDF here</strong><br>KPS format — 4 skids per page</p>
+    </div>
+    <input type="file" id="fileInput" accept=".pdf" style="display:none" onchange="onFileSelected(event)">
+    <div class="file-chip" id="fileChip">
+      <span id="fileChipName"></span>
+      <button onclick="clearFile()">✕</button>
+    </div>
+  </div>
+
+  <div class="alert alert-error" id="uploadError"></div>
+
+  <div class="btn-row">
+    <button class="btn btn-green" id="processBtn" onclick="doProcess()" disabled>
+      ⚡ Process Selected (<span id="selectedCount">0</span>)
+    </button>
+    <button class="btn" id="deleteBtn" onclick="doDeleteSelected()"
+            style="background:#c0392b; color:#fff; display:none; padding:6px 14px; font-size:.8rem">
+      ↩ Unlink Selected
+    </button>
+  </div>
+
+  <div class="progress-wrap" id="progressWrap">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progressFill"></div></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px">
+      <div class="progress-msg" id="progressMsg">Starting…</div>
+      <div id="processTimer" style="font-size:.78rem;color:var(--text2);font-variant-numeric:tabular-nums"></div>
+    </div>
+  </div>
+  <div class="alert alert-success" id="uploadSuccess"></div>
+  <div id="warningsWrap"></div>
+
+  <!-- Manual panel entry — shown when OCR finds 0 panels -->
+  <div id="manualEntryWrap" style="display:none">
+    <div class="manual-entry-box">
+      <h4>📝 Enter panels manually</h4>
+      <div class="manual-label-row">
+        <label>Shipment label:</label>
+        <input type="text" id="manualShipLabel" style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:6px 8px;font-size:.84rem">
+      </div>
+      <div style="color:var(--text2);font-size:.78rem;margin-bottom:8px">
+        Enter Skid # and the panel numbers for each skid (space or comma separated).
+      </div>
+      <div id="manualRows"></div>
+      <div class="manual-btn-row">
+        <button class="btn-add-row" onclick="addManualRow()">+ Add skid</button>
+        <button class="btn-apply-manual" id="applyManualBtn" onclick="submitManualPanels()">✓ Apply to Blueprint</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Step 3 -->
+<div class="card" id="statusCard" style="display:none">
+  <div class="card-title">2 · Delivery Status</div>
+
+  <!-- Overall totals -->
+  <div class="totals-row" id="totalsRow"></div>
+
+  <!-- Per-shipment colored cards -->
+  <div id="shipmentsWrap"></div>
+
+  <div class="btn-row">
+    <a class="btn btn-view"     id="viewBtn"     href="#" style="display:none">👁 Review &amp; Fix</a>
+    <a class="btn btn-download" id="downloadBtn" href="#" target="_blank" style="display:none">⬇ Download</a>
+    <button class="btn btn-publish" id="publishBtn" onclick="publishBlueprint()" style="display:none">📌 Publish to Blueprints</button>
+    <button class="btn btn-danger"  onclick="resetJob()">🗑 Reset</button>
+  </div>
+  <div class="publish-note" id="publishNote"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+// Matches _SHIPMENT_COLORS in packing_list_engine.py (CSS equivalents)
+// No red — red is reserved for the Panel Mapper's panel boxes.
+// Keep this identical (order + values) to SHIP_COLORS in packing_list_editor.html
+// and to _SHIPMENT_COLORS in packing_list_engine.py so colors match everywhere.
+const SHIP_COLORS = [
+  '#18f23c',  // 0 green
+  '#ffd900',  // 1 yellow
+  '#00c6ff',  // 2 cyan
+  '#ff8800',  // 3 orange
+  '#e000e0',  // 4 magenta
+  '#00e8d8',  // 5 teal
+  '#b800ff',  // 6 purple
+];
+function shipColor(idx) { return SHIP_COLORS[idx % SHIP_COLORS.length]; }
+
+let selectedJob       = {{ pt_job | tojson }};
+let selectedFile      = null;
+let selectedServerPLs = [];
+let pollTimer         = null;
+let processQueue      = [];
+let fileColorMap      = {};  // filename -> color_index (from server)
+let batchTotal = 0;  // total files in current batch run
+let batchDone  = 0;  // files completed so far
+
+// ── Job comes from the Panel Tracking route — load immediately ─────────────
+loadPackingLists();
+loadStatus();
+
+// ── Load server packing lists ─────────────────────────────────────────────
+function loadPackingLists() {
+  const listEl = document.getElementById('plList');
+  listEl.innerHTML = '<div class="pl-empty">Loading…</div>';
+  selectedServerPLs = []; updateCount();
+  const _m = document.getElementById('selectAllChk'); if (_m) { _m.checked = false; _m.indeterminate = false; }
+
+  fetch('/api/jobs/' + encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(data=>{
+      const files = data['Packing Lists'] || [];
+      if (!files.length) {
+        listEl.innerHTML = '<div class="pl-empty">No packing lists in this job folder. Upload one below.</div>';
+        document.getElementById('uploadSection').classList.add('open');
+        return;
+      }
+      listEl.innerHTML = '';
+      files.forEach(entry=>{
+        // entry may be a string (legacy) or {name, modified} object
+        const f = typeof entry === 'object' ? entry.name : entry;
+        const div = document.createElement('div');
+        div.className = 'pl-item';
+        div.dataset.filename = f;   // always a plain string
+
+        // Highlight already-processed files with their shipment color
+        const label = f.replace(/\.pdf$/i,'');
+        const colorIdx = fileColorMap[label] ?? fileColorMap[f] ?? null;
+        if (colorIdx !== null) {
+          div.style.borderLeft = `4px solid ${shipColor(colorIdx)}`;
+        }
+        const badge = colorIdx !== null
+          ? `<span style="width:10px;height:10px;border-radius:50%;background:${shipColor(colorIdx)};display:inline-block;flex-shrink:0;margin-right:2px"></span>`
+          : '';
+
+        const chk = document.createElement('input');
+        chk.type = 'checkbox';
+        chk.addEventListener('change', () => togglePL(chk));
+
+        div.innerHTML = `${badge}<span class="pl-name">📄 ${f}</span>`;
+        div.insertBefore(chk, div.firstChild);
+        div.addEventListener('click', e => { if (e.target !== chk) chk.click(); });
+        listEl.appendChild(div);
+      });
+    });
+}
+
+function togglePL(chk) {
+  const div   = chk.closest('.pl-item');
+  const filename = div.dataset.filename;   // read filename from data attribute — no escaping issues
+  if (chk.checked) {
+    if (!selectedServerPLs.includes(filename)) selectedServerPLs.push(filename);
+    div.classList.add('selected');
+  } else {
+    selectedServerPLs = selectedServerPLs.filter(f => f !== filename);
+    div.classList.remove('selected');
+  }
+  syncSelectAll();
+  updateCount();
+}
+
+function updateCount() {
+  const total = selectedServerPLs.length + (selectedFile ? 1 : 0);
+  document.getElementById('selectedCount').textContent = total;
+  document.getElementById('processBtn').disabled = total === 0;
+  const delBtn = document.getElementById('deleteBtn');
+  const anyProcessed = selectedServerPLs.some(f => {
+    const label = f.replace(/\.pdf$/i, '');
+    return fileColorMap[label] !== undefined || fileColorMap[f] !== undefined;
+  });
+  delBtn.style.display = anyProcessed ? '' : 'none';
+}
+
+function toggleSelectAll(masterChk) {
+  const items = document.querySelectorAll('#plList .pl-item');
+  if (masterChk.checked) {
+    selectedServerPLs = [];
+    items.forEach(div => {
+      const chk = div.querySelector('input[type=checkbox]');
+      if (chk) chk.checked = true;
+      div.classList.add('selected');
+      const f = div.dataset.filename;
+      if (f && !selectedServerPLs.includes(f)) selectedServerPLs.push(f);
+    });
+  } else {
+    items.forEach(div => {
+      const chk = div.querySelector('input[type=checkbox]');
+      if (chk) chk.checked = false;
+      div.classList.remove('selected');
+    });
+    selectedServerPLs = [];
+  }
+  updateCount();
+}
+
+// Keep the master checkbox in sync when individual items are toggled
+function syncSelectAll() {
+  const all  = document.querySelectorAll('#plList .pl-item input[type=checkbox]');
+  const chkd = document.querySelectorAll('#plList .pl-item input[type=checkbox]:checked');
+  const master = document.getElementById('selectAllChk');
+  if (!master) return;
+  master.indeterminate = chkd.length > 0 && chkd.length < all.length;
+  master.checked = chkd.length === all.length && all.length > 0;
+}
+
+// ── Unlink selected packing lists ─────────────────────────────────────────
+function doDeleteSelected() {
+  if (!selectedServerPLs.length) return;
+  const names = selectedServerPLs.map(f => `• ${f}`).join('\n');
+  if (!confirm(
+    `Remove delivery data for ${selectedServerPLs.length} shipment(s)?\n\n${names}\n\n` +
+    `The PDF file(s) will stay — only the panel highlights and tracking data will be removed.`
+  )) return;
+
+  // Show the existing progress bar + elapsed timer
+  startProgress();
+  document.getElementById('progressMsg').textContent = 'Unlinking shipment' +
+    (selectedServerPLs.length > 1 ? 's' : '') + ' and regenerating blueprint…';
+  document.getElementById('deleteBtn').disabled = true;
+
+  fetch(`/api/packing-list/unlink/${encodeURIComponent(selectedJob)}`, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({filenames: [...selectedServerPLs]})
+  })
+  .then(r => r.json())
+  .then(data => {
+    enableBtn();
+    document.getElementById('deleteBtn').disabled = false;
+    if (data.errors && data.errors.length) {
+      alert('Some shipments could not be unlinked:\n' + data.errors.join('\n'));
+    } else {
+      const ok = document.getElementById('uploadSuccess');
+      ok.textContent = `✅ Unlinked ${(data.unlinked||[]).length} shipment(s) — blueprint updated.`;
+      ok.classList.add('show');
+    }
+    // Remove unlinked shipments from fileColorMap immediately so the
+    // re-rendered file list shows no color dot before loadStatus() returns.
+    (data.unlinked || []).forEach(label => {
+      delete fileColorMap[label];
+      delete fileColorMap[label + '.pdf'];
+    });
+    selectedServerPLs = [];
+    updateCount();
+    loadPackingLists();
+    loadStatus();
+  })
+  .catch(() => {
+    enableBtn();
+    document.getElementById('deleteBtn').disabled = false;
+    showErr('Unlink request failed.');
+  });
+}
+
+// ── Upload toggle / file pick ─────────────────────────────────────────────
+function toggleUpload() { document.getElementById('uploadSection').classList.toggle('open'); }
+
+function onFileSelected(evt) {
+  const f = evt.target.files[0]; if(!f) return;
+  selectedFile = f;
+  document.getElementById('fileChipName').textContent = f.name;
+  document.getElementById('fileChip').classList.add('show');
+  // Always match the label to the file just picked (so a new file = a new shipment,
+  // not merged into whatever label was left in the box). Edit it after if needed.
+  document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+  updateCount();
+}
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('fileChip').classList.remove('show');
+  updateCount();
+}
+
+const da = document.getElementById('dropArea');
+da.addEventListener('click', ()=>document.getElementById('fileInput').click());
+da.addEventListener('dragover', e=>{e.preventDefault(); da.classList.add('drag-over');});
+da.addEventListener('dragleave', ()=>da.classList.remove('drag-over'));
+da.addEventListener('drop', e=>{
+  e.preventDefault(); da.classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f && f.name.toLowerCase().endsWith('.pdf')) {
+    selectedFile = f;
+    document.getElementById('fileChipName').textContent = f.name;
+    document.getElementById('fileChip').classList.add('show');
+    // Match the label to the dropped file so it becomes its own shipment.
+    document.getElementById('shipmentLabel').value = f.name.replace(/\.pdf$/i,'');
+    updateCount();
+  }
+});
+
+// ── Process ───────────────────────────────────────────────────────────────
+function doProcess() {
+  processQueue = [...selectedServerPLs];
+  batchTotal = processQueue.length + (selectedFile ? 1 : 0);
+  batchDone  = 0;
+  startProgress();
+  document.getElementById('uploadSuccess').classList.remove('show');
+
+  if (selectedFile) {
+    batchDone++;
+    const batchLabel = batchTotal > 1 ? ` (1 of ${batchTotal})` : '';
+    document.getElementById('progressMsg').textContent = `Uploading${batchLabel}: ${selectedFile.name}…`;
+    const label = document.getElementById('shipmentLabel').value || selectedFile.name;
+    const fd = new FormData();
+    fd.append('file', selectedFile); fd.append('label', label);
+    fetch('/api/packing-list/upload/' + encodeURIComponent(selectedJob), {method:'POST', body:fd})
+      .then(r=>r.json()).then(d=>{
+        if (d.error) { showErr(d.error); enableBtn(); return; }
+        pollUntilDone(processNextInQueue);
+      })
+      .catch(e=>{showErr(String(e));enableBtn();});
+  } else {
+    processNextInQueue();
+  }
+}
+
+function processNextInQueue() {
+  if (!processQueue.length) {
+    fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+      .then(r=>r.json()).then(data=>{
+        const elapsed = timerStart ? Math.round((Date.now() - timerStart) / 1000) : 0;
+        const took = `${Math.floor(elapsed/60)}:${String(elapsed%60).padStart(2,'0')}`;
+        enableBtn();
+        const ok = document.getElementById('uploadSuccess');
+        const isBatch = batchTotal > 1;
+        let msg = `✅ Done in ${took} — `;
+        if (isBatch) {
+          msg += `${batchTotal} lists processed, ${data.total_panels||0} total panels, ${data.located||0} located on blueprint.`;
+        } else {
+          const added = data.panels_added ?? 0;
+          msg += `${added} new panels added, ${data.located||0} located on blueprint.`;
+          if (added === 0) msg += ' ⚠ No new panels found — check the packing list format.';
+        }
+        ok.textContent = msg;
+        ok.classList.add('show');
+        renderWarnings(data.warnings || []);
+        renderStatus(data);
+        loadPackingLists();   // refresh list once at end (picks up new uploads + color dots)
+        if (!isBatch && (data.panels_added ?? 0) === 0) showManualEntry();
+      }).catch(()=>enableBtn());
+    return;
+  }
+  const filename = processQueue.shift();
+  batchDone++;
+  const batchLabel = batchTotal > 1 ? ` (${batchDone} of ${batchTotal})` : '';
+  document.getElementById('progressMsg').textContent = `Processing${batchLabel}: ${filename}…`;
+  document.getElementById('progressFill').style.width = `${Math.round((batchDone-1)/batchTotal*80)+5}%`;
+
+  fetch('/api/packing-list/process-file/' + encodeURIComponent(selectedJob), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({filename: filename, label: filename.replace(/\.pdf$/i, '')})
+  })
+  .then(r => {
+    if (!r.ok) return r.json().then(d => { throw new Error(d.error || `Server error ${r.status}`); });
+    return r.json();
+  })
+  .then(d => {
+    if (d.error) { showErr(d.error); enableBtn(); return; }
+    pollUntilDone(processNextInQueue);
+  })
+  .catch(e => { showErr(String(e)); enableBtn(); });
+}
+
+function pollUntilDone(onDone) {
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(()=>{
+    fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+      .then(r=>{ if(!r.ok) throw new Error('Server error '+r.status); return r.json(); })
+      .then(data=>{
+        // Scale progress within the current file's slice of the overall batch
+        const fileSlice = batchTotal > 1 ? 1 / batchTotal : 1;
+        const baseProgress = batchTotal > 1 ? ((batchDone-1) / batchTotal * 100) : 0;
+        const scaledProgress = baseProgress + (data.progress||0) * fileSlice;
+        document.getElementById('progressFill').style.width = scaledProgress + '%';
+        // Show engine sub-step alongside batch position
+        if (batchTotal > 1) {
+          const batchLabel = `(${batchDone} of ${batchTotal}) `;
+          document.getElementById('progressMsg').textContent = batchLabel + (data.message||'Processing…');
+        } else {
+          document.getElementById('progressMsg').textContent = data.message||'Processing…';
+        }
+        if (data.status==='done')  { clearInterval(pollTimer); onDone(); }
+        if (data.status==='error') { clearInterval(pollTimer); showErr(data.message||'Error'); enableBtn(); }
+      })
+      .catch(e=>{ clearInterval(pollTimer); showErr('Processing failed: '+e.message); enableBtn(); });
+  }, 2500);
+}
+
+// ── Status ────────────────────────────────────────────────────────────────
+function refreshFileColors() {
+  document.querySelectorAll('#plList .pl-item').forEach(div => {
+    const f = div.dataset.filename || '';
+    const label = f.replace(/\.pdf$/i, '');
+    const idx = fileColorMap[label] ?? fileColorMap[f] ?? null;
+    if (idx === null) return;
+    const c = shipColor(idx);
+    div.style.borderLeft = `4px solid ${c}`;
+    let badge = div.querySelector('.file-badge');
+    if (!badge) {
+      badge = document.createElement('span');
+      badge.className = 'file-badge';
+      badge.style.cssText = 'width:10px;height:10px;border-radius:50%;flex-shrink:0;margin-right:2px;display:inline-block';
+      const nameEl = div.querySelector('.pl-name');
+      if (nameEl) div.insertBefore(badge, nameEl);
+    }
+    badge.style.background = c;
+  });
+}
+
+function loadStatus() {
+  fetch('/api/packing-list/status/' + encodeURIComponent(selectedJob))
+    .then(r=>r.json()).then(data=>{
+      if (data.file_colors) {
+        fileColorMap = data.file_colors;
+        refreshFileColors();
+      }
+      renderStatus(data);
+    });
+}
+
+function renderStatus(data) {
+  const card = document.getElementById('statusCard');
+  if (!data.total_panels && !data.has_output) { card.style.display='none'; return; }
+  card.style.display = '';
+
+  // ── Overall totals ──
+  const shipments = data.shipments || [];
+  document.getElementById('totalsRow').innerHTML = `
+    <div class="total-box">
+      <div class="num">${data.total_panels||0}</div>
+      <div class="lbl">Total Panels</div>
+    </div>
+    <div class="total-box">
+      <div class="num">${(data.total_skids||[]).length}</div>
+      <div class="lbl">Total Skids</div>
+    </div>
+    <div class="total-box">
+      <div class="num">${shipments.length}</div>
+      <div class="lbl">Shipments</div>
+    </div>
+  `;
+
+  // Update file color dots inline — do NOT re-call loadPackingLists() here,
+  // that causes a race condition that wipes the file list mid-render.
+  if (data.file_colors) {
+    fileColorMap = data.file_colors;
+    refreshFileColors();
+  }
+
+  // ── Per-shipment colored cards ──
+  document.getElementById('shipmentsWrap').innerHTML = shipments.map(s=>{
+    const color = shipColor(s.color_index);
+    return `
+      <div class="shipment-card" style="border-left-color:${color}; border-top:1px solid ${color}33; border-right:1px solid ${color}22; border-bottom:1px solid ${color}22;">
+        <div class="shipment-header">
+          <div class="shipment-dot" style="background:${color}"></div>
+          <span class="shipment-name" style="color:${color}">${s.label}</span>
+        </div>
+        <div class="shipment-stats">
+          <div class="shipment-stat">
+            <div class="n" style="color:${color}">${s.count}</div>
+            <div class="l">Panels</div>
+          </div>
+          <div class="shipment-stat">
+            <div class="n" style="color:${color}">${s.skids.length}</div>
+            <div class="l">Skids</div>
+          </div>
+        </div>
+        <div class="shipment-skids">Skids: ${s.skids.join(', ')}</div>
+      </div>`;
+  }).join('');
+
+  // ── Action buttons ──
+  const url = '/api/packing-list/download/' + encodeURIComponent(selectedJob);
+  document.getElementById('downloadBtn').href = url;
+  document.getElementById('downloadBtn').style.display = data.has_output ? '' : 'none';
+  // View opens the interactive cross-reference editor (not the raw PDF)
+  const viewBtn = document.getElementById('viewBtn');
+  viewBtn.href = '/panel-tracking/' + encodeURIComponent(selectedJob) + '/review';
+  viewBtn.style.display = data.has_output ? '' : 'none';
+  document.getElementById('publishBtn').style.display = data.has_output ? '' : 'none';
+  document.getElementById('publishNote').classList.remove('show');
+}
+
+function publishBlueprint() {
+  const btn = document.getElementById('publishBtn');
+  btn.disabled = true; btn.textContent = '📌 Publishing…';
+  fetch('/api/packing-list/publish/' + encodeURIComponent(selectedJob), {method:'POST'})
+    .then(r=>r.json()).then(data=>{
+      btn.disabled=false; btn.textContent='📌 Publish to Blueprints';
+      if (data.error) { showErr(data.error); return; }
+      const n = document.getElementById('publishNote');
+      n.textContent = `✅ Published as "${data.filename}"`;
+      n.classList.add('show');
+    }).catch(e=>{btn.disabled=false; btn.textContent='📌 Publish to Blueprints'; showErr(String(e));});
+}
+
+let timerInterval = null;
+let timerStart    = null;
+
+function startProgress() {
+  document.getElementById('processBtn').disabled = true;
+  document.getElementById('uploadError').classList.remove('show');
+  document.getElementById('manualEntryWrap').style.display = 'none';
+  document.getElementById('progressWrap').classList.add('visible');
+  document.getElementById('progressFill').style.width = '5%';
+  document.getElementById('progressMsg').textContent = 'Starting…';
+  // Start elapsed timer
+  timerStart = Date.now();
+  if (timerInterval) clearInterval(timerInterval);
+  timerInterval = setInterval(() => {
+    const s = Math.floor((Date.now() - timerStart) / 1000);
+    const m = Math.floor(s / 60);
+    const ss = String(s % 60).padStart(2, '0');
+    document.getElementById('processTimer').textContent = `${m}:${ss} elapsed`;
+  }, 1000);
+}
+function stopTimer() {
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  document.getElementById('processTimer').textContent = '';
+}
+function enableBtn() {
+  document.getElementById('processBtn').disabled = (selectedServerPLs.length + (selectedFile?1:0)) === 0;
+  document.getElementById('progressWrap').classList.remove('visible');
+  stopTimer();
+}
+function showErr(msg) {
+  const e = document.getElementById('uploadError');
+  e.textContent = '⚠ ' + msg; e.classList.add('show');
+  document.getElementById('progressWrap').classList.remove('visible');
+  stopTimer();
+}
+function renderWarnings(warnings) {
+  const wrap = document.getElementById('warningsWrap');
+  wrap.innerHTML = '';
+  if (!warnings || !warnings.length) return;
+  const div = document.createElement('div');
+  div.className = 'alert alert-warn show';
+  div.innerHTML = '<strong>⚠ Review Required:</strong>' +
+    warnings.map(w => {
+      const isSkip = w.startsWith('SKIP:');
+      const cls = isSkip ? 'warn-item warn-skip' : 'warn-item';
+      const txt = isSkip ? w.replace(/^SKIP:/, '') : w;
+      return `<div class="${cls}">${isSkip ? '🚫' : '⚠'} ${txt}</div>`;
+    }).join('');
+  wrap.appendChild(div);
+}
+
+function resetJob() {
+  if (!confirm(`Clear all delivery data for "${selectedJob}"?`)) return;
+  fetch('/api/packing-list/reset/' + encodeURIComponent(selectedJob), {method:'POST'})
+    .then(()=>loadStatus());
+}
+
+// ── Manual panel entry ────────────────────────────────────────────────────
+function showManualEntry() {
+  const wrap = document.getElementById('manualEntryWrap');
+  // Pre-fill shipment label from whatever was just processed
+  const label = document.getElementById('shipmentLabel').value ||
+    (selectedServerPLs.length ? selectedServerPLs[selectedServerPLs.length-1].replace(/\.pdf$/i,'') : '');
+  document.getElementById('manualShipLabel').value = label;
+  document.getElementById('manualRows').innerHTML = '';
+  addManualRow();
+  wrap.style.display = '';
+  wrap.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function addManualRow() {
+  const row = document.createElement('div');
+  row.className = 'manual-row';
+  row.innerHTML = `
+    <input type="text" class="manual-skid" placeholder="Skid #">
+    <textarea class="manual-panels" rows="3"
+      placeholder="Panel numbers (space or comma separated)&#10;e.g.: 5 6 51 52 61 62 63"></textarea>
+    <button class="manual-row-del" title="Remove" onclick="this.closest('.manual-row').remove()">✕</button>`;
+  document.getElementById('manualRows').appendChild(row);
+  row.querySelector('.manual-skid').focus();
+}
+
+function submitManualPanels() {
+  const label = document.getElementById('manualShipLabel').value.trim();
+  if (!label) { alert('Enter a shipment label'); return; }
+
+  const rows = [];
+  document.querySelectorAll('.manual-row').forEach(row => {
+    const skid   = row.querySelector('.manual-skid').value.trim();
+    const panels = row.querySelector('.manual-panels').value.trim();
+    if (panels) rows.push({skid: skid || '?', panels});
+  });
+  if (!rows.length || !rows.some(r=>r.panels)) { alert('Enter at least one panel number'); return; }
+
+  const btn = document.getElementById('applyManualBtn');
+  btn.disabled = true; btn.textContent = 'Applying…';
+
+  fetch('/api/packing-list/manual-panels/' + encodeURIComponent(selectedJob), {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({label, rows})
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    btn.disabled = false; btn.textContent = '✓ Apply to Blueprint';
+    if (d.error) { alert(d.error); return; }
+    document.getElementById('manualEntryWrap').style.display = 'none';
+    const ok = document.getElementById('uploadSuccess');
+    ok.textContent = `✅ Added ${d.added} panel${d.added===1?'':'s'} to "${label}".`;
+    ok.classList.add('show');
+    loadStatus();
+  })
+  .catch(e=>{ btn.disabled=false; btn.textContent='✓ Apply to Blueprint'; alert(String(e)); });
+}
+{% endblock %}

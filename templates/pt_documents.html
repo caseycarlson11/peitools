@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>Documents — {{ pt_job }} | Panel Tracking</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --card:    #1c2230;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --blue:    #60b4f0;
+      --red:     #DB1523;
+      --accent:  rgba(96,180,240,0.12);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 24px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header-left { display: flex; align-items: center; gap: 10px; }
+    .logo-img { width: 30px; height: 30px; border-radius: 6px; object-fit: cover; }
+    .site-name { font-size: 0.9rem; font-weight: 800; }
+    .site-name .blue { color: var(--blue); }
+    .site-name .dim  { color: var(--text2); font-weight: 400; }
+    .back-btn {
+      display: flex; align-items: center; gap: 6px;
+      color: var(--text2); text-decoration: none;
+      font-size: 0.82rem; font-weight: 600;
+      padding: 6px 12px; border-radius: 8px;
+      border: 1px solid var(--border);
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .back-btn:hover { color: var(--text); border-color: var(--text2); }
+
+
+
+
+    /* ── Share modal ── */
+    .share-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .share-btn:hover { border-color: var(--green); color: var(--green); }
+    .share-modal-bg {
+      position: fixed; inset: 0; z-index: 300;
+      background: rgba(0,0,0,0.6); backdrop-filter: blur(4px);
+      display: flex; align-items: center; justify-content: center; padding: 20px;
+    }
+    .share-modal {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 16px; padding: 28px; width: 100%; max-width: 440px;
+      display: flex; flex-direction: column; gap: 16px;
+    }
+    .share-modal h3 { font-size: 1rem; font-weight: 800; }
+    .share-modal p  { font-size: 0.82rem; color: var(--text2); line-height: 1.5; }
+    .share-link-row {
+      display: flex; gap: 8px; align-items: center;
+    }
+    .share-link-input {
+      flex: 1; background: var(--card); border: 1px solid var(--border);
+      border-radius: 8px; padding: 9px 12px;
+      color: var(--text); font-size: 0.8rem; font-family: monospace;
+      outline: none;
+    }
+    .share-copy-btn {
+      background: var(--blue); color: #0d1117; font-weight: 700;
+      border: none; border-radius: 8px; padding: 9px 14px;
+      font-size: 0.8rem; cursor: pointer; white-space: nowrap; transition: opacity 0.15s;
+    }
+    .share-copy-btn:hover { opacity: 0.85; }
+    .share-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .share-del-btn {
+      background: transparent; border: 1px solid rgba(219,21,35,0.4);
+      color: #ff7070; border-radius: 8px; padding: 8px 14px;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .share-del-btn:hover { background: rgba(219,21,35,0.15); }
+    .share-close-btn {
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text2); border-radius: 8px; padding: 8px 14px;
+      font-size: 0.8rem; font-weight: 700; cursor: pointer; transition: all 0.15s;
+    }
+    .share-close-btn:hover { border-color: var(--text); color: var(--text); }
+    :root { --green: #3fb950; }
+
+    /* ── Full-screen PDF viewer ── */
+    .fullscreen-viewer {
+      position: fixed; inset: 0; z-index: 150;
+      background: #fff;
+      display: flex; flex-direction: column;
+    }
+    .fullscreen-topbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; flex-shrink: 0;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .fullscreen-back {
+      display: flex; align-items: center; gap: 6px;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--text); border-radius: 8px;
+      padding: 7px 14px; font-size: 0.82rem; font-weight: 700;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .fullscreen-back:hover { border-color: var(--blue); color: var(--blue); }
+    .fullscreen-title {
+      font-size: 0.85rem; font-weight: 700; color: var(--text2);
+      text-align: center; flex: 1; padding: 0 12px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .fullscreen-frame {
+      flex: 1; width: 100%; border: none;
+      /* Let browser PDF viewer handle pinch zoom */
+      touch-action: auto;
+    }
+
+
+    .open-tab-btn {
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s; white-space: nowrap;
+    }
+    .open-tab-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+    /* ── Compass button ── */
+    .compass-btn {
+      display: none; /* hidden until a file is open */
+      align-items: center; gap: 6px;
+      padding: 7px 14px; border-radius: 8px;
+      border: 1px solid var(--border);
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .compass-btn.visible { display: flex; }
+    .compass-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .compass-btn.active { background: var(--accent); border-color: var(--blue); color: var(--blue); }
+
+    /* ── Compass overlay ── */
+    .compass-overlay {
+      position: fixed; inset: 0; z-index: 200;
+      background: #000;
+      overflow: hidden;
+      touch-action: none;
+    }
+    .compass-rotate-wrap {
+      position: absolute;
+      /* Oversized so corners don't show during rotation */
+      width: 200vmax; height: 200vmax;
+      top: 50%; left: 50%;
+      transform-origin: center center;
+      transform: translate(-50%, -50%) rotate(0deg) scale(1);
+      will-change: transform;
+    }
+    .compass-frame {
+      position: absolute;
+      /* Center the actual viewport within the large wrap */
+      width: 100vw; height: 100vh;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      border: none;
+      background: white;
+    }
+    .compass-hud {
+      position: fixed; bottom: 0; left: 0; right: 0;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      background: rgba(13,17,23,0.85);
+      backdrop-filter: blur(10px);
+      border-top: 1px solid rgba(255,255,255,0.1);
+      z-index: 201;
+    }
+    .compass-status {
+      font-size: 0.85rem; font-weight: 700; color: var(--blue);
+    }
+    .compass-hud-right { display: flex; gap: 10px; }
+    .compass-hud-btn {
+      padding: 8px 16px; border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.2);
+      background: rgba(255,255,255,0.08); color: var(--text);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .compass-hud-btn:hover { background: rgba(255,255,255,0.15); }
+    .compass-hud-btn.exit { border-color: rgba(219,21,35,0.4); color: #ff6b6b; }
+    .compass-hud-btn.exit:hover { background: rgba(219,21,35,0.15); }
+
+    /* ── Main layout ── */
+    .main { display: flex; height: calc(100vh - 57px); }
+
+    /* ── Sidebar ── */
+    .sidebar {
+      width: 260px; flex-shrink: 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }
+    .sidebar-header {
+      padding: 16px 16px 10px;
+      font-size: 0.7rem; font-weight: 700;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: var(--text2);
+      border-bottom: 1px solid var(--border);
+    }
+    .job-list { overflow-y: auto; flex: 1; padding: 8px; }
+    .job-btn {
+      width: 100%; text-align: left;
+      padding: 10px 12px;
+      border-radius: 8px; border: none;
+      background: transparent; color: var(--text);
+      font-size: 0.88rem; font-weight: 600;
+      cursor: pointer;
+      display: flex; align-items: center; gap: 10px;
+      transition: background 0.15s;
+    }
+    .job-btn:hover { background: var(--accent); }
+    .job-btn.active { background: var(--accent); color: var(--blue); }
+    .job-btn .job-icon {
+      width: 28px; height: 28px; border-radius: 6px;
+      background: rgba(96,180,240,0.15);
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .job-btn .job-icon svg { width: 14px; height: 14px; stroke: var(--blue); fill: none; stroke-width: 2; }
+    .no-jobs {
+      padding: 24px 16px;
+      color: var(--text2); font-size: 0.82rem; text-align: center; line-height: 1.6;
+    }
+
+    /* ── Content area ── */
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* ── Welcome screen ── */
+    .welcome {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+      color: var(--text2); text-align: center; padding: 40px;
+    }
+    .welcome-icon {
+      width: 64px; height: 64px; border-radius: 16px;
+      background: var(--accent); border: 1px solid rgba(96,180,240,0.2);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .welcome-icon svg { width: 32px; height: 32px; stroke: var(--blue); fill: none; stroke-width: 1.5; }
+    .welcome h2 { font-size: 1.2rem; font-weight: 700; color: var(--text); }
+    .welcome p  { font-size: 0.88rem; max-width: 300px; line-height: 1.6; }
+
+    /* ── Job content ── */
+    .job-content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+    /* Job title bar */
+    .job-titlebar {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .job-title { font-size: 1.1rem; font-weight: 800; }
+
+    /* Category tabs */
+    .cat-tabs {
+      display: flex; gap: 4px;
+      padding: 10px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .cat-tab {
+      padding: 6px 14px; border-radius: 8px;
+      border: 1px solid transparent;
+      background: transparent; color: var(--text2);
+      font-size: 0.82rem; font-weight: 600; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .cat-tab:hover { color: var(--text); background: var(--card); }
+    .cat-tab.active { background: var(--accent); border-color: rgba(96,180,240,0.3); color: var(--blue); }
+
+    /* File list + viewer split */
+    .file-viewer { flex: 1; display: flex; overflow: hidden; }
+
+    .file-list {
+      width: 240px; flex-shrink: 0;
+      border-right: 1px solid var(--border);
+      overflow-y: auto; padding: 8px;
+    }
+    .file-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 9px 10px; border-radius: 8px;
+      cursor: pointer; border: 1px solid transparent;
+      transition: background 0.15s;
+    }
+    .file-item:hover { background: var(--card); }
+    .file-item.active { background: var(--accent); border-color: rgba(96,180,240,0.25); }
+    .file-item svg { width: 16px; height: 16px; stroke: var(--text2); fill: none; stroke-width: 2; flex-shrink: 0; }
+    .file-item.active svg { stroke: var(--blue); }
+    .file-item-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .file-name { font-size: 0.8rem; font-weight: 600; color: var(--text); line-height: 1.3; word-break: break-word; }
+    .file-date { font-size: 0.68rem; color: var(--text2); }
+    .file-item.active .file-date { color: rgba(96,180,240,0.7); }
+    .no-files { padding: 20px 12px; color: var(--text2); font-size: 0.8rem; text-align: center; line-height: 1.6; }
+
+    /* ── Toast ── */
+    #bvToast {
+      position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+      background: #23272e; color: #e6edf3; padding: 10px 20px; border-radius: 8px;
+      font-size: 0.85rem; box-shadow: 0 4px 18px rgba(0,0,0,.5);
+      opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+      white-space: nowrap; z-index: 9999;
+    }
+    #bvToast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    /* ── Spreadsheets category ── */
+    .pull-data-btn {
+      display: flex; align-items: center; justify-content: center; gap: 7px;
+      width: calc(100% - 16px); margin: 8px; padding: 10px 14px;
+      border-radius: 8px; border: 1px solid rgba(96,180,240,0.4);
+      background: rgba(96,180,240,0.1); color: var(--blue);
+      font-size: 0.82rem; font-weight: 700; cursor: pointer;
+      transition: all 0.15s;
+    }
+    .pull-data-btn:hover { background: rgba(96,180,240,0.2); border-color: var(--blue); }
+    .pull-data-btn:disabled { opacity: 0.5; cursor: default; }
+    .file-item.xlsx svg { stroke: #3fb950; }
+    .file-item.xlsx.active svg { stroke: #3fb950; }
+
+    /* xlsx action menu */
+    .xlsx-menu {
+      position: fixed; z-index: 500;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 6px;
+      display: none; flex-direction: column; gap: 2px;
+      box-shadow: 0 8px 28px rgba(0,0,0,0.5);
+      min-width: 210px;
+    }
+    .xlsx-menu.open { display: flex; }
+    .xlsx-menu-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 12px; border-radius: 7px;
+      background: transparent; border: none;
+      color: var(--text); font-size: 0.83rem; font-weight: 600;
+      cursor: pointer; text-align: left; width: 100%;
+      transition: background 0.12s;
+    }
+    .xlsx-menu-item:hover { background: var(--card); }
+    .xlsx-menu-item .mi-icon { font-size: 1rem; flex-shrink: 0; }
+
+    /* Spreadsheet inline viewer */
+    .sheet-pane {
+      display: none; flex: 1; flex-direction: column; overflow: hidden;
+      background: var(--bg);
+    }
+    .sheet-pane.visible { display: flex; }
+    .sheet-toolbar {
+      display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .sheet-name {
+      font-size: 0.8rem; font-weight: 700; color: var(--text2); flex: 1;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .sheet-action-btn {
+      padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border);
+      background: transparent; color: var(--text2); font-size: 0.75rem;
+      font-weight: 600; cursor: pointer; white-space: nowrap; transition: all 0.12s;
+    }
+    .sheet-action-btn:hover { border-color: var(--blue); color: var(--blue); }
+    .sheet-scroll { flex: 1; overflow: auto; padding: 12px; }
+    .sheet-scroll table {
+      border-collapse: collapse; font-size: 0.8rem; color: var(--text);
+      font-family: 'Inter', sans-serif; white-space: nowrap;
+    }
+    .sheet-scroll th {
+      background: #1f4e79; color: #fff; font-weight: 700;
+      padding: 7px 14px; text-align: center;
+      border: 1px solid #2d6ca0; position: sticky; top: 0; z-index: 2;
+    }
+    .sheet-scroll td {
+      padding: 6px 14px; border: 1px solid var(--border);
+      background: var(--card);
+    }
+    .sheet-scroll tr:nth-child(even) td { background: var(--surface); }
+    .sheet-scroll tr:hover td { background: var(--accent); }
+    .panel-edit-link { color: var(--blue); text-decoration: none; font-weight: 600; }
+    .panel-edit-link:hover { text-decoration: underline; }
+    .sheet-scroll td[contenteditable] { cursor: text; }
+    .sheet-scroll td[contenteditable]:focus {
+      outline: 2px solid var(--blue); outline-offset: -2px;
+      background: var(--card) !important; position: relative; z-index: 1;
+    }
+    .sheet-scroll td.cell-edited { background: rgba(59,130,246,0.13) !important; }
+    .sheet-action-btn.has-edits { border-color: var(--green); color: var(--green); }
+    .sheet-action-btn.linked { border-color: #34a853; color: #34a853; }
+
+    /* PDF viewer */
+    .pdf-pane {
+      flex: 1; display: flex; flex-direction: column; overflow: hidden;
+      background: #1a1a1a;
+    }
+    .pdf-placeholder {
+      flex: 1; display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      color: var(--text2); gap: 12px; text-align: center; padding: 40px;
+    }
+    .pdf-placeholder svg { width: 40px; height: 40px; stroke: var(--text2); fill: none; stroke-width: 1.5; opacity: 0.5; }
+    .pdf-placeholder p { font-size: 0.85rem; }
+
+
+    /* ── Mobile / iPad ── */
+    /* Mobile dropdown */
+    .mobile-job-bar { display: none; }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .mobile-job-bar {
+        display: flex; align-items: center; gap: 10px;
+        padding: 10px 14px;
+        background: var(--surface); border-bottom: 1px solid var(--border);
+      }
+      .mobile-job-bar label {
+        font-size: 0.75rem; font-weight: 700; color: var(--text2);
+        text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap;
+      }
+      .job-select {
+        flex: 1;
+        background: var(--card); border: 1px solid var(--border);
+        color: var(--text); border-radius: 8px;
+        padding: 9px 12px; font-size: 0.9rem; font-family: inherit;
+        outline: none; cursor: pointer;
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238b949e' stroke-width='2.5'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 12px center;
+        padding-right: 34px;
+      }
+      .job-select:focus { border-color: var(--blue); }
+      .main { flex-direction: column; height: auto; }
+      .content { height: calc(100vh - 160px); }
+      .file-viewer { flex-direction: column; }
+      .file-list { width: 100%; height: 120px; border-right: none; border-bottom: 1px solid var(--border);
+                   display: flex; flex-wrap: wrap; gap: 4px; align-content: flex-start; padding: 6px; }
+      .pdf-pane { height: calc(100vh - 330px); min-height: 300px; }
+    }
+  </style>
+  <style>
+    /* Panel Tracking: job is fixed by the route — no job picker */
+    .sidebar { display: none !important; }
+    .mobile-job-bar { display: none !important; }
+  </style>
+</head>
+<body data-template="blueprints.html" data-template="blueprints.html">
+
+<header class="site-header">
+  <a class="header-left" href="/" style="text-decoration:none;color:inherit;">
+    <img class="logo-img" src="/static/logo.jpg" alt="PEI"/>
+    <div class="site-name"><span class="blue">PEI</span><span class="dim">tools.com</span></div>
+  </a>
+  <a class="back-btn" href="/panel-tracking/{{ pt_job }}">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="14" height="14">
+      <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+    </svg>
+    Panel Tracking
+  </a>
+</header>
+
+<!-- Mobile job dropdown (hidden on desktop) -->
+<div class="mobile-job-bar">
+  <label>Job</label>
+  <select class="job-select" id="jobSelect" onchange="selectJobByName(this.value)">
+    <option value="">— Select a job —</option>
+  </select>
+</div>
+
+<div class="main">
+  <!-- Sidebar: job list (desktop) -->
+  <aside class="sidebar">
+    <div class="sidebar-header">Active Jobs</div>
+    <div class="job-list" id="jobList">
+      <div class="no-jobs">Loading jobs…</div>
+    </div>
+  </aside>
+
+  <!-- Content -->
+  <div class="content" id="contentArea">
+    <!-- Welcome -->
+    <div class="welcome" id="welcomeScreen">
+      <div class="welcome-icon">
+        <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      </div>
+      <h2>Document Viewer</h2>
+      <p>Select a job from the left to view blueprints, packing lists, and fab sheets.</p>
+    </div>
+
+    <!-- Job content (hidden until job selected) -->
+    <div class="job-content" id="jobContent" style="display:none;">
+      <div class="job-titlebar">
+        <span class="job-title" id="jobTitle">—</span>
+        <button class="share-btn" id="jobShareBtn" onclick="openShareModal()" style="display:none;">
+          🔗 Share Job
+        </button>
+      </div>
+      <div class="cat-tabs" id="catTabs"></div>
+      <div class="file-viewer">
+        <div class="file-list" id="fileList"></div>
+        <div class="pdf-pane">
+          <div class="pdf-placeholder" id="pdfPlaceholder">
+            <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <p>Tap a file to open it</p>
+          </div>
+          <div class="sheet-pane" id="sheetPane">
+            <div class="sheet-toolbar">
+              <span class="sheet-name" id="sheetName"></span>
+              <button class="sheet-action-btn" id="sheetSaveEditsBtn" style="display:none" onclick="saveSpreadsheetEdits()">💾 Save Edits</button>
+              <button class="sheet-action-btn" id="sheetDownloadBtn" onclick="xlsxDirectDownload()">📥 Download</button>
+              <button class="sheet-action-btn" id="sheetGSBtn" onclick="xlsxGoogleSheets()">📊 Google Sheets</button>
+              <button class="sheet-action-btn" id="sheetLinkBtn" onclick="linkGoogleSheet()" title="Link a Google Sheet to this job">🔗 Link Sheet</button>
+            </div>
+            <div class="sheet-scroll" id="sheetScroll"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+let currentJob      = null;
+let currentFile     = null;
+let currentFileUrl  = null;
+let currentCategory = null;
+let jobFiles        = {};
+
+// (job list loader removed — the job is fixed by the Panel Tracking route)
+
+// Called by the mobile dropdown
+function selectJobByName(job) {
+  if (!job) return;
+  const btn = document.getElementById(`jobbtn_${job}`);
+  selectJob(job, btn || document.createElement('button'));
+}
+
+// ── Select a job ───────────────────────────────────────────
+async function selectJob(job, btn) {
+  document.querySelectorAll('.job-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  document.getElementById('jobSelect').value = job;
+  currentJob = job;
+
+  const res  = await fetch(`/api/jobs/${encodeURIComponent(job)}`);
+  jobFiles   = await res.json();
+
+  document.getElementById('welcomeScreen').style.display = 'none';
+  document.getElementById('jobContent').style.display    = 'flex';
+  document.getElementById('jobTitle').textContent        = job;
+  document.getElementById('jobShareBtn').style.display  = 'flex';
+
+  // Build category tabs
+  const tabs = document.getElementById('catTabs');
+  tabs.innerHTML = '';
+  // Always include Spreadsheets tab even if folder doesn't exist yet
+  const cats = Object.keys(jobFiles);
+  if (!cats.includes('Spreadsheets')) cats.push('Spreadsheets');
+
+  cats.forEach((cat, i) => {
+    const tab = document.createElement('button');
+    tab.className   = 'cat-tab' + (i === 0 ? ' active' : '');
+    tab.textContent = cat;
+    tab.onclick     = () => selectCategory(cat, tab);
+    tabs.appendChild(tab);
+  });
+
+  selectCategory(cats[0], tabs.querySelector('.cat-tab'));
+}
+
+// ── 
+// ── Select a category ──────────────────────────────────────
+function selectCategory(cat, tab) {
+  document.querySelectorAll('.cat-tab').forEach(t => t.classList.remove('active'));
+  if (tab) tab.classList.add('active');
+  currentCategory = cat;
+
+  const files = jobFiles[cat] || [];
+  const list  = document.getElementById('fileList');
+  list.innerHTML = '';
+
+  // ── Spreadsheets: show Pull Data button + xlsx file list ──
+  if (cat === 'Spreadsheets') {
+    const btn = document.createElement('button');
+    btn.className = 'pull-data-btn';
+    btn.id = 'pullDataBtn';
+    btn.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+        <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+        <polyline points="14 2 14 8 20 8"/>
+        <line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/>
+      </svg>
+      Pull Data into Spreadsheet`;
+    btn.onclick = pullDataIntoSpreadsheet;
+    list.appendChild(btn);
+
+    if (!files.length) {
+      const msg = document.createElement('div');
+      msg.className = 'no-files';
+      msg.textContent = 'No spreadsheets yet. Click the button above to generate one.';
+      list.appendChild(msg);
+    } else {
+      files.forEach(f => {
+        const fname    = f.name || f;
+        const modified = f.modified || '';
+        const item = document.createElement('div');
+        item.className = 'file-item xlsx';
+        item.innerHTML = `
+          <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+          <div class="file-item-info">
+            <span class="file-name">${fname}</span>
+            ${modified ? `<span class="file-date">Modified ${modified}</span>` : ''}
+          </div>`;
+        item.onclick = (e) => downloadFile(fname, item, e);
+        list.appendChild(item);
+      });
+    }
+    clearPDF();
+    return;
+  }
+
+  if (!files.length) {
+    list.innerHTML = '<div class="no-files">No files in this category.</div>';
+    clearPDF();
+    return;
+  }
+
+  files.forEach(f => {
+    const fname    = f.name || f;
+    const modified = f.modified || '';
+    const item = document.createElement('div');
+    item.className = 'file-item';
+    item.innerHTML = `
+      <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <div class="file-item-info">
+        <span class="file-name">${fname}</span>
+        ${modified ? `<span class="file-date">Modified ${modified}</span>` : ''}
+      </div>`;
+    item.onclick = () => openFile(fname, item);
+    list.appendChild(item);
+  });
+
+}
+
+// ── xlsx action menu ──────────────────────────────────────
+let _xlsxMenuFile = null;
+let _currentSheetFile = null;
+let _currentSheetHeaders = [];   // column header names, populated on load
+let _pendingEdits = {};          // key "panel||col_header" → {panel, col_header, value}
+
+function _onSheetCellInput(e) {
+  const td = e.target.closest('td[contenteditable]');
+  if (!td) return;
+  const tr = td.closest('tr[data-panel]');
+  if (!tr) return;
+  const panel     = tr.dataset.panel;
+  const colHeader = _currentSheetHeaders[+td.dataset.col] || String(td.dataset.col);
+  _pendingEdits[`${panel}||${colHeader}`] = { panel, col_header: colHeader, value: td.innerText.trim() };
+  td.classList.add('cell-edited');
+  const btn = document.getElementById('sheetSaveEditsBtn');
+  if (btn) { btn.style.display = ''; btn.classList.add('has-edits'); }
+}
+
+async function saveSpreadsheetEdits() {
+  if (!currentJob || !Object.keys(_pendingEdits).length) return;
+  const btn = document.getElementById('sheetSaveEditsBtn');
+  btn.disabled = true; btn.textContent = '⏳ Saving…';
+  try {
+    const res = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/spreadsheet-edits`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ edits: Object.values(_pendingEdits) })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      _pendingEdits = {};
+      document.querySelectorAll('#sheetScroll td.cell-edited').forEach(td => td.classList.remove('cell-edited'));
+      btn.classList.remove('has-edits');
+      btn.textContent = '✓ Saved';
+      setTimeout(() => { btn.textContent = '💾 Save Edits'; btn.disabled = false; btn.style.display = 'none'; }, 1500);
+    } else {
+      alert(data.error || 'Error saving edits.');
+      btn.disabled = false; btn.textContent = '💾 Save Edits';
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+    btn.disabled = false; btn.textContent = '💾 Save Edits';
+  }
+}
+
+function downloadFile(fname, item, e) {
+  e && e.stopPropagation();
+  document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+  if (item) item.classList.add('active');
+  _xlsxMenuFile = fname;
+
+  const menu = document.getElementById('xlsxMenu');
+  menu.classList.add('open');
+
+  const rect = item.getBoundingClientRect();
+  const mw = 230, mh = 130;
+  let left = rect.right + 8;
+  let top  = rect.top;
+  if (left + mw > window.innerWidth)  left = Math.max(8, rect.left - mw - 8);
+  if (top  + mh > window.innerHeight) top  = Math.max(8, window.innerHeight - mh - 8);
+  menu.style.left = left + 'px';
+  menu.style.top  = top  + 'px';
+}
+
+function closeXlsxMenu() {
+  document.getElementById('xlsxMenu').classList.remove('open');
+  _xlsxMenuFile = null;
+}
+
+function xlsxAction(action) {
+  if (!_xlsxMenuFile || !currentJob) return;
+  const fname = _xlsxMenuFile;
+  closeXlsxMenu();
+
+  if (action === 'view') {
+    viewSpreadsheet(fname);
+  } else if (action === 'download') {
+    xlsxDirectDownload(fname);
+  } else if (action === 'sheets') {
+    xlsxGoogleSheets(fname);
+  }
+}
+
+function xlsxFileUrl(fname) {
+  return `/files/${encodeURIComponent(currentJob)}/Spreadsheets/${encodeURIComponent(fname || _currentSheetFile)}`;
+}
+
+function xlsxDirectDownload(fname) {
+  const f = fname || _currentSheetFile;
+  if (!f) return;
+  const a = document.createElement('a'); a.href = xlsxFileUrl(f); a.download = f; a.click();
+}
+
+let _toastTimer = null;
+function toast(msg, duration=3500) {
+  const el = document.getElementById('bvToast');
+  if (!el) return;
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove('show'), duration);
+}
+
+let _linkedSheetsUrl = null;
+
+async function _loadLinkedSheetUrl() {
+  if (!currentJob) return;
+  try {
+    const r = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/sheets-url`);
+    const d = await r.json();
+    _linkedSheetsUrl = d.url || null;
+  } catch(e) { _linkedSheetsUrl = null; }
+  _updateLinkBtn();
+}
+
+function _updateLinkBtn() {
+  const btn = document.getElementById('sheetLinkBtn');
+  const gsBtn = document.getElementById('sheetGSBtn');
+  if (!btn) return;
+  if (_linkedSheetsUrl) {
+    btn.textContent = '🔗 Linked';
+    btn.classList.add('linked');
+    btn.title = _linkedSheetsUrl;
+    if (gsBtn) gsBtn.title = 'Push data to linked Google Sheet';
+  } else {
+    btn.textContent = '🔗 Link Sheet';
+    btn.classList.remove('linked');
+    btn.title = 'Link a Google Sheet to this job';
+    if (gsBtn) gsBtn.title = '';
+  }
+}
+
+async function linkGoogleSheet() {
+  const current = _linkedSheetsUrl || '';
+  const input = prompt(
+    'Paste the Google Sheets URL to link it to "' + currentJob + '".\nLeave blank to remove the link.',
+    current
+  );
+  if (input === null) return; // cancelled
+  const url = input.trim();
+  if (url && !url.includes('docs.google.com/spreadsheets')) {
+    alert('That doesn\'t look like a Google Sheets URL. Please paste the full URL from your browser.');
+    return;
+  }
+  const r = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/sheets-url`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url })
+  });
+  const d = await r.json();
+  if (d.ok) {
+    _linkedSheetsUrl = url || null;
+    _updateLinkBtn();
+    toast(_linkedSheetsUrl ? 'Google Sheet linked to "' + currentJob + '".' : 'Link removed.');
+  }
+}
+
+async function xlsxGoogleSheets(fname) {
+  // Build TSV from the rendered table so Google Sheets gets it directly
+  const table = document.querySelector('#sheetScroll table');
+  if (!table) { alert('No spreadsheet loaded.'); return; }
+  const rows = Array.from(table.querySelectorAll('tr'));
+  const tsv = rows.map(tr =>
+    Array.from(tr.querySelectorAll('th, td'))
+      .map(cell => cell.innerText.replace(/\t/g, ' ').replace(/\n/g, ' '))
+      .join('\t')
+  ).join('\n');
+  try {
+    await navigator.clipboard.writeText(tsv);
+  } catch(e) {
+    const ta = document.createElement('textarea');
+    ta.value = tsv; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    document.execCommand('copy'); document.body.removeChild(ta);
+  }
+  const target = _linkedSheetsUrl || 'https://sheets.new';
+  window.open(target, '_blank');
+  if (_linkedSheetsUrl) {
+    toast('"' + currentJob + '" data copied — press Ctrl+V to paste into the linked sheet.');
+  } else {
+    toast('"' + currentJob + '" data copied — press Ctrl+V to paste, then rename the sheet.');
+  }
+}
+
+// ── Inline spreadsheet viewer (SheetJS) ───────────────────
+async function viewSpreadsheet(fname) {
+  _currentSheetFile = fname;
+  const url = xlsxFileUrl(fname);
+
+  document.getElementById('pdfPlaceholder').style.display = 'none';
+  const pane = document.getElementById('sheetPane');
+  const scroll = document.getElementById('sheetScroll');
+  pane.classList.add('visible');
+  document.getElementById('sheetName').textContent = fname;
+  scroll.innerHTML = '<p style="color:var(--text2);padding:20px;font-size:0.85rem;">Loading…</p>';
+
+  try {
+    if (!window.XLSX) await loadSheetJS();
+    const res = await fetch(url);
+    const ab  = await res.arrayBuffer();
+    const wb  = XLSX.read(ab, { type: 'array' });
+    const ws  = wb.Sheets[wb.SheetNames[0]];
+    // Build table manually for clean dark-mode styling
+    const data = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' });
+    if (!data.length) { scroll.innerHTML = '<p style="color:var(--text2);padding:20px;">No data.</p>'; return; }
+    _currentSheetHeaders = data[0].map(h => String(h ?? ''));
+    const editorBase = `/panel-map/editor/${encodeURIComponent(currentJob)}`;
+    const plBase = `/files/${encodeURIComponent(currentJob)}/Packing Lists/`;
+    let html = '<table><thead><tr>';
+    data[0].forEach(h => { html += `<th>${h ?? ''}</th>`; });
+    html += '</tr></thead><tbody>';
+    for (let r = 1; r < data.length; r++) {
+      const panelVal = String(data[r][0] ?? '');
+      html += `<tr data-panel="${panelVal.replace(/"/g,'&quot;')}">`;
+      data[r].forEach((c, ci) => {
+        if (ci === 0 && c !== '') {
+          // Panel Number — link only, not directly editable (use Panel Mapper)
+          const href = `${editorBase}?panel=${encodeURIComponent(String(c))}`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Panel Mapper">${c}</a></td>`;
+        } else if (ci === 3 && c !== '') {
+          // Packing List — link only, not directly editable
+          const href = `${plBase}${encodeURIComponent(String(c) + '.pdf')}`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open packing list">${c}</a></td>`;
+        } else {
+          html += `<td data-row="${r}" data-col="${ci}" contenteditable="true">${c ?? ''}</td>`;
+        }
+      });
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    // Reset pending edits and hide save button whenever a new sheet loads
+    _pendingEdits = {};
+    const saveBtn = document.getElementById('sheetSaveEditsBtn');
+    if (saveBtn) saveBtn.style.display = 'none';
+    scroll.innerHTML = html;
+    _loadLinkedSheetUrl();
+    // Track cell edits via event delegation
+    scroll.addEventListener('input', _onSheetCellInput, { once: false });
+  } catch(e) {
+    scroll.innerHTML = `<p style="color:#ff6b6b;padding:20px;">Error loading spreadsheet: ${e.message}</p>`;
+  }
+}
+
+function loadSheetJS() {
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = resolve; s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function hideSheetPane() {
+  document.getElementById('sheetPane').classList.remove('visible');
+  document.getElementById('pdfPlaceholder').style.display = '';
+  _currentSheetFile = null;
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', e => {
+  const menu = document.getElementById('xlsxMenu');
+  if (menu && menu.classList.contains('open') && !menu.contains(e.target)) closeXlsxMenu();
+});
+
+// ── Pull Data into Spreadsheet ────────────────────────────
+async function pullDataIntoSpreadsheet() {
+  const btn = document.getElementById('pullDataBtn');
+  if (!btn || !currentJob) return;
+  btn.disabled = true;
+  btn.innerHTML = `<span>⏳ Building…</span>`;
+  try {
+    const res  = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}/build-spreadsheet`, { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || data.error) {
+      alert(data.error || 'Error building spreadsheet.');
+      btn.disabled = false;
+      btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/></svg> Pull Data into Spreadsheet`;
+      return;
+    }
+    // Reload job files to show the new/updated xlsx, then auto-download it
+    const r2 = await fetch(`/api/jobs/${encodeURIComponent(currentJob)}`);
+    jobFiles  = await r2.json();
+    const tab = Array.from(document.querySelectorAll('.cat-tab')).find(t => t.textContent.trim() === 'Spreadsheets');
+    if (tab) selectCategory('Spreadsheets', tab);
+  } catch(e) {
+    const loc = e.stack ? e.stack.split('\n').slice(0,3).join(' | ') : '';
+    alert('Error: ' + e.message + (loc ? '\n\n' + loc : ''));
+    btn.disabled = false;
+    btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/></svg> Pull Data into Spreadsheet`;
+  }
+}
+
+// ── Open a PDF ─────────────────────────────────────────────
+function openFile(fname, item) {
+  document.querySelectorAll('.file-item').forEach(i => i.classList.remove('active'));
+  if (item) item.classList.add('active');
+
+  const url = `/files/${encodeURIComponent(currentJob)}/${encodeURIComponent(currentCategory)}/${encodeURIComponent(fname)}`;
+  currentFile = fname;
+  currentFileUrl = url;
+  openFullscreen(fname, url);
+}
+
+function openFullscreen(fname, url) {
+  document.getElementById('fullscreenTitle').textContent = fname;
+  document.getElementById('fullscreenFrame').src = url;
+  document.getElementById('fullscreenViewer').style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  document.getElementById('compassBtn')?.classList.add('visible');
+}
+
+function closeFullscreen() {
+  document.getElementById('fullscreenViewer').style.display = 'none';
+  document.getElementById('fullscreenFrame').src = '';
+  document.body.style.overflow = '';
+  document.getElementById('compassBtn')?.classList.remove('visible');
+}
+
+function clearPDF() {
+  document.getElementById('pdfPlaceholder').style.display = 'flex';
+  document.getElementById('sheetPane')?.classList.remove('visible');
+  currentFile = null; currentFileUrl = null;
+  _currentSheetFile = null;
+  document.getElementById('compassBtn')?.classList.remove('visible');
+}
+
+
+// ── Compass Mode ───────────────────────────────────────────
+let compassMode   = false;
+let lockedAlpha   = null;
+let compassRotation = 0;
+let pinchStartDist  = null;
+let pinchScale      = 1;
+let currentScale    = 1;
+
+function toggleCompassMode() {
+  compassMode ? disableCompassMode() : enableCompassMode();
+}
+
+async function enableCompassMode() {
+  // Request permission on iOS 13+
+  if (typeof DeviceOrientationEvent !== 'undefined' &&
+      typeof DeviceOrientationEvent.requestPermission === 'function') {
+    try {
+      const perm = await DeviceOrientationEvent.requestPermission();
+      if (perm !== 'granted') {
+        alert('Compass access denied. Go to Settings → Safari → Motion & Orientation Access and enable it.');
+        return;
+      }
+    } catch(e) {
+      alert('Could not get compass permission: ' + e.message);
+      return;
+    }
+  }
+
+  if (typeof DeviceOrientationEvent === 'undefined') {
+    alert('Compass is not supported on this device.');
+    return;
+  }
+
+  compassMode = true;
+  lockedAlpha = null;
+  currentScale = 1;
+
+  // Mirror current PDF into compass frame
+  const src = currentFileUrl || '';
+  document.getElementById('compassFrame').src = src;
+
+  // Show overlay
+  document.getElementById('compassOverlay').style.display = 'block';
+  document.getElementById('compassBtn')?.classList.add('active');
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+
+  window.addEventListener('deviceorientation', handleOrientation, true);
+
+  // Pinch zoom
+  const overlay = document.getElementById('compassOverlay');
+  overlay.addEventListener('touchstart',  onPinchStart,  { passive: false });
+  overlay.addEventListener('touchmove',   onPinchMove,   { passive: false });
+  overlay.addEventListener('touchend',    onPinchEnd,    { passive: false });
+}
+
+function disableCompassMode() {
+  compassMode = false;
+  lockedAlpha = null;
+
+  window.removeEventListener('deviceorientation', handleOrientation, true);
+
+  const overlay = document.getElementById('compassOverlay');
+  overlay.removeEventListener('touchstart', onPinchStart);
+  overlay.removeEventListener('touchmove',  onPinchMove);
+  overlay.removeEventListener('touchend',   onPinchEnd);
+
+  document.getElementById('compassOverlay').style.display = 'none';
+  document.getElementById('compassBtn')?.classList.remove('active');
+  document.getElementById('compassFrame').src = '';
+}
+
+function recalibrateCompass() {
+  lockedAlpha = null;
+  document.getElementById('compassStatus').textContent = '🧭 Calibrating…';
+}
+
+function handleOrientation(e) {
+  if (e.alpha === null) return;
+
+  if (lockedAlpha === null) {
+    lockedAlpha = e.alpha;
+    document.getElementById('compassStatus').textContent = '🧭 Locked';
+  }
+
+  let delta = e.alpha - lockedAlpha;
+  if (delta >  180) delta -= 360;
+  if (delta < -180) delta += 360;
+
+  compassRotation = delta;
+  applyCompassTransform();
+}
+
+function applyCompassTransform() {
+  const wrap = document.getElementById('compassWrap');
+  wrap.style.transform =
+    `translate(-50%, -50%) rotate(${compassRotation}deg) scale(${currentScale})`;
+}
+
+// ── Pinch zoom ─────────────────────────────────────────────
+function getTouchDist(e) {
+  const dx = e.touches[0].clientX - e.touches[1].clientX;
+  const dy = e.touches[0].clientY - e.touches[1].clientY;
+  return Math.sqrt(dx*dx + dy*dy);
+}
+
+function onPinchStart(e) {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    pinchStartDist = getTouchDist(e);
+    pinchScale = currentScale;
+  }
+}
+
+function onPinchMove(e) {
+  if (e.touches.length === 2 && pinchStartDist) {
+    e.preventDefault();
+    const dist = getTouchDist(e);
+    currentScale = Math.min(5, Math.max(0.5, pinchScale * (dist / pinchStartDist)));
+    applyCompassTransform();
+  }
+}
+
+function onPinchEnd(e) {
+  if (e.touches.length < 2) pinchStartDist = null;
+}
+
+
+// ── Share Links (job-level) ────────────────────────────────
+async function openShareModal() {
+  if (!currentJob) return;
+  document.getElementById('shareModalBg').style.display = 'flex';
+  document.getElementById('shareLinkSection').style.display = 'none';
+  document.getElementById('shareDelBtn').style.display = 'none';
+  document.getElementById('shareGenBtn').textContent = 'Generate Link';
+  document.getElementById('shareModalDesc').textContent = 'Checking for existing link…';
+
+  const res  = await fetch('/api/share/info', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job: currentJob})
+  });
+  const data = await res.json();
+  if (data.token) {
+    showShareLink(data.token);
+  } else {
+    document.getElementById('shareModalDesc').textContent = 'Generate a link anyone can use to view all files in this job — no login needed.';
+  }
+}
+
+function showShareLink(token) {
+  const url = `${location.origin}/share/${token}`;
+  document.getElementById('shareLinkInput').value = url;
+  document.getElementById('shareLinkSection').style.display = 'flex';
+  document.getElementById('shareDelBtn').style.display = 'inline-flex';
+  document.getElementById('shareGenBtn').style.display = 'none';
+  document.getElementById('shareModalDesc').textContent = 'Anyone with this link can view all documents in this job folder — no login needed.';
+}
+
+async function generateShareLink() {
+  const res  = await fetch('/api/share', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({job: currentJob})
+  });
+  const data = await res.json();
+  if (data.token) showShareLink(data.token);
+}
+
+async function deleteShareLink() {
+  const token = new URL(document.getElementById('shareLinkInput').value).pathname.split('/').pop();
+  await fetch('/api/share/delete', {
+    method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({token})
+  });
+  document.getElementById('shareLinkSection').style.display = 'none';
+  document.getElementById('shareDelBtn').style.display = 'none';
+  document.getElementById('shareGenBtn').textContent = 'Generate Link';
+  document.getElementById('shareModalDesc').textContent = 'Link deleted. Generate a new one anytime.';
+}
+
+function copyShareLink() {
+  const input = document.getElementById('shareLinkInput');
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = document.querySelector('.share-copy-btn');
+    btn.textContent = '✓ Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 2000);
+  });
+}
+
+function closeShareModal() {
+  document.getElementById('shareModalBg').style.display = 'none';
+}
+
+// Panel Tracking: the job comes from the route — open it directly.
+const PT_JOB = {{ pt_job | tojson }};
+selectJob(PT_JOB, null);
+</script>
+
+
+<!-- ── Full-Screen PDF Viewer ── -->
+<div id="fullscreenViewer" class="fullscreen-viewer" style="display:none;">
+  <div class="fullscreen-topbar">
+    <button class="fullscreen-back" onclick="closeFullscreen()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" width="16" height="16">
+        <line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>
+      </svg>
+      Back
+    </button>
+    <span class="fullscreen-title" id="fullscreenTitle"></span>
+    <div style="display:flex;gap:8px;flex-shrink:0;">
+<button class="open-tab-btn" onclick="window.open(currentFileUrl,'_blank')" title="Open in browser tab for full zoom">
+        ⤢ Full Zoom
+      </button>
+    </div>
+  </div>
+  <iframe id="fullscreenFrame" class="fullscreen-frame" title="PDF Viewer" allowfullscreen></iframe>
+</div>
+
+
+<!-- ── Share Modal ── -->
+<div id="shareModalBg" class="share-modal-bg" style="display:none;" onclick="if(event.target===this)closeShareModal()">
+  <div class="share-modal">
+    <h3>🔗 Share Job Folder</h3>
+    <p id="shareModalDesc">Generate a link anyone can use to view this file — no login needed.</p>
+    <div id="shareLinkSection" style="display:none;">
+      <div class="share-link-row">
+        <input class="share-link-input" id="shareLinkInput" readonly/>
+        <button class="share-copy-btn" onclick="copyShareLink()">Copy</button>
+      </div>
+    </div>
+    <div class="share-actions">
+      <button class="share-del-btn" id="shareDelBtn" style="display:none" onclick="deleteShareLink()">🗑 Delete Link</button>
+      <button class="share-close-btn" onclick="closeShareModal()">Close</button>
+      <button class="share-copy-btn" id="shareGenBtn" onclick="generateShareLink()">Generate Link</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── xlsx Action Menu ── -->
+<div id="xlsxMenu" class="xlsx-menu" role="menu">
+  <button class="xlsx-menu-item" onclick="xlsxAction('view')">
+    <span class="mi-icon">👁</span> View
+  </button>
+  <button class="xlsx-menu-item" onclick="xlsxAction('download')">
+    <span class="mi-icon">📥</span> Download / Open in Excel
+  </button>
+  <button class="xlsx-menu-item" onclick="xlsxAction('sheets')">
+    <span class="mi-icon" style="color:#34a853;">▶</span> Open in Google Sheets
+  </button>
+</div>
+
+<!-- ── Compass Mode Overlay ── -->
+<div id="compassOverlay" class="compass-overlay" style="display:none;">
+  <div class="compass-rotate-wrap" id="compassWrap">
+    <iframe id="compassFrame" title="Compass PDF" class="compass-frame"></iframe>
+  </div>
+  <div class="compass-hud">
+    <div class="compass-hud-left">
+      <span class="compass-status" id="compassStatus">🧭 Locked</span>
+    </div>
+    <div class="compass-hud-right">
+      <button class="compass-hud-btn" onclick="recalibrateCompass()" title="Re-lock to current orientation">↺ Re-lock</button>
+      <button class="compass-hud-btn exit" onclick="disableCompassMode()">✕ Exit</button>
+    </div>
+  </div>
+</div>
+<div id="bvToast"></div>
+</body>
+</html>

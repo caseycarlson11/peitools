@@ -2708,5 +2708,58 @@ def packing_list_update_panels(job_name):
     })
 
 
+# ════════════════════════════════════════════════════════════════════
+# Panel Tracking — combined tool (NEW pages only; reuses existing APIs
+# and the same stored job data so shipment colors stay constant).
+# ════════════════════════════════════════════════════════════════════
+
+@app.route("/panel-tracking")
+@login_required
+def panel_tracking_home():
+    return render_template("panel_tracking.html", pt_job=None, pt_tab="overview")
+
+
+@app.route("/panel-tracking/<path:job_name>/map")
+@login_required
+def panel_tracking_map(job_name):
+    return render_template("pt_map.html", pt_job=job_name, pt_tab="map")
+
+
+@app.route("/panel-tracking/<path:job_name>/map/editor")
+@login_required
+def panel_tracking_map_editor(job_name):
+    return render_template("pt_map_editor.html", job_name=job_name, pt_job=job_name)
+
+
+@app.route("/panel-tracking/<path:job_name>/deliveries")
+@login_required
+def panel_tracking_deliveries(job_name):
+    return render_template("pt_deliveries.html", pt_job=job_name, pt_tab="deliveries")
+
+
+@app.route("/panel-tracking/<path:job_name>/review")
+@login_required
+def panel_tracking_review(job_name):
+    return render_template("pt_review.html", job_name=job_name, pt_job=job_name)
+
+
+@app.route("/panel-tracking/<path:job_name>/documents")
+@login_required
+def panel_tracking_documents(job_name):
+    return render_template("pt_documents.html", pt_job=job_name, pt_tab="documents")
+
+
+@app.route("/panel-tracking/<path:job_name>/fab")
+@login_required
+def panel_tracking_fab(job_name):
+    return render_template("pt_fab.html", pt_job=job_name, pt_tab="fab")
+
+
+@app.route("/panel-tracking/<path:job_name>")
+@login_required
+def panel_tracking_overview(job_name):
+    return render_template("panel_tracking.html", pt_job=job_name, pt_tab="overview")
+
+
 if __name__ == "__main__":
     app.run(debug=True)

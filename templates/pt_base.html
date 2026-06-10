@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>{% block title %}Panel Tracking{% endblock %} | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="shortcut icon" type="image/x-icon" href="/static/favicon.ico">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:      #0d1117;
+      --surface: #161b22;
+      --card:    #1c2230;
+      --border:  #30363d;
+      --text:    #e6edf3;
+      --text2:   #8b949e;
+      --blue:    #60b4f0;
+      --green:   #3fb950;
+      --green2:  #238636;
+      --red:     #db1523;
+      --accent:  rgba(96,180,240,0.12);
+    }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Background — same bg.jpg + dark overlay as the home page ── */
+    .bg {
+      position: fixed; inset: 0; z-index: 0;
+      background-image: url('/static/bg.jpg');
+      background-size: cover; background-position: center;
+      filter: brightness(0.35) saturate(0.75);
+    }
+    .bg-overlay {
+      position: fixed; inset: 0; z-index: 1;
+      background: rgba(10, 18, 30, 0.55);
+    }
+    .site-header, .pt-nav, .page-main { position: relative; z-index: 2; }
+
+    /* ── Header ── */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 24px;
+      background: rgba(22, 27, 34, 0.82);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .header-left  { display: flex; align-items: center; gap: 10px; }
+    .header-right { display: flex; align-items: center; gap: 8px; }
+
+    .home-link {
+      display: flex; align-items: center; gap: 10px;
+      text-decoration: none; transition: opacity 0.15s;
+    }
+    .home-link:hover { opacity: 0.8; }
+
+    .logo-img  { width: 30px; height: 30px; border-radius: 6px; object-fit: cover; }
+    .site-name { font-size: 0.9rem; font-weight: 800; }
+    .site-name .blue { color: var(--blue); }
+    .site-name .dim  { color: var(--text2); font-weight: 400; }
+    .page-title { font-size: 0.9rem; font-weight: 600; color: var(--text2); margin-left: 4px; }
+
+    /* ── Panel Tracking tab bar ── */
+    .pt-nav {
+      display: flex; align-items: center; gap: 14px;
+      padding: 0 24px;
+      background: rgba(16, 21, 30, 0.92);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid var(--border);
+      position: sticky; top: 51px; z-index: 99;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none;
+    }
+    .pt-nav::-webkit-scrollbar { display: none; }
+    .pt-job-chip {
+      display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+      font-size: 0.8rem; font-weight: 700; color: var(--blue);
+      padding: 8px 0; white-space: nowrap;
+    }
+    .pt-job-chip a {
+      color: var(--text2); text-decoration: none; font-weight: 600;
+      font-size: 0.72rem; border: 1px solid var(--border);
+      padding: 2px 8px; border-radius: 6px;
+    }
+    .pt-job-chip a:hover { color: var(--text); border-color: var(--blue); }
+    .pt-tabs { display: flex; gap: 2px; flex: 0 0 auto; }
+    .pt-tab {
+      display: inline-block; padding: 11px 14px;
+      color: var(--text2); text-decoration: none;
+      font-size: 0.84rem; font-weight: 600; white-space: nowrap;
+      border-bottom: 2px solid transparent;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .pt-tab:hover { color: var(--text); }
+    .pt-tab.active { color: var(--blue); border-bottom-color: var(--blue); }
+
+    /* ── Page main area ── */
+    .page-main {
+      max-width: 860px; margin: 0 auto;
+      padding: 32px 20px 60px;
+    }
+    .page-main.wide { max-width: 1200px; }
+    .page-main.full { max-width: 100%; padding: 0; }
+
+    h1.page-heading { font-size: 1.4rem; font-weight: 700; margin-bottom: 4px; }
+    p.page-subtitle  { color: var(--text2); font-size: 0.88rem; margin-bottom: 28px; }
+
+    /* ── Cards ── */
+    .card {
+      background: rgba(28, 34, 48, 0.88);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 22px; margin-bottom: 18px;
+    }
+    .card-title {
+      font-size: 0.82rem; font-weight: 700;
+      color: var(--text2); text-transform: uppercase;
+      letter-spacing: 0.05em; margin-bottom: 14px;
+    }
+
+    /* ── Inputs ── */
+    select, input[type=text], input[type=email], input[type=password], textarea {
+      background: var(--surface); border: 1px solid var(--border);
+      color: var(--text); padding: 9px 12px; border-radius: 8px;
+      font-family: inherit; font-size: 0.9rem; width: 100%; outline: none;
+      transition: border-color 0.15s;
+    }
+    select:focus, input:focus, textarea:focus { border-color: var(--blue); }
+    select option { background: var(--surface); }
+
+    /* ── Buttons ── */
+    .btn {
+      display: inline-flex; align-items: center; gap: 7px;
+      padding: 9px 20px; border-radius: 8px; border: none;
+      font-family: inherit; font-size: 0.88rem; font-weight: 600;
+      cursor: pointer; transition: opacity 0.15s; white-space: nowrap;
+      text-decoration: none;
+    }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary  { background: var(--blue);   color: #0d1117; }
+    .btn-primary:hover:not(:disabled)  { opacity: 0.88; }
+
+    .btn-green    { background: var(--green2); color: #fff; border: 1px solid var(--green); }
+    .btn-green:hover:not(:disabled)    { background: #2ea043; }
+
+    .btn-subtle   { background: var(--surface); color: var(--text2); border: 1px solid var(--border); }
+    .btn-subtle:hover:not(:disabled)   { color: var(--text); border-color: var(--blue); }
+
+    .btn-danger   { background: rgba(219,21,35,.15); color: #f85149; border: 1px solid rgba(219,21,35,.3); }
+    .btn-danger:hover:not(:disabled)   { background: rgba(219,21,35,.25); }
+
+    .btn-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 14px; }
+
+    /* ── Alerts ── */
+    .alert { padding: 10px 14px; border-radius: 8px; font-size: 0.86rem; margin: 10px 0; display: none; }
+    .alert.show { display: block; }
+    .alert-success { background: rgba(63,185,80,.1);  border: 1px solid rgba(63,185,80,.3);  color: var(--green); }
+    .alert-error   { background: rgba(219,21,35,.1);  border: 1px solid rgba(219,21,35,.3);  color: #f85149; }
+    .alert-info    { background: var(--accent);        border: 1px solid rgba(96,180,240,.3); color: var(--blue); }
+
+    /* ── Progress bar ── */
+    .progress-wrap { margin: 14px 0; display: none; }
+    .progress-wrap.visible { display: block; }
+    .progress-bar-bg   { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; height: 8px; overflow: hidden; }
+    .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--green2), var(--green)); border-radius: 6px; width: 0%; transition: width 0.4s; }
+    .progress-msg { color: var(--text2); font-size: 0.8rem; margin-top: 6px; }
+
+    /* ── Divider ── */
+    .divider { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
+
+    {% block extra_style %}{% endblock %}
+  </style>
+</head>
+<body>
+
+  <div class="bg"></div>
+  <div class="bg-overlay"></div>
+
+  <header class="site-header">
+    <div class="header-left">
+      <a class="home-link" href="/">
+        <img class="logo-img" src="/static/logo.jpg" alt="PEI">
+        <span class="site-name"><span class="blue">PEI</span><span class="dim">tools.com</span></span>
+      </a>
+      <span class="page-title">/ Panel Tracking</span>
+    </div>
+    <div class="header-right">
+      {% block header_actions %}{% endblock %}
+    </div>
+  </header>
+
+  <nav class="pt-nav">
+    {% if pt_job %}
+      <span class="pt-job-chip">{{ pt_job }} <a href="/panel-tracking">Switch Job</a></span>
+      <div class="pt-tabs">
+        <a class="pt-tab {{ 'active' if pt_tab == 'overview' }}"  href="/panel-tracking/{{ pt_job }}">Overview</a>
+        <a class="pt-tab {{ 'active' if pt_tab == 'map' }}"       href="/panel-tracking/{{ pt_job }}/map">Panel Map</a>
+        <a class="pt-tab {{ 'active' if pt_tab == 'deliveries' }}" href="/panel-tracking/{{ pt_job }}/deliveries">Deliveries</a>
+        <a class="pt-tab {{ 'active' if pt_tab == 'review' }}"    href="/panel-tracking/{{ pt_job }}/review">Review</a>
+        <a class="pt-tab {{ 'active' if pt_tab == 'documents' }}" href="/panel-tracking/{{ pt_job }}/documents">Documents</a>
+        <a class="pt-tab {{ 'active' if pt_tab == 'fab' }}"       href="/panel-tracking/{{ pt_job }}/fab">Fab Sheets</a>
+      </div>
+    {% else %}
+      <span class="pt-job-chip">Select a job to begin</span>
+    {% endif %}
+  </nav>
+
+  {% block body %}
+  <div class="page-main {% block main_class %}{% endblock %}">
+    {% block content %}{% endblock %}
+  </div>
+  {% endblock %}
+
+  <script>
+    {% block scripts %}{% endblock %}
+  </script>
+</body>
+</html>
