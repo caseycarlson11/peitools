@@ -81,6 +81,12 @@
   .pub-copy:hover, .pub-open:hover { color: var(--text); border-color: var(--blue); }
   .pub-copy.copied { background: var(--green2); color: #fff; border-color: var(--green); }
   .pub-off-note { color: var(--text2); font-size: 0.76rem; }
+
+  /* ── Panel Data + Fab Sheets side-by-side ── */
+  .half-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .half-row .card { display: flex; flex-direction: column; }
+  .half-row .card .btn { margin-top: auto; align-self: flex-start; }
+  @media (max-width: 600px) { .half-row { grid-template-columns: 1fr; gap: 0; } }
 {% endblock %}
 
 {% block content %}
@@ -122,12 +128,16 @@
     <div class="ship-list" id="shipList"><span class="empty-note">No packing lists processed yet.</span></div>
   </div>
 
-  <div class="card">
-    <div class="card-title">Fab Sheets</div>
-    <p class="empty-note" id="fabNote" style="margin-bottom:12px;">Mark up fab sheets before sending to KPS.</p>
-    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-      <a class="btn btn-subtle" href="/panel-tracking/{{ pt_job }}/fab">Open Fab Sheets →</a>
+  <div class="half-row">
+    <div class="card">
+      <div class="card-title">Panel Data</div>
+      <p class="empty-note" id="sheetNote" style="margin-bottom:12px;">The job spreadsheet — panels, sheets, and deliveries.</p>
       <a class="btn btn-subtle" id="openSheetBtn" href="#" target="_blank" rel="noopener" style="display:none;">📊 Open Spreadsheet</a>
+    </div>
+    <div class="card">
+      <div class="card-title">Fab Sheets</div>
+      <p class="empty-note" id="fabNote" style="margin-bottom:12px;">Mark up fab sheets before sending to KPS.</p>
+      <a class="btn btn-subtle" href="/panel-tracking/{{ pt_job }}/fab">Open Fab Sheets →</a>
     </div>
   </div>
 
@@ -256,7 +266,7 @@
       if (docsTotal) document.getElementById('stepDoc').classList.add('done');
       document.getElementById('fabNote').textContent = fabs
         ? `${fabs} fab sheet${fabs === 1 ? '' : 's'} on this job. Mark them up before sending to KPS.`
-        : 'No fab sheets uploaded yet — add them in Documents or Admin.';
+        : 'No fab sheets uploaded yet.';
     }).catch(() => {});
   }
 
