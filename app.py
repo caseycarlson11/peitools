@@ -3090,6 +3090,158 @@ def public_link_file(token):
                      download_name=os.path.basename(path))
 
 
+@app.route("/api/pt/fix-missed/<path:job_name>", methods=["POST"])
+@login_required
+def pt_fix_missed(job_name):
+    """Review-tab 'Fix Missed': deterministic pass over the packing-list table
+    vs the prints. Auto-applies confident fixes:
+      • remakes — '242R' gets highlighted at 242's location
+      • single-candidate OCR-misread renames, validated against the DXF panel
+        list (the bad number must NOT exist in CAD; the corrected one must
+        exist, be unused, and already be located on the prints)
+    Ambiguous cases come back as suggestions; the rest with a reason. Every
+    applied fix is recorded in corrections.json so re-scans keep it."""
+    state = _pl_load_state(job_name)
+    if not state:
+        return jsonify({"error": "No delivery data yet — process a packing list first."}), 404
+    locations = _pl_load_locations(job_name)
+
+    # Panel Mapper locations widen the net (same merge the editor uses)
+    pm_sess = _pm_load_session(job_name)
+    pm_locs = {}
+    if pm_sess:
+        lp = pm_sess.get("locs", "")
+        if lp and os.path.isfile(lp):
+            try:
+                with open(lp) as f:
+                    pm_locs = _json.load(f)
+            except Exception:
+                pm_locs = {}
+
+    def find_loc(panel):
+        """Location entry for a panel: exact key, then duplicate/label keys."""
+        for src in (locations, pm_locs):
+            if panel in src and isinstance(src[panel], dict):
+                return src[panel]
+            for k, v in src.items():
+                if not isinstance(v, dict):
+                    continue
+                if k.split("#")[0] == panel or v.get("label") == panel:
+                    return v
+        return None
+
+    dxf_set = None
+    dxf_dir = _pl_dxf_dir(job_name)
+    if dxf_dir:
+        try:
+            from packing_list_engine import _load_dxf_panel_set
+            dxf_set = _load_dxf_panel_set(dxf_dir)
+        except Exception:
+            dxf_set = None
+
+    # Digit pairs OCR commonly confuses on KPS packing lists
+    _CONF = {"0": "689", "1": "47", "2": "7", "3": "8", "4": "1", "5": "68",
+             "6": "058", "7": "12", "8": "0356", "9": "0345"}
+
+    def _confusable(a, b):
+        """True if a→b is a plausible single-digit misread (same length)."""
+        if len(a) != len(b):
+            return False
+        diff = [(x, y) for x, y in zip(a, b) if x != y]
+        if len(diff) != 1:
+            return False
+        x, y = diff[0]
+        return y in _CONF.get(x, "") or x in _CONF.get(y, "")
+
+    missed = [p for p in state if not find_loc(p)]
+    placed, renamed, suggestions, unresolved = [], [], [], []
+    corr = _pl_load_corrections(job_name)
+
+    for p in missed:
+        # (a) remake: '242R' sits where '242' is
+        m = re.match(r"^(\d+)R$", p)
+        if m:
+            loc = find_loc(m.group(1))
+            if loc and loc.get("bbox") and loc.get("page") is not None:
+                locations[p] = {"page": int(loc["page"]), "bbox": loc["bbox"], "label": p}
+                corr["additions"][p] = {"panel": p, "skid": state[p].get("skid", ""),
+                                        "shipment": state[p].get("shipment", ""),
+                                        "page": int(loc["page"]), "bbox": loc["bbox"]}
+                _log_global_correction(job_name, {"type": "auto-fix-remake", "panel": p,
+                                                  "page": int(loc["page"]), "bbox": loc["bbox"]})
+                placed.append({"panel": p, "how": f"remake of {m.group(1)}"})
+                continue
+
+        # (b) OCR-misread rename — only when CAD confirms the number is wrong
+        if dxf_set and p not in dxf_set and re.match(r"^\d+$", p):
+            cands = [d for d in sorted(dxf_set)
+                     if d not in state and _confusable(p, d) and find_loc(d)]
+            if len(cands) == 1:
+                new = cands[0]
+                state[new] = state.pop(p)
+                loc = find_loc(new)
+                if new not in locations:
+                    locations[new] = {"page": int(loc["page"]), "bbox": loc["bbox"]}
+                corr["renames"][p] = new
+                _log_global_correction(job_name, {"type": "auto-fix-rename",
+                                                  "from": p, "to": new})
+                renamed.append({"from": p, "to": new})
+                continue
+            if len(cands) > 1:
+                suggestions.append({"panel": p, "candidates": cands[:6],
+                                    "reason": "number not in CAD — several close matches"})
+                continue
+            unresolved.append({"panel": p,
+                               "reason": "number not in CAD and no close match on the prints"})
+            continue
+
+        if dxf_set and p in dxf_set:
+            unresolved.append({"panel": p,
+                               "reason": "in CAD but its page isn't mapped — place by hand"})
+        else:
+            unresolved.append({"panel": p,
+                               "reason": "no CAD data to locate it — place by hand"})
+
+    changed = bool(placed or renamed)
+    regen_ok, regen_err = changed, None
+    if changed:
+        _pl_save_corrections(job_name, corr)
+        os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+        with open(_pl_state_path(job_name), "w") as f:
+            _json.dump(state, f)
+        with open(_pl_cache_path(job_name), "w") as f:
+            _json.dump(locations, f)
+        # Regenerate the tracked PDF — same path as manual Save in the editor
+        try:
+            from packing_list_engine import (generate_tracked_blueprint,
+                                             generate_tracked_blueprint_panel_map)
+            ship_colors = _pl_assign_colors(job_name, state)
+            pm_locs_path = pm_sess.get("locs", "") if pm_sess else ""
+            pm_scan_pdf = pm_sess.get("scan_pdf", "") if pm_sess else ""
+            if (pm_sess and pm_locs_path and os.path.isfile(pm_locs_path)
+                    and pm_scan_pdf and os.path.isfile(pm_scan_pdf)):
+                with open(pm_locs_path) as f:
+                    panel_locations_pm = _json.load(f)
+                merged = dict(panel_locations_pm)
+                merged.update(locations)
+                generate_tracked_blueprint_panel_map(
+                    pm_scan_pdf, merged, state, _pl_output_path(job_name),
+                    shipment_colors=ship_colors)
+            else:
+                bp = _find_blueprint(job_name)
+                if bp and locations:
+                    generate_tracked_blueprint(
+                        bp, state, locations, _pl_output_path(job_name),
+                        shipment_colors=ship_colors)
+        except Exception as e:
+            regen_ok, regen_err = False, str(e)
+
+    return jsonify({"ok": True, "placed": placed, "renamed": renamed,
+                    "suggestions": suggestions, "unresolved": unresolved,
+                    "missed_before": len(missed),
+                    "regenerated": regen_ok, "regen_error": regen_err})
+
+
 @app.route("/api/pt/publish-prints/<path:job_name>", methods=["POST"])
 @login_required
 def pt_publish_prints(job_name):

@@ -244,6 +244,7 @@
     <div class="tb-sep"></div>
     <button class="tb-btn green" id="saveBtn" onclick="saveChanges()" disabled>💾 Save Changes</button>
     <a class="tb-btn" id="downloadBtn" href="/api/packing-list/download/{{ job_name|urlencode }}" target="_blank">⬇ Download</a>
+    <button class="tb-btn" id="fixBtn" onclick="fixMissed()" title="Auto-place remakes and fix misread numbers using the CAD panel list">🔧 Fix Missed</button>
     <button class="tb-btn blue" id="publishBtn" onclick="publish()">📌 Publish</button>
     <div class="tb-hint" id="hint">Click a panel to inspect & cross-reference</div>
   </div>
@@ -1716,6 +1717,33 @@
       toast(d.regenerated ? '✅ Saved — blueprint & packing list updated' : `⚠ Saved, but PDF regen failed: ${d.regen_error||''}`);
     }catch(e){ toast('⚠ '+e.message); }
     finally{ refreshStats(); }
+  }
+
+  async function fixMissed(){
+    if(Object.keys(pendingAdd).length||pendingRemove.size||pendingRenames.length){
+      toast('Save your changes first, then run Fix Missed'); return;
+    }
+    const btn=$('fixBtn'); btn.disabled=true; btn.textContent='🔧 Fixing…';
+    try{
+      const r=await fetch(`/api/pt/fix-missed/${encodeURIComponent(JOB)}`,{method:'POST'});
+      const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Fix failed');
+      const lines=[];
+      if(d.placed.length)
+        lines.push(`✅ PLACED ${d.placed.length}:\n` + d.placed.map(p=>`   ${p.panel} (${p.how})`).join('\n'));
+      if(d.renamed.length)
+        lines.push(`✏️ RENAMED ${d.renamed.length} misread number${d.renamed.length===1?'':'s'}:\n` +
+                   d.renamed.map(x=>`   ${x.from} → ${x.to}`).join('\n'));
+      if(d.suggestions.length)
+        lines.push(`🤔 YOUR CALL (${d.suggestions.length}) — several close matches:\n` +
+                   d.suggestions.map(s=>`   ${s.panel}: maybe ${s.candidates.join(' / ')}`).join('\n'));
+      if(d.unresolved.length)
+        lines.push(`✋ PLACE BY HAND (${d.unresolved.length}):\n` +
+                   d.unresolved.map(u=>`   ${u.panel} — ${u.reason}`).join('\n'));
+      if(!lines.length) lines.push('Nothing to fix — every panel in the table is on the prints. 🎉');
+      alert('FIX MISSED — RESULTS\n\n' + lines.join('\n\n'));
+      if(d.placed.length || d.renamed.length) location.reload();   // pull the fixed data + PDF
+    }catch(e){ toast('⚠ '+e.message); }
+    finally{ btn.disabled=false; btn.textContent='🔧 Fix Missed'; }
   }
 
   async function publish(){

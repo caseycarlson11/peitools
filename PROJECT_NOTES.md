@@ -689,6 +689,19 @@ serves the new doc. With no Panel Mapper session, the tracked doc already covers
 and is copied as-is. The standalone tracker's old publish (numbered "N - <Job> Delivery
 Tracked.pdf") is untouched.
 
+**Review "🔧 Fix Missed" button:** `POST /api/pt/fix-missed/<job>` — FREE deterministic pass
+(no AI) over the delivery table vs the prints. Auto-applies: remakes (`242R` placed at 242's
+location, label kept) and single-candidate OCR-misread renames — only when the bad number is
+NOT in the DXF panel set and the corrected number IS in CAD, unused, and already located
+(confusable-digit map, same length, one digit differs). Multiple candidates → returned as
+suggestions; the rest → unresolved with a reason ("in CAD but page not mapped", "no CAD
+data"). Applied fixes are written to delivery_state/panel_locations, recorded in
+`corrections.json` (renames + additions, so re-scans keep them) and the global corrections
+log as `auto-fix-remake`/`auto-fix-rename`, then the tracked PDF regenerates (same path as
+manual Save). Idempotent — a second run finds nothing new. Phase 2 idea (not built): a
+Claude-API vision suggester for the unresolved leftovers — costs per run, needs an API key,
+and should only ever SUGGEST boxes for human confirmation, never auto-bake.
+
 **Review deep link:** `/panel-tracking/<job>/review?panel=N` — after the blueprint renders,
 `deepLinkFromUrl()` zooms to 220% (if below) and `selectPanel(key,'pl')` centers + flashes the
 panel. Resolves duplicate-instance keys (`211#2`) by prefix; panels in the delivery table but
