@@ -1459,12 +1459,15 @@ def _insert_delivery_table(page, panels, pw, ph, shipment_order):
 
     avail_rows   = max(1, int((MAX_HEIGHT - BANNER_H - SUBHDR_H - legend_h) / ROW_H))
     n            = len(panels_sorted)
-    n_data_cols  = 2 if n > avail_rows else 1
-    rows_per_col = (n + 1) // 2 if n_data_cols == 2 else n
+    # As many side-by-side panel columns as needed (1, 2, 3, ...) so EVERY
+    # panel fits within the page height — the table grows leftward instead of
+    # running off the bottom of the page.
+    n_data_cols  = max(1, -(-n // avail_rows))    # ceil(n / avail_rows)
+    rows_per_col = -(-n // n_data_cols)           # ceil — balances the columns
 
     BANNER_TITLE = "DELIVERED"
     min_tbl_w    = int(len(BANNER_TITLE) * 7.0) + PAD * 2
-    tbl_w = max(unit_w * n_data_cols + (DIVIDER if n_data_cols == 2 else 0), min_tbl_w)
+    tbl_w = max(unit_w * n_data_cols + DIVIDER * (n_data_cols - 1), min_tbl_w)
     tbl_h = BANNER_H + SUBHDR_H + rows_per_col * ROW_H + legend_h + 4
 
     rx1 = pw - MARGIN; rx0 = rx1 - tbl_w
