@@ -9,7 +9,7 @@
   <style>
     *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
     :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#e6edf3; --text2:#8b949e; --blue:#60b4f0; }
-    body { font-family:'Inter',sans-serif; background:#2b2f36; color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+    body { font-family:'Inter',sans-serif; background:#2b2f36; color:var(--text); min-height:100vh; display:flex; flex-direction:column; height:100vh; }
     .bar {
       display:flex; align-items:center; gap:10px; padding:9px 14px;
       background:var(--surface); border-bottom:1px solid var(--border);
@@ -28,14 +28,14 @@
     .bbtn:hover { border-color:var(--blue); }
     .zbtn { padding:7px 11px; font-size:.9rem; }
     .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; position:relative; }
-    .pg { margin:0 auto 14px; width:var(--pagew, 980px); background:#fff;
-          box-shadow:0 3px 14px rgba(0,0,0,.45); position:relative; }
+    .pg { margin:0 auto 14px; width:var(--pagew, 980px); background:#fff; position:relative;
+          box-shadow:0 3px 14px rgba(0,0,0,.45); }
     .pg canvas { display:block; width:100%; height:auto; }
     .load { color:var(--text2); text-align:center; padding:40px 16px; font-size:.9rem; }
     .panel-hl {
       position:absolute; z-index:5; pointer-events:none;
       border:3px solid #ffe14d; background:rgba(255,225,77,.30); border-radius:3px;
-      animation:hlpulse 1.6s ease-out 2;
+      animation:hlpulse 1.6s ease-out 3;
     }
     @keyframes hlpulse {
       0%   { box-shadow:0 0 0 4px #fff, 0 0 18px 6px rgba(255,225,77,.95); }
@@ -62,38 +62,62 @@
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
+    const holder = document.getElementById('pages');
+    // Render sharpness: canvases are rasterized at the CURRENT page width x the
+    // device pixel ratio, and re-rasterized whenever the zoom changes — pages
+    // stay crisp at any zoom level instead of stretching a fixed-size render.
+    const DPR = Math.min(window.devicePixelRatio || 1, 2);
+    const MAX_CANVAS_W = 4000;            // memory cap for very deep zooms
     let pageW = Math.min(980, window.innerWidth - 16);
-    document.documentElement.style.setProperty('--pagew', pageW + 'px');
-    function zoom(dir){
-      pageW = Math.max(320, Math.min(2600, pageW + dir * 160));
+    let pdfDoc = null;
+    let pageDims = [];                    // 0-based {w,h} at PDF scale 1 (panel bbox space)
+
+    function setPageW(w){
+      pageW = Math.max(320, Math.min(2600, w));
       document.documentElement.style.setProperty('--pagew', pageW + 'px');
     }
+    setPageW(pageW);
 
-    const holder = document.getElementById('pages');
-    let pageDims = [];   // 0-based: {w, h} at PDF scale 1 (panel bboxes use this space)
+    async function renderPage(el){
+      if (!pdfDoc) return;
+      const targetPx = Math.round(Math.min(pageW * DPR, MAX_CANVAS_W));
+      if (el.dataset.rw === String(targetPx)) return;   // already sharp at this zoom
+      el.dataset.rw = String(targetPx);
+      const pg = parseInt(el.dataset.pg, 10);
+      const page = await pdfDoc.getPage(pg);
+      const base = page.getViewport({scale: 1});
+      const vp = page.getViewport({scale: targetPx / base.width});
+      const c = el.querySelector('canvas');
+      c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+      await page.render({canvasContext: c.getContext('2d'), viewport: vp}).promise;
+    }
+
+    let rerasterT = null;
+    function rerasterRendered(){           // refresh pages already drawn, debounced
+      clearTimeout(rerasterT);
+      rerasterT = setTimeout(()=>{
+        holder.querySelectorAll('.pg[data-rw]').forEach(el => renderPage(el).catch(()=>{}));
+      }, 200);
+    }
+    function zoom(dir){
+      setPageW(pageW + dir * 160);
+      rerasterRendered();
+    }
+
     pdfjsLib.getDocument('/pl/{{ token }}/file').promise.then(async doc=>{
+      pdfDoc = doc;
       holder.innerHTML = '';
-      // Page sizes up front, so every page has its real height BEFORE it renders —
-      // jumping to a deep page lands accurately.
+      // Page sizes up front so every page has its real height BEFORE rendering —
+      // jumps to deep pages land accurately.
       for (let pg=1; pg<=doc.numPages; pg++){
         const base = (await doc.getPage(pg)).getViewport({scale:1});
         pageDims[pg-1] = {w: base.width, h: base.height};
       }
       const obs = new IntersectionObserver(entries=>{
         entries.forEach(en=>{
-          if (!en.isIntersecting) return;
-          const el = en.target;
-          if (el.dataset.rendered) return;
-          el.dataset.rendered = '1';
-          doc.getPage(parseInt(el.dataset.pg,10)).then(page=>{
-            const base = page.getViewport({scale:1});
-            const vp = page.getViewport({scale: 1400 / base.width});
-            const c = el.querySelector('canvas');
-            c.width = vp.width; c.height = vp.height;
-            page.render({canvasContext:c.getContext('2d'), viewport:vp});
-          });
+          if (en.isIntersecting) renderPage(en.target).catch(()=>{});
         });
-      }, {root:holder, rootMargin:'800px 0px'});
+      }, {root:holder, rootMargin:'700px 0px'});
       for (let pg=1; pg<=doc.numPages; pg++){
         const w = document.createElement('div');
         w.className = 'pg'; w.dataset.pg = pg;
@@ -124,12 +148,14 @@
                   : Object.keys(locs).find(k => k.split('#')[0] === want);
         if (!key) return;
         const loc = locs[key];
-        const dims = pageDims[loc.page];
-        const wrap = holder.querySelector(`.pg[data-pg="${loc.page + 1}"]`);
+        const pageIdx = Number(loc.page);
+        const dims = pageDims[pageIdx];
+        const wrap = holder.querySelector(`.pg[data-pg="${pageIdx + 1}"]`);
         if (!dims || !wrap || !loc.bbox) return;
+
         // zoom in well past screen width so the panel is readable
-        pageW = Math.max(pageW, Math.min(2600, Math.round(window.innerWidth * 2)));
-        document.documentElement.style.setProperty('--pagew', pageW + 'px');
+        setPageW(Math.max(pageW, Math.round(window.innerWidth * 2)));
+
         // highlight box at the panel's spot (percent-based, survives any zoom)
         const [x0,y0,x1,y1] = loc.bbox, pad = 3;
         const hl = document.createElement('div');
@@ -139,13 +165,14 @@
         hl.style.width  = ((x1-x0+pad*2)/dims.w*100) + '%';
         hl.style.height = ((y1-y0+pad*2)/dims.h*100) + '%';
         wrap.appendChild(hl);
-        // centre the panel after layout settles at the new width
-        requestAnimationFrame(()=>{
-          const cx = ((x0+x1)/2)/dims.w, cy = ((y0+y1)/2)/dims.h;
-          const top  = wrap.offsetTop  + cy*wrap.offsetHeight - holder.clientHeight/2;
-          const left = wrap.offsetLeft + cx*wrap.offsetWidth  - holder.clientWidth/2;
-          holder.scrollTo({top: Math.max(0,top), left: Math.max(0,left), behavior:'smooth'});
-        });
+
+        // force layout at the new width, then centre the panel deterministically
+        void holder.offsetHeight;
+        const cx = ((x0+x1)/2)/dims.w, cy = ((y0+y1)/2)/dims.h;
+        const top  = wrap.offsetTop  + cy*wrap.offsetHeight - holder.clientHeight/2;
+        const left = wrap.offsetLeft + cx*wrap.offsetWidth  - holder.clientWidth/2;
+        holder.scrollTo({top: Math.max(0, top), left: Math.max(0, left), behavior: 'auto'});
+        rerasterRendered();   // sharpen whatever is now on screen at the new zoom
       }catch(_){}
     }
 
