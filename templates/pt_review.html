@@ -1784,6 +1784,9 @@
       const r=await fetch(`/api/pt/fix-missed/${encodeURIComponent(JOB)}`,{method:'POST'});
       const d=await r.json(); if(!r.ok||d.error) throw new Error(d.error||'Fix failed');
       const lines=[];
+      if(d.added && d.added.length)
+        lines.push(`📦 ADDED ${d.added.length} panel${d.added.length===1?'':'s'} the packing-list scan missed:\n` +
+                   d.added.map(a=>`   ${a.panel}  (${a.shipment})${a.located?'':' — still needs placing on the prints'}`).join('\n'));
       if(d.placed.length)
         lines.push(`✅ PLACED ${d.placed.length}:\n` + d.placed.map(p=>`   ${p.panel} (${p.how})`).join('\n'));
       if(d.renamed.length)
@@ -1796,7 +1799,7 @@
         lines.push(`✋ PLACE BY HAND (${d.unresolved.length}):\n` +
                    d.unresolved.map(u=>`   ${u.panel} — ${u.reason}`).join('\n'));
       if(!lines.length) lines.push('Nothing to fix — every panel in the table is on the prints. 🎉');
-      showFixModal(lines.join('\n\n'), d.placed.length || d.renamed.length);
+      showFixModal(lines.join('\n\n'), (d.added&&d.added.length) || d.placed.length || d.renamed.length);
     }catch(e){ toast('⚠ '+e.message); }
     finally{ stopClock(); btn.disabled=false; btn.textContent='🔧 Fix Missed'; }
   }

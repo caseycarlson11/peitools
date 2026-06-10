@@ -690,7 +690,13 @@ and is copied as-is. The standalone tracker's old publish (numbered "N - <Job> D
 Tracked.pdf") is untouched.
 
 **Review "🔧 Fix Missed" button:** `POST /api/pt/fix-missed/<job>` — FREE deterministic pass
-(no AI) over the delivery table vs the prints. Auto-applies: remakes (`242R` placed at 242's
+(no AI). Stage 0 first: sweeps every packing list's OCR position scan (`pl_pos_v4_*` caches;
+uncached lists get scanned, slow on first run) for panels PRINTED on a list but absent from
+the delivery table (parse misses, e.g. a short panel row the parser skipped) — a number is
+only added if CAD or the prints confirm it's real (OCR junk skipped), it inherits the list's
+shipment label (skid blank), gets its known location if the prints have one, and panels the
+user previously DELETED are never resurrected. Then, over the table vs the prints, it
+auto-applies: remakes (`242R` placed at 242's
 location, label kept) and single-candidate OCR-misread renames — only when the bad number is
 NOT in the DXF panel set and the corrected number IS in CAD, unused, and already located
 (confusable-digit map, same length, one digit differs). Multiple candidates → returned as

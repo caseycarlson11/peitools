@@ -3153,9 +3153,54 @@ def pt_fix_missed(job_name):
         x, y = diff[0]
         return y in _CONF.get(x, "") or x in _CONF.get(y, "")
 
-    missed = [p for p in state if not find_loc(p)]
-    placed, renamed, suggestions, unresolved = [], [], [], []
+    placed, renamed, suggestions, unresolved, added = [], [], [], [], []
     corr = _pl_load_corrections(job_name)
+
+    # Stage 0: panels PRINTED on a packing list that never made it into the
+    # delivery table (parse misses — e.g. a short panel row the parser skipped).
+    # Sweeps the editor's OCR position scans (pl_pos_v4_* caches; uncached
+    # lists are scanned now, slower on first run). A number only counts if CAD
+    # or the prints confirm it's a real panel — OCR junk is skipped. Panels the
+    # user deleted before are never resurrected.
+    pl_dir = safe_join(job_name, "Packing Lists")
+    if os.path.isdir(pl_dir):
+        try:
+            from packing_list_engine import scan_packing_list_positions
+            for fname in sorted(os.listdir(pl_dir)):
+                if not fname.lower().endswith(".pdf"):
+                    continue
+                label = fname[:-4]
+                safe_name = re.sub(r"[^A-Za-z0-9._-]", "_", fname)
+                cache = os.path.join(_pl_tracking_dir(job_name),
+                                     f"pl_pos_v4_{safe_name}.json")
+                os.makedirs(_pl_tracking_dir(job_name), exist_ok=True)
+                try:
+                    data = scan_packing_list_positions(
+                        os.path.join(pl_dir, fname), cache_path=cache)
+                except Exception:
+                    continue
+                for pos in (data or {}).get("positions", []):
+                    p = str(pos.get("panel", "")).strip()
+                    if not p or p in state or p in corr.get("deletions", []):
+                        continue
+                    loc = find_loc(p)
+                    if not ((dxf_set and p in dxf_set) or loc):
+                        continue            # not a real panel — OCR junk
+                    state[p] = {"skid": "", "shipment": label}
+                    if (loc and p not in locations and loc.get("bbox")
+                            and loc.get("page") is not None):
+                        locations[p] = {"page": int(loc["page"]), "bbox": loc["bbox"]}
+                    corr["additions"][p] = {
+                        "panel": p, "skid": "", "shipment": label,
+                        "page": (int(loc["page"]) if loc and loc.get("page") is not None else None),
+                        "bbox": (loc.get("bbox") if loc else None)}
+                    _log_global_correction(job_name, {"type": "auto-fix-add",
+                                                      "panel": p, "shipment": label})
+                    added.append({"panel": p, "shipment": label, "located": bool(loc)})
+        except Exception:
+            pass
+
+    missed = [p for p in state if not find_loc(p)]
 
     for p in missed:
         # (a) remake: '242R' sits where '242' is
@@ -3202,7 +3247,7 @@ def pt_fix_missed(job_name):
             unresolved.append({"panel": p,
                                "reason": "no CAD data to locate it — place by hand"})
 
-    changed = bool(placed or renamed)
+    changed = bool(placed or renamed or added)
     regen_ok, regen_err = changed, None
     if changed:
         _pl_save_corrections(job_name, corr)
@@ -3236,7 +3281,7 @@ def pt_fix_missed(job_name):
         except Exception as e:
             regen_ok, regen_err = False, str(e)
 
-    return jsonify({"ok": True, "placed": placed, "renamed": renamed,
+    return jsonify({"ok": True, "added": added, "placed": placed, "renamed": renamed,
                     "suggestions": suggestions, "unresolved": unresolved,
                     "missed_before": len(missed),
                     "regenerated": regen_ok, "regen_error": regen_err})
