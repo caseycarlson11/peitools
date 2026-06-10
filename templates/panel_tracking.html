@@ -54,6 +54,33 @@
   .ship-label { font-weight: 700; flex: 1 1 auto; }
   .ship-meta { color: var(--text2); font-size: 0.78rem; white-space: nowrap; }
   .empty-note { color: var(--text2); font-size: 0.85rem; }
+
+  /* ── Public links ── */
+  .pub-list { display: flex; flex-direction: column; gap: 8px; }
+  .pub-item {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: 8px; padding: 9px 12px; font-size: 0.84rem;
+    flex-wrap: wrap;
+  }
+  .pub-item.off { opacity: 0.55; }
+  .pub-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--border); flex: 0 0 auto; }
+  .pub-dot.live { background: var(--green); box-shadow: 0 0 6px rgba(63,185,80,.6); }
+  .pub-name { font-weight: 700; flex: 0 0 auto; min-width: 145px; }
+  .pub-url {
+    flex: 1 1 160px; min-width: 120px;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--blue); font-size: 0.74rem; padding: 5px 8px;
+  }
+  .pub-copy, .pub-open {
+    flex: 0 0 auto; background: var(--surface); color: var(--text2);
+    border: 1px solid var(--border); border-radius: 6px;
+    padding: 5px 10px; font-family: inherit; font-size: 0.74rem; font-weight: 600;
+    cursor: pointer; text-decoration: none;
+  }
+  .pub-copy:hover, .pub-open:hover { color: var(--text); border-color: var(--blue); }
+  .pub-copy.copied { background: var(--green2); color: #fff; border-color: var(--green); }
+  .pub-off-note { color: var(--text2); font-size: 0.76rem; }
 {% endblock %}
 
 {% block content %}
@@ -99,6 +126,12 @@
     <div class="card-title">Fab Sheets</div>
     <p class="empty-note" id="fabNote" style="margin-bottom:12px;">Mark up fab sheets before sending to KPS.</p>
     <a class="btn btn-subtle" href="/panel-tracking/{{ pt_job }}/fab">Open Fab Sheets →</a>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Public Links</div>
+    <div class="pub-list" id="pubList"><span class="empty-note">Loading…</span></div>
+    <a class="btn btn-subtle" href="/public-links" style="margin-top:14px;">Manage Public Links →</a>
   </div>
 {% endif %}
 {% endblock %}
@@ -179,6 +212,33 @@
       document.getElementById('nextHint').textContent = 'Could not load job status.';
     });
 
+    // ── Public links for this job ──
+    fetch(`/api/public-links/${enc}`).then(r => r.json()).then(pl => {
+      const order = ['prints','panels_only','packing_lists','fab_sheets','spreadsheet','job_page'];
+      const list = document.getElementById('pubList');
+      list.innerHTML = order.map(k => {
+        const s = (pl.slots || {})[k];
+        if (!s) return '';
+        if (s.live) {
+          return `<div class="pub-item">
+                    <span class="pub-dot live"></span>
+                    <span class="pub-name">${s.name}</span>
+                    <input class="pub-url" type="text" readonly value="${s.url}" onclick="this.select()">
+                    <button class="pub-copy" onclick="ptCopyLink(this, this.previousElementSibling.value)">📋 Copy</button>
+                    <a class="pub-open" href="${s.url}" target="_blank">👁 Open</a>
+                  </div>`;
+        }
+        return `<div class="pub-item off">
+                  <span class="pub-dot"></span>
+                  <span class="pub-name">${s.name}</span>
+                  <span class="pub-off-note">not public</span>
+                </div>`;
+      }).join('');
+    }).catch(() => {
+      document.getElementById('pubList').innerHTML =
+        '<span class="empty-note">Could not load public links.</span>';
+    });
+
     fetch(`/api/jobs/${enc}`).then(r => r.json()).then(files => {
       const fabs = (files['Fab Sheets'] || []).length;
       const docsTotal = Object.keys(files).reduce((n, k) => n + files[k].length, 0);
@@ -188,5 +248,25 @@
         ? `${fabs} fab sheet${fabs === 1 ? '' : 's'} on this job. Mark them up before sending to KPS.`
         : 'No fab sheets uploaded yet — add them in Documents or Admin.';
     }).catch(() => {});
+  }
+
+  function ptCopyLink(btn, url) {
+    const done = () => {
+      btn.classList.add('copied'); btn.textContent = '✓ Copied';
+      setTimeout(() => { btn.classList.remove('copied'); btn.textContent = '📋 Copy'; }, 1600);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (_) {}
+        document.body.removeChild(ta); done();
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (_) {}
+      document.body.removeChild(ta); done();
+    }
   }
 {% endblock %}
