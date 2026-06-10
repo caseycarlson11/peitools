@@ -27,11 +27,20 @@
     }
     .bbtn:hover { border-color:var(--blue); }
     .zbtn { padding:7px 11px; font-size:.9rem; }
-    .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; }
-    .pg { margin:0 auto 14px; width:var(--pagew, 980px); max-width:97%; background:#fff;
-          box-shadow:0 3px 14px rgba(0,0,0,.45); }
+    .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; position:relative; }
+    .pg { margin:0 auto 14px; width:var(--pagew, 980px); background:#fff;
+          box-shadow:0 3px 14px rgba(0,0,0,.45); position:relative; }
     .pg canvas { display:block; width:100%; height:auto; }
     .load { color:var(--text2); text-align:center; padding:40px 16px; font-size:.9rem; }
+    .panel-hl {
+      position:absolute; z-index:5; pointer-events:none;
+      border:3px solid #ffe14d; background:rgba(255,225,77,.30); border-radius:3px;
+      animation:hlpulse 1.6s ease-out 2;
+    }
+    @keyframes hlpulse {
+      0%   { box-shadow:0 0 0 4px #fff, 0 0 18px 6px rgba(255,225,77,.95); }
+      100% { box-shadow:0 0 0 0 rgba(255,225,77,0); }
+    }
   </style>
 </head>
 <body>
@@ -61,8 +70,15 @@
     }
 
     const holder = document.getElementById('pages');
-    pdfjsLib.getDocument('/pl/{{ token }}/file').promise.then(doc=>{
+    let pageDims = [];   // 0-based: {w, h} at PDF scale 1 (panel bboxes use this space)
+    pdfjsLib.getDocument('/pl/{{ token }}/file').promise.then(async doc=>{
       holder.innerHTML = '';
+      // Page sizes up front, so every page has its real height BEFORE it renders —
+      // jumping to a deep page lands accurately.
+      for (let pg=1; pg<=doc.numPages; pg++){
+        const base = (await doc.getPage(pg)).getViewport({scale:1});
+        pageDims[pg-1] = {w: base.width, h: base.height};
+      }
       const obs = new IntersectionObserver(entries=>{
         entries.forEach(en=>{
           if (!en.isIntersecting) return;
@@ -81,6 +97,8 @@
       for (let pg=1; pg<=doc.numPages; pg++){
         const w = document.createElement('div');
         w.className = 'pg'; w.dataset.pg = pg;
+        const d = pageDims[pg-1];
+        w.style.aspectRatio = `${d.w} / ${d.h}`;
         w.innerHTML = '<canvas></canvas>';
         holder.appendChild(w);
         obs.observe(w);
@@ -88,10 +106,48 @@
       // ?goto=<bookmark title> — jump to that source file inside the combined doc
       const want = new URLSearchParams(location.search).get('goto');
       if (want) jumpToBookmark(doc, want);
+      // ?panel=NNN — zoom into that panel (Panels-Only prints)
+      const wantPanel = new URLSearchParams(location.search).get('panel');
+      if (wantPanel) zoomToPanel(wantPanel.trim());
     }).catch(err=>{
       holder.innerHTML = '<div class="load">Could not load the document. ' +
         'The link may have been replaced — ask for a new one.</div>';
     });
+
+    async function zoomToPanel(want){
+      try{
+        const r = await fetch('/pl/{{ token }}/panels');
+        if (!r.ok) return;
+        const locs = await r.json();
+        // exact key, else duplicate-instance keys like "211#2"
+        const key = locs[want] ? want
+                  : Object.keys(locs).find(k => k.split('#')[0] === want);
+        if (!key) return;
+        const loc = locs[key];
+        const dims = pageDims[loc.page];
+        const wrap = holder.querySelector(`.pg[data-pg="${loc.page + 1}"]`);
+        if (!dims || !wrap || !loc.bbox) return;
+        // zoom in well past screen width so the panel is readable
+        pageW = Math.max(pageW, Math.min(2600, Math.round(window.innerWidth * 2)));
+        document.documentElement.style.setProperty('--pagew', pageW + 'px');
+        // highlight box at the panel's spot (percent-based, survives any zoom)
+        const [x0,y0,x1,y1] = loc.bbox, pad = 3;
+        const hl = document.createElement('div');
+        hl.className = 'panel-hl';
+        hl.style.left   = ((x0-pad)/dims.w*100) + '%';
+        hl.style.top    = ((y0-pad)/dims.h*100) + '%';
+        hl.style.width  = ((x1-x0+pad*2)/dims.w*100) + '%';
+        hl.style.height = ((y1-y0+pad*2)/dims.h*100) + '%';
+        wrap.appendChild(hl);
+        // centre the panel after layout settles at the new width
+        requestAnimationFrame(()=>{
+          const cx = ((x0+x1)/2)/dims.w, cy = ((y0+y1)/2)/dims.h;
+          const top  = wrap.offsetTop  + cy*wrap.offsetHeight - holder.clientHeight/2;
+          const left = wrap.offsetLeft + cx*wrap.offsetWidth  - holder.clientWidth/2;
+          holder.scrollTo({top: Math.max(0,top), left: Math.max(0,left), behavior:'smooth'});
+        });
+      }catch(_){}
+    }
 
     async function jumpToBookmark(doc, title){
       try{

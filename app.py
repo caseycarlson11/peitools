@@ -3058,13 +3058,20 @@ def public_link_view(token):
         abort(404)
 
     if slot == "spreadsheet":
-        # If the All-Packing-Lists link is live, packing-list cells link to it
-        pl_info = _pub_load().get(job, {}).get("packing_lists") or {}
+        # If the All-Packing-Lists link is live, packing-list cells link to it.
+        # Panel-number cells: logged-in users go to Review & Fix; everyone else
+        # goes to the public Panels-Only prints (zoomed to the panel).
+        job_links = _pub_load().get(job, {})
+        pl_info = job_links.get("packing_lists") or {}
         pl_url = ("/pl/" + pl_info["token"]) if pl_info.get("token") else ""
+        po_info = job_links.get("panels_only") or {}
+        po_url = ("/pl/" + po_info["token"]) if po_info.get("token") else ""
         return render_template("public_sheet_view.html", job=job, token=token,
                                fname=os.path.basename(path),
                                sheets_url=_pub_sheets_url(job),
-                               pl_public_url=pl_url)
+                               pl_public_url=pl_url,
+                               panels_only_url=po_url,
+                               logged_in=bool(session.get("user")))
     return render_template("public_doc_view.html", job=job, token=token,
                            title=_PUB_SLOT_NAMES.get(slot, "Document"),
                            fname=os.path.basename(path))
@@ -3081,6 +3088,30 @@ def public_link_file(token):
     return send_file(path,
                      as_attachment=(request.args.get("dl") == "1"),
                      download_name=os.path.basename(path))
+
+
+@app.route("/pl/<token>/panels")
+def public_link_panels(token):
+    """Panel locations for the public Panels-Only viewer (?panel= zoom).
+    Same merged map the Review editor uses — page indices line up with the
+    Panel Mapper panels_only.pdf. Token-gated like every public route."""
+    job, slot, info = _pub_find(token)
+    if not job or slot != "panels_only":
+        abort(404)
+    locations = _pl_load_locations(job)
+    pm_sess = _pm_load_session(job)
+    if pm_sess:
+        pm_locs_path = pm_sess.get("locs", "")
+        if pm_locs_path and os.path.isfile(pm_locs_path):
+            try:
+                with open(pm_locs_path) as f:
+                    pm_locs = json.load(f)
+                for panel, loc in pm_locs.items():
+                    if panel not in locations:
+                        locations[panel] = loc
+            except Exception:
+                pass
+    return jsonify(locations)
 
 
 if __name__ == "__main__":

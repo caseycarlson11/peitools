@@ -60,7 +60,12 @@
   <script>
     const SHEETS_URL = {{ (sheets_url or '') | tojson }};
     const PL_PUBLIC_URL = {{ (pl_public_url or '') | tojson }};
+    const PANELS_ONLY_URL = {{ (panels_only_url or '') | tojson }};
+    const LOGGED_IN = {{ 'true' if logged_in else 'false' }};
     const REVIEW_URL = '/panel-tracking/' + encodeURIComponent({{ job | tojson }}) + '/review';
+    // Logged in → Review & Fix. Not logged in → public Panels-Only prints,
+    // zoomed to the clicked panel (or no link if that doc isn't public yet).
+    const PANEL_BASE = LOGGED_IN ? REVIEW_URL : PANELS_ONLY_URL;
     let rows = [];   // array of arrays, for TSV export
 
     fetch('/pl/{{ token }}/file').then(r=>{
@@ -81,9 +86,10 @@
           const v = esc(c);
           let cell = v;
           if (i > 0 && c !== '') {
-            if (ci === panelCol) {
-              // Panel number → Review & Fix, zoomed to the panel (login-protected)
-              cell = `<a href="${REVIEW_URL}?panel=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
+            if (ci === panelCol && PANEL_BASE) {
+              // Panel number → Review & Fix (logged in) or public Panels-Only
+              // prints (logged out), zoomed to the panel either way
+              cell = `<a href="${PANEL_BASE}?panel=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
             } else if (ci === plCol && PL_PUBLIC_URL) {
               // Packing list → public combined doc, jumped to its bookmark
               cell = `<a href="${PL_PUBLIC_URL}?goto=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
