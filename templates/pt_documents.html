@@ -408,6 +408,19 @@
     .sheet-scroll tr:hover td { background: var(--accent); }
     .panel-edit-link { color: var(--blue); text-decoration: none; font-weight: 600; }
     .panel-edit-link:hover { text-decoration: underline; }
+    /* View / Edit chooser for panel numbers */
+    .pmenu {
+      position: fixed; z-index: 1000; display: none; flex-direction: column; min-width: 175px;
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.55); overflow: hidden;
+    }
+    .pmenu.open { display: flex; }
+    .pmenu .pm-title { font-size: .72rem; font-weight: 700; color: var(--text2);
+      padding: 8px 12px 4px; text-transform: uppercase; letter-spacing: .05em; }
+    .pmenu a { display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+      color: var(--text); text-decoration: none; font-size: .86rem; font-weight: 600; }
+    .pmenu a:hover { background: rgba(96,180,240,.1); color: var(--blue); }
+    .pmenu a .sub { font-size: .7rem; color: var(--text2); font-weight: 400; margin-left: auto; }
     .sheet-scroll td[contenteditable] { cursor: text; }
     .sheet-scroll td[contenteditable]:focus {
       outline: 2px solid var(--blue); outline-offset: -2px;
@@ -885,9 +898,9 @@ async function viewSpreadsheet(fname) {
       html += `<tr data-panel="${panelVal.replace(/"/g,'&quot;')}">`;
       data[r].forEach((c, ci) => {
         if (ci === 0 && c !== '') {
-          // Panel Number — opens Review & Fix zoomed in on this panel
+          // Panel Number — View (public print) / Edit (Review & Fix) chooser
           const href = `${reviewBase}?panel=${encodeURIComponent(String(c))}`;
-          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link" href="${href}" target="_blank" rel="noopener" title="Open in Review &amp; Fix">${c}</a></td>`;
+          html += `<td data-row="${r}" data-col="${ci}"><a class="panel-edit-link plink" href="${href}" data-panel="${String(c).replace(/"/g,'&quot;')}" title="View or edit this panel">${c}</a></td>`;
         } else if (ci === 3 && c !== '') {
           // Packing List — link only, not directly editable
           const href = `${plBase}${encodeURIComponent(String(c) + '.pdf')}`;
@@ -911,6 +924,54 @@ async function viewSpreadsheet(fname) {
     scroll.innerHTML = `<p style="color:#ff6b6b;padding:20px;">Error loading spreadsheet: ${e.message}</p>`;
   }
 }
+
+// ── View / Edit chooser for panel-number clicks ──
+// View → the job's public Panels-Only link (zoomed); Edit → Review & Fix (zoomed).
+// If no public Panels-Only link is live, clicks go straight to Edit.
+let _poUrlJob = null, _poUrl = '';
+async function _ensurePanelsOnlyUrl() {
+  if (_poUrlJob === currentJob) return _poUrl;
+  _poUrlJob = currentJob; _poUrl = '';
+  try {
+    const d = await fetch(`/api/public-links/${encodeURIComponent(currentJob)}`).then(r => r.json());
+    const s = (d.slots || {}).panels_only;
+    if (s && s.live) _poUrl = s.url;
+  } catch (_) {}
+  return _poUrl;
+}
+
+const _pmenu = document.createElement('div');
+_pmenu.className = 'pmenu';
+_pmenu.innerHTML = `
+  <div class="pm-title" id="pmTitle">Panel</div>
+  <a id="pmView" target="_blank" rel="noopener">👁 View <span class="sub">public print</span></a>
+  <a id="pmEdit" target="_blank" rel="noopener">✎ Edit <span class="sub">Review &amp; Fix</span></a>`;
+document.body.appendChild(_pmenu);
+
+document.addEventListener('click', async e => {
+  const a = e.target.closest('a.plink');
+  if (!a) {
+    if (_pmenu.classList.contains('open') && !e.target.closest('.pmenu')) _pmenu.classList.remove('open');
+    return;
+  }
+  e.preventDefault();
+  const editHref = a.getAttribute('href');
+  const poUrl = await _ensurePanelsOnlyUrl();
+  if (!poUrl) { window.open(editHref, '_blank'); return; }   // nothing public to view
+  const p = a.dataset.panel;
+  _pmenu.querySelector('#pmTitle').textContent = 'Panel ' + p;
+  _pmenu.querySelector('#pmView').href = `${poUrl}?panel=${encodeURIComponent(p)}`;
+  _pmenu.querySelector('#pmEdit').href = editHref;
+  const r = a.getBoundingClientRect();
+  _pmenu.classList.add('open');
+  const mw = _pmenu.offsetWidth, mh = _pmenu.offsetHeight;
+  let x = r.right + 8, y = r.top - 4;
+  if (x + mw > window.innerWidth - 8)  x = Math.max(8, r.left - mw - 8);
+  if (y + mh > window.innerHeight - 8) y = Math.max(8, window.innerHeight - mh - 8);
+  _pmenu.style.left = x + 'px';
+  _pmenu.style.top  = y + 'px';
+});
+_pmenu.addEventListener('click', () => setTimeout(() => _pmenu.classList.remove('open'), 100));
 
 function loadSheetJS() {
   return new Promise((resolve, reject) => {

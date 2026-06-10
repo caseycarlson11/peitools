@@ -41,6 +41,19 @@
       box-shadow:0 6px 24px rgba(0,0,0,.5); display:none; z-index:99; text-align:center;
     }
     .toast.show { display:block; }
+    /* View / Edit chooser for panel numbers (logged-in users) */
+    .pmenu {
+      position:fixed; z-index:100; display:none; flex-direction:column; min-width:170px;
+      background:var(--surface); border:1px solid var(--border); border-radius:10px;
+      box-shadow:0 10px 30px rgba(0,0,0,.55); overflow:hidden;
+    }
+    .pmenu.open { display:flex; }
+    .pmenu .pm-title { font-size:.72rem; font-weight:700; color:var(--text2);
+      padding:8px 12px 4px; text-transform:uppercase; letter-spacing:.05em; }
+    .pmenu a { display:flex; align-items:center; gap:8px; padding:10px 14px;
+      color:var(--text); text-decoration:none; font-size:.86rem; font-weight:600; }
+    .pmenu a:hover { background:rgba(96,180,240,.1); color:var(--blue); }
+    .pmenu a .sub { font-size:.7rem; color:var(--text2); font-weight:400; margin-left:auto; }
   </style>
 </head>
 <body>
@@ -55,6 +68,11 @@
   </div>
   <div class="wrap" id="wrap"><div class="load">Loading spreadsheet…</div></div>
   <div class="toast" id="toast"></div>
+  <div class="pmenu" id="pmenu">
+    <div class="pm-title" id="pmTitle">Panel</div>
+    <a id="pmView" target="_blank" rel="noopener">👁 View <span class="sub">public print</span></a>
+    <a id="pmEdit" target="_blank" rel="noopener">✎ Edit <span class="sub">Review &amp; Fix</span></a>
+  </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
@@ -86,10 +104,15 @@
           const v = esc(c);
           let cell = v;
           if (i > 0 && c !== '') {
-            if (ci === panelCol && PANEL_BASE) {
-              // Panel number → Review & Fix (logged in) or public Panels-Only
-              // prints (logged out), zoomed to the panel either way
-              cell = `<a href="${PANEL_BASE}?panel=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
+            if (ci === panelCol) {
+              const n = encodeURIComponent(String(c));
+              if (LOGGED_IN && PANELS_ONLY_URL) {
+                // Logged in with a live public print: offer View / Edit chooser
+                cell = `<a href="${REVIEW_URL}?panel=${n}" class="plink" data-panel="${v}">${v}</a>`;
+              } else if (PANEL_BASE) {
+                // One destination only: public print (logged out) or Review (no public print)
+                cell = `<a href="${PANEL_BASE}?panel=${n}" target="_blank" rel="noopener">${v}</a>`;
+              }
             } else if (ci === plCol && PL_PUBLIC_URL) {
               // Packing list → public combined doc, jumped to its bookmark
               cell = `<a href="${PL_PUBLIC_URL}?goto=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
@@ -113,6 +136,34 @@
       t.textContent = msg; t.classList.add('show');
       setTimeout(()=>t.classList.remove('show'), 3500);
     }
+
+    // ── View / Edit chooser (logged-in panel clicks) ──
+    const pmenu = document.getElementById('pmenu');
+    document.getElementById('wrap').addEventListener('click', e=>{
+      const a = e.target.closest('a.plink');
+      if (!a) return;
+      e.preventDefault();
+      const p = a.dataset.panel;
+      const n = encodeURIComponent(p);
+      document.getElementById('pmTitle').textContent = 'Panel ' + p;
+      document.getElementById('pmView').href = `${PANELS_ONLY_URL}?panel=${n}`;
+      document.getElementById('pmEdit').href = `${REVIEW_URL}?panel=${n}`;
+      const r = a.getBoundingClientRect();
+      pmenu.classList.add('open');
+      const mw = pmenu.offsetWidth, mh = pmenu.offsetHeight;
+      let x = r.right + 8, y = r.top - 4;
+      if (x + mw > window.innerWidth - 8)  x = Math.max(8, r.left - mw - 8);
+      if (y + mh > window.innerHeight - 8) y = Math.max(8, window.innerHeight - mh - 8);
+      pmenu.style.left = x + 'px';
+      pmenu.style.top  = y + 'px';
+    });
+    document.addEventListener('click', e=>{
+      if (!pmenu.classList.contains('open')) return;
+      if (e.target.closest('#pmenu') || e.target.closest('a.plink')) return;
+      pmenu.classList.remove('open');
+    });
+    pmenu.addEventListener('click', ()=> setTimeout(()=>pmenu.classList.remove('open'), 100));
+    document.getElementById('wrap').addEventListener('scroll', ()=>pmenu.classList.remove('open'));
 
     function openGoogleSheets(){
       // Copy the data as TSV so it can be pasted straight into the sheet,
