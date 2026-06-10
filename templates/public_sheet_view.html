@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>Spreadsheet — {{ job }} | PEI</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#e6edf3; --text2:#8b949e; --blue:#60b4f0; --green:#3fb950; }
+    body { font-family:'Inter',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+    .bar {
+      display:flex; align-items:center; gap:10px; padding:9px 14px;
+      background:var(--surface); border-bottom:1px solid var(--border);
+      position:sticky; top:0; z-index:50; flex-wrap:wrap;
+    }
+    .logo { width:26px; height:26px; border-radius:6px; object-fit:cover; flex-shrink:0; }
+    .ttl { display:flex; flex-direction:column; min-width:0; flex:1; }
+    .ttl .t1 { font-size:.85rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ttl .t2 { font-size:.7rem; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .bbtn {
+      display:inline-flex; align-items:center; gap:5px;
+      background:var(--bg); color:var(--text); border:1px solid var(--border);
+      padding:7px 12px; border-radius:8px; font-family:inherit; font-size:.78rem;
+      font-weight:600; cursor:pointer; text-decoration:none; white-space:nowrap;
+    }
+    .bbtn:hover { border-color:var(--blue); }
+    .wrap { flex:1; overflow:auto; padding:14px; -webkit-overflow-scrolling:touch; }
+    table { border-collapse:collapse; font-size:.82rem; background:var(--surface);
+            border:1px solid var(--border); border-radius:8px; }
+    th, td { border:1px solid var(--border); padding:6px 12px; text-align:left; white-space:nowrap; }
+    th { background:#1c2230; font-weight:700; color:var(--blue); position:sticky; top:0; }
+    tr:nth-child(even) td { background:rgba(255,255,255,.02); }
+    td a { color:var(--blue); }
+    .load { color:var(--text2); text-align:center; padding:40px 16px; font-size:.9rem; }
+    .toast {
+      position:fixed; bottom:22px; left:50%; transform:translateX(-50%);
+      background:#238636; color:#fff; border:1px solid var(--green);
+      padding:10px 18px; border-radius:10px; font-size:.84rem; font-weight:600;
+      box-shadow:0 6px 24px rgba(0,0,0,.5); display:none; z-index:99; text-align:center;
+    }
+    .toast.show { display:block; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <img class="logo" src="/static/logo.jpg" alt="PEI">
+    <div class="ttl">
+      <span class="t1">Job Spreadsheet — {{ job }}</span>
+      <span class="t2">{{ fname }} · Pacific Erectors Inc.</span>
+    </div>
+    <a class="bbtn" href="/pl/{{ token }}/file?dl=1">⬇ Download</a>
+    <button class="bbtn" onclick="openGoogleSheets()">📊 Open in Google Sheets</button>
+  </div>
+  <div class="wrap" id="wrap"><div class="load">Loading spreadsheet…</div></div>
+  <div class="toast" id="toast"></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script>
+    const SHEETS_URL = {{ (sheets_url or '') | tojson }};
+    let rows = [];   // array of arrays, for TSV export
+
+    fetch('/pl/{{ token }}/file').then(r=>{
+      if (!r.ok) throw new Error('HTTP '+r.status);
+      return r.arrayBuffer();
+    }).then(buf=>{
+      const wb = XLSX.read(buf, {type:'array'});
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
+      const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      let html = '<table>';
+      rows.forEach((r,i)=>{
+        html += '<tr>' + r.map(c=>{
+          const v = esc(c);
+          const cell = /^https?:\/\//.test(String(c))
+            ? `<a href="${v}" target="_blank">${v}</a>` : v;
+          return i===0 ? `<th>${cell}</th>` : `<td>${cell}</td>`;
+        }).join('') + '</tr>';
+      });
+      html += '</table>';
+      document.getElementById('wrap').innerHTML = html;
+    }).catch(()=>{
+      document.getElementById('wrap').innerHTML =
+        '<div class="load">Could not load the spreadsheet. ' +
+        'The link may have been replaced — ask for a new one.</div>';
+    });
+
+    function toast(msg){
+      const t = document.getElementById('toast');
+      t.textContent = msg; t.classList.add('show');
+      setTimeout(()=>t.classList.remove('show'), 3500);
+    }
+
+    function openGoogleSheets(){
+      // Copy the data as TSV so it can be pasted straight into the sheet,
+      // then open the job's linked Google Sheet (or a brand-new one).
+      const tsv = rows.map(r=>r.join('\t')).join('\n');
+      const open = ()=> window.open(SHEETS_URL || 'https://sheets.new', '_blank');
+      const note = SHEETS_URL
+        ? 'Data copied — press Ctrl+V (⌘V on iPad/Mac) in the sheet to paste the latest data.'
+        : 'Data copied — press Ctrl+V (⌘V) in the new sheet to paste.';
+      if (navigator.clipboard && navigator.clipboard.writeText){
+        navigator.clipboard.writeText(tsv).then(()=>{ toast(note); open(); })
+          .catch(()=>{ open(); });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = tsv; document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); toast(note); }catch(_){}
+        document.body.removeChild(ta); open();
+      }
+    }
+  </script>
+</body>
+</html>

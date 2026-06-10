@@ -2761,5 +2761,323 @@ def panel_tracking_overview(job_name):
     return render_template("panel_tracking.html", pt_job=job_name, pt_tab="overview")
 
 
+# ════════════════════════════════════════════════════════════════════
+# Public Links — one permanent public link per document slot, per job.
+# Publish swaps the document behind a link (link never changes).
+# "New Link" rotates the token — the old link stops working instantly.
+# Store: <JOBS_DIR>/.public_links.json = {job: {slot: {token, file, published}}}
+# ════════════════════════════════════════════════════════════════════
+
+PUBLIC_LINKS_FILE = os.path.join(JOBS_DIR, ".public_links.json")
+_PUB_SLOTS = ("prints", "panels_only", "packing_lists", "fab_sheets",
+              "spreadsheet", "job_page")
+_PUB_SLOT_NAMES = {
+    "prints":        "Marked-Up Prints",
+    "panels_only":   "Panels-Only Prints",
+    "packing_lists": "All Packing Lists",
+    "fab_sheets":    "All Fab Sheets",
+    "spreadsheet":   "Job Spreadsheet",
+    "job_page":      "Job Page",
+}
+# Slots whose document is picked by hand at Publish time
+_PUB_PICKED_SLOTS = ("prints", "panels_only")
+# Slots that always serve the current folder contents (auto-update)
+_PUB_AUTO_SLOTS = ("packing_lists", "fab_sheets", "spreadsheet")
+
+
+def _pub_load():
+    if os.path.exists(PUBLIC_LINKS_FILE):
+        try:
+            with open(PUBLIC_LINKS_FILE) as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def _pub_save(data):
+    with open(PUBLIC_LINKS_FILE, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def _pub_find(token):
+    """Resolve a public token -> (job, slot, info). Token must match EXACTLY
+    the currently stored one — rotated-away tokens resolve to nothing."""
+    if not token:
+        return None, None, None
+    data = _pub_load()
+    for job, slots in data.items():
+        for slot, info in slots.items():
+            if isinstance(info, dict) and info.get("token") == token:
+                return job, slot, info
+    return None, None, None
+
+
+def _pub_merged_pdf(job_name, folder, cache_name):
+    """Combine every PDF in <job>/<folder> into one document (with a bookmark
+    per source file). Cached in <job>/Public Links/ and rebuilt automatically
+    whenever the source folder's contents change."""
+    import fitz
+    src_dir = safe_join(job_name, folder)
+    if not os.path.isdir(src_dir):
+        return None
+    files = sorted(f for f in os.listdir(src_dir) if f.lower().endswith(".pdf"))
+    if not files:
+        return None
+
+    out_dir = safe_join(job_name, "Public Links")
+    os.makedirs(out_dir, exist_ok=True)
+    out_path = os.path.join(out_dir, cache_name)
+    meta_path = out_path + ".meta.json"
+
+    sig = [[f, os.path.getmtime(os.path.join(src_dir, f))] for f in files]
+    if os.path.exists(out_path) and os.path.exists(meta_path):
+        try:
+            with open(meta_path) as f:
+                if json.load(f) == sig:
+                    return out_path          # cache is current
+        except Exception:
+            pass
+
+    doc = fitz.open()
+    toc = []
+    for f in files:
+        try:
+            src = fitz.open(os.path.join(src_dir, f))
+            toc.append([1, os.path.splitext(f)[0], doc.page_count + 1])
+            doc.insert_pdf(src)
+            src.close()
+        except Exception:
+            continue                          # skip unreadable PDFs
+    if not doc.page_count:
+        doc.close()
+        return None
+    try:
+        doc.set_toc(toc)
+    except Exception:
+        pass
+    doc.save(out_path)
+    doc.close()
+    with open(meta_path, "w") as f:
+        json.dump(sig, f)
+    return out_path
+
+
+def _pub_spreadsheet_path(job_name):
+    """Current xlsx for the job — prefers <job>.xlsx, else first xlsx found."""
+    ss_dir = safe_join(job_name, "Spreadsheets")
+    if not os.path.isdir(ss_dir):
+        return None
+    preferred = os.path.join(ss_dir, f"{job_name}.xlsx")
+    if os.path.isfile(preferred):
+        return preferred
+    xs = sorted(f for f in os.listdir(ss_dir)
+                if f.lower().endswith((".xlsx", ".xls")))
+    return os.path.join(ss_dir, xs[0]) if xs else None
+
+
+def _pub_sheets_url(job_name):
+    """The job's linked Google Sheets URL (same file the Documents tab uses)."""
+    p = safe_join(job_name, "Spreadsheets", f"{job_name}_sheets_url.json")
+    if os.path.isfile(p):
+        try:
+            with open(p) as f:
+                return (json.load(f) or {}).get("url", "")
+        except Exception:
+            pass
+    return ""
+
+
+def _pub_current_file(job_name, slot, info):
+    """Absolute path of the document currently behind a slot, or None."""
+    if slot in _PUB_PICKED_SLOTS:
+        rel = (info or {}).get("file")
+        if not rel:
+            return None
+        path = safe_join(job_name, rel)
+        return path if os.path.isfile(path) else None
+    if slot == "packing_lists":
+        return _pub_merged_pdf(job_name, "Packing Lists", "All Packing Lists.pdf")
+    if slot == "fab_sheets":
+        return _pub_merged_pdf(job_name, "Fab Sheets", "All Fab Sheets.pdf")
+    if slot == "spreadsheet":
+        return _pub_spreadsheet_path(job_name)
+    return None
+
+
+# ── Admin: the tool page ─────────────────────────────────────────────
+
+@app.route("/public-links")
+@login_required
+def public_links_tool():
+    return render_template("public_links.html")
+
+
+@app.route("/api/public-links/<path:job_name>")
+@login_required
+def public_links_state(job_name):
+    job_path = safe_join(job_name)
+    if not os.path.isdir(job_path):
+        return jsonify({"error": "Job not found"}), 404
+    job_links = _pub_load().get(job_name, {})
+
+    # Candidate PDFs for the hand-picked print slots
+    candidates = []
+    for folder in ("Blueprints", "Panel Mapper"):
+        fdir = os.path.join(job_path, folder)
+        if os.path.isdir(fdir):
+            for f in sorted(os.listdir(fdir)):
+                if f.lower().endswith(".pdf"):
+                    candidates.append({"folder": folder, "name": f})
+
+    def _count_pdfs(folder):
+        fdir = os.path.join(job_path, folder)
+        if not os.path.isdir(fdir):
+            return 0
+        return len([f for f in os.listdir(fdir) if f.lower().endswith(".pdf")])
+
+    ss_path = _pub_spreadsheet_path(job_name)
+    slots = {}
+    for slot in _PUB_SLOTS:
+        info = job_links.get(slot) or {}
+        live = bool(info.get("token"))
+        slots[slot] = {
+            "name": _PUB_SLOT_NAMES[slot],
+            "live": live,
+            "url": (request.url_root.rstrip("/") + "/pl/" + info["token"]) if live else None,
+            "file": info.get("file"),
+            "published": info.get("published"),
+        }
+    return jsonify({
+        "slots": slots,
+        "candidates": candidates,
+        "packing_count": _count_pdfs("Packing Lists"),
+        "fab_count": _count_pdfs("Fab Sheets"),
+        "spreadsheet_file": os.path.basename(ss_path) if ss_path else None,
+        "sheets_url": _pub_sheets_url(job_name),
+    })
+
+
+@app.route("/api/public-links/<path:job_name>/publish", methods=["POST"])
+@login_required
+def public_links_publish(job_name):
+    """Designate (or swap) the document behind a slot. Creates the link the
+    first time; afterwards the SAME link simply starts serving the new doc."""
+    job_path = safe_join(job_name)
+    if not os.path.isdir(job_path):
+        return jsonify({"error": "Job not found"}), 404
+    body = request.get_json(silent=True) or {}
+    slot = body.get("slot", "")
+    if slot not in _PUB_SLOTS:
+        return jsonify({"error": "Unknown slot"}), 400
+
+    data = _pub_load()
+    info = data.setdefault(job_name, {}).setdefault(slot, {})
+
+    if slot in _PUB_PICKED_SLOTS:
+        folder = body.get("folder", "")
+        fname = body.get("file", "")
+        if folder not in ("Blueprints", "Panel Mapper") or not fname:
+            return jsonify({"error": "Pick a PDF to publish"}), 400
+        path = safe_join(job_name, folder, fname)
+        if not os.path.isfile(path):
+            return jsonify({"error": "File not found"}), 404
+        info["file"] = f"{folder}/{fname}"
+    else:
+        # Auto slots: just verify there is something to serve right now
+        if not _pub_current_file(job_name, slot, info) and slot != "job_page":
+            return jsonify({"error": "Nothing to publish yet — the source "
+                            "folder is empty."}), 400
+
+    if not info.get("token"):
+        info["token"] = secrets.token_urlsafe(16)
+    now = datetime.now()
+    info["published"] = f"{now.month}/{now.day}/{now.year % 100} {now:%H:%M}"
+    _pub_save(data)
+    return jsonify({"ok": True,
+                    "url": request.url_root.rstrip("/") + "/pl/" + info["token"]})
+
+
+@app.route("/api/public-links/<path:job_name>/rotate", methods=["POST"])
+@login_required
+def public_links_rotate(job_name):
+    """Generate a NEW link for a slot. The old link stops working instantly."""
+    body = request.get_json(silent=True) or {}
+    slot = body.get("slot", "")
+    if slot not in _PUB_SLOTS:
+        return jsonify({"error": "Unknown slot"}), 400
+    data = _pub_load()
+    info = data.setdefault(job_name, {}).setdefault(slot, {})
+    info["token"] = secrets.token_urlsafe(16)
+    now = datetime.now()
+    info["published"] = f"{now.month}/{now.day}/{now.year % 100} {now:%H:%M}"
+    _pub_save(data)
+    return jsonify({"ok": True,
+                    "url": request.url_root.rstrip("/") + "/pl/" + info["token"]})
+
+
+@app.route("/api/public-links/<path:job_name>/disable", methods=["POST"])
+@login_required
+def public_links_disable(job_name):
+    """Kill a slot's link without creating a new one. The chosen document is
+    remembered, so re-publishing restores the same doc under a fresh link."""
+    body = request.get_json(silent=True) or {}
+    slot = body.get("slot", "")
+    if slot not in _PUB_SLOTS:
+        return jsonify({"error": "Unknown slot"}), 400
+    data = _pub_load()
+    info = data.get(job_name, {}).get(slot)
+    if info:
+        info.pop("token", None)
+        _pub_save(data)
+    return jsonify({"ok": True})
+
+
+# ── Public: no login required — the token IS the access ─────────────
+
+@app.route("/pl/<token>")
+def public_link_view(token):
+    job, slot, info = _pub_find(token)
+    if not job:
+        abort(404)
+
+    if slot == "job_page":
+        job_links = _pub_load().get(job, {})
+        docs = []
+        for s in _PUB_SLOTS:
+            if s == "job_page":
+                continue
+            i = job_links.get(s) or {}
+            if i.get("token") and _pub_current_file(job, s, i):
+                docs.append({"slot": s, "name": _PUB_SLOT_NAMES[s],
+                             "url": "/pl/" + i["token"]})
+        return render_template("public_job_page.html", job=job, docs=docs)
+
+    path = _pub_current_file(job, slot, info)
+    if not path:
+        abort(404)
+
+    if slot == "spreadsheet":
+        return render_template("public_sheet_view.html", job=job, token=token,
+                               fname=os.path.basename(path),
+                               sheets_url=_pub_sheets_url(job))
+    return render_template("public_doc_view.html", job=job, token=token,
+                           title=_PUB_SLOT_NAMES.get(slot, "Document"),
+                           fname=os.path.basename(path))
+
+
+@app.route("/pl/<token>/file")
+def public_link_file(token):
+    job, slot, info = _pub_find(token)
+    if not job or slot == "job_page":
+        abort(404)
+    path = _pub_current_file(job, slot, info)
+    if not path:
+        abort(404)
+    return send_file(path,
+                     as_attachment=(request.args.get("dl") == "1"),
+                     download_name=os.path.basename(path))
+
+
 if __name__ == "__main__":
     app.run(debug=True)

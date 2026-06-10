@@ -1,0 +1,245 @@
+{% extends "base.html" %}
+{% block title %}Public Links{% endblock %}
+
+{% block extra_style %}
+  .slot-card {
+    background: rgba(28, 34, 48, 0.88); backdrop-filter: blur(8px);
+    border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 20px; margin-bottom: 14px;
+  }
+  .slot-head { display:flex; align-items:center; gap:10px; margin-bottom:6px; }
+  .slot-title { font-weight:700; font-size:.95rem; flex:1; }
+  .pill { font-size:.68rem; font-weight:800; letter-spacing:.06em; padding:3px 10px; border-radius:20px; }
+  .pill.live { background:rgba(63,185,80,.15); color:var(--green); border:1px solid rgba(63,185,80,.4); }
+  .pill.off  { background:var(--surface); color:var(--text2); border:1px solid var(--border); }
+  .slot-sub { color:var(--text2); font-size:.8rem; margin-bottom:10px; line-height:1.45; }
+  .slot-doc { font-size:.84rem; margin-bottom:10px; }
+  .slot-doc b { color:var(--blue); font-weight:600; word-break:break-all; }
+
+  .link-row { display:flex; gap:8px; align-items:center; margin:10px 0; }
+  .link-row input { flex:1; font-size:.8rem; color:var(--blue); }
+  .copy-btn { flex-shrink:0; }
+  .copy-btn.copied { background:var(--green2) !important; color:#fff !important; border-color:var(--green) !important; }
+
+  .pick-list { display:flex; flex-direction:column; gap:5px; margin:10px 0; max-height:230px; overflow-y:auto; }
+  .pick-item { display:flex; align-items:center; gap:9px;
+    background:var(--surface); border:1px solid var(--border); border-radius:8px;
+    padding:8px 12px; cursor:pointer; font-size:.83rem; transition:border-color .15s; }
+  .pick-item:hover { border-color:var(--blue); }
+  .pick-item.selected { border-color:var(--green); background:rgba(63,185,80,.08); }
+  .pick-item input { width:15px; height:15px; accent-color:var(--green); flex-shrink:0; }
+  .pick-item .pname { flex:1; word-break:break-all; }
+  .pick-item .ptag { font-size:.66rem; font-weight:700; padding:1px 6px; border-radius:5px;
+    background:rgba(63,185,80,.18); color:var(--green); white-space:nowrap; }
+  .pick-item .ptag.bp { background:var(--accent); color:var(--blue); }
+  .pick-toggle { background:none; border:none; color:var(--blue); font-size:.8rem;
+    font-family:inherit; cursor:pointer; padding:0; }
+  .pick-toggle:hover { text-decoration:underline; }
+
+  .slot-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+  .slot-actions .btn { padding:7px 14px; font-size:.82rem; }
+  .pub-date { color:var(--text2); font-size:.74rem; margin-top:8px; }
+  .empty-note { color:var(--text2); font-size:.83rem; }
+{% endblock %}
+
+{% block content %}
+<h1 class="page-heading">🔗 Public Links</h1>
+<p class="page-subtitle">
+  One permanent public link per document — no login needed to view.
+  <strong>Publish</strong> swaps which document is live; the link never changes.
+  <strong>New Link</strong> kills the old link instantly and issues a fresh one.
+</p>
+
+<div class="card">
+  <div class="card-title">Select Job</div>
+  <select id="jobSelect" onchange="onJobChange()">
+    <option value="">Loading jobs…</option>
+  </select>
+</div>
+
+<div id="slotsWrap" style="display:none"></div>
+<div class="alert alert-error" id="errBox"></div>
+{% endblock %}
+
+{% block scripts %}
+let job = '';
+let state = null;           // last /api/public-links response
+let picked = {};            // slot -> {folder, file} chosen in the picker
+let pickersOpen = {};       // slot -> bool, survives re-render
+
+const SLOT_ORDER = ['prints','panels_only','packing_lists','fab_sheets','spreadsheet','job_page'];
+const SLOT_ICONS = {prints:'📐', panels_only:'🟥', packing_lists:'📦', fab_sheets:'📄', spreadsheet:'📊', job_page:'🏠'};
+const SLOT_DESC = {
+  prints:        'The full marked-up print set — pick which PDF from Blueprints or Panel Mapper is public.',
+  panels_only:   'The panels-only version of the prints — pick which PDF is public.',
+  packing_lists: 'One combined PDF of every packing list on this job. Always current — new packing lists appear automatically.',
+  fab_sheets:    'One combined PDF of every fab sheet on this job. Always current — new fab sheets appear automatically.',
+  spreadsheet:   'The job spreadsheet in a viewer, with Download and Open-in-Google-Sheets. Always serves the latest version.',
+  job_page:      'A single public page with buttons for every live document above — one bookmark for the whole job.',
+};
+
+const $ = id => document.getElementById(id);
+function showErr(m){ const e=$('errBox'); e.textContent='⚠ '+m; e.classList.add('show'); }
+function clearErr(){ $('errBox').classList.remove('show'); }
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+
+fetch('/api/jobs').then(r=>r.json()).then(jobs=>{
+  const sel = $('jobSelect');
+  sel.innerHTML = '<option value="">— Select a job —</option>';
+  jobs.forEach(j=>{ const o=document.createElement('option'); o.value=o.textContent=j; sel.appendChild(o); });
+});
+
+function onJobChange(){
+  job = $('jobSelect').value;
+  picked = {}; pickersOpen = {};
+  clearErr();
+  $('slotsWrap').style.display = job ? '' : 'none';
+  if (job) load();
+}
+
+function load(){
+  fetch('/api/public-links/'+encodeURIComponent(job))
+    .then(r=>r.json()).then(d=>{
+      if (d.error){ showErr(d.error); return; }
+      state = d;
+      render();
+    }).catch(()=>showErr('Could not load link status.'));
+}
+
+function render(){
+  const wrap = $('slotsWrap');
+  wrap.innerHTML = SLOT_ORDER.map(slot=>{
+    const s = state.slots[slot];
+    const live = s.live;
+    let body = `<div class="slot-sub">${SLOT_DESC[slot]}</div>`;
+
+    if (slot==='prints' || slot==='panels_only'){
+      if (s.file) body += `<div class="slot-doc">Public document: <b>${esc(s.file)}</b></div>`;
+      const open = pickersOpen[slot] || !s.file;
+      body += `<button class="pick-toggle" onclick="togglePicker('${slot}')">${open?'▾':'▸'} ${s.file?'Swap document…':'Choose document…'}</button>`;
+      if (open){
+        const cands = state.candidates;
+        body += cands.length ? '<div class="pick-list">' + cands.map(c=>{
+          const sel = picked[slot] && picked[slot].file===c.name && picked[slot].folder===c.folder;
+          const cur = s.file === c.folder+'/'+c.name;
+          return `<label class="pick-item ${sel?'selected':''}" onclick="pick('${slot}','${esc(c.folder)}','${esc(c.name)}')">
+            <input type="radio" name="pick_${slot}" ${sel?'checked':''}>
+            <span class="pname">${esc(c.name)}${cur?' <span style="color:var(--green);font-size:.7rem;font-weight:700">● current</span>':''}</span>
+            <span class="ptag ${c.folder==='Blueprints'?'bp':''}">${esc(c.folder)}</span>
+          </label>`;
+        }).join('') + '</div>'
+        : '<div class="empty-note" style="margin:8px 0">No PDFs found in Blueprints or Panel Mapper for this job.</div>';
+      }
+    } else if (slot==='packing_lists'){
+      body += `<div class="slot-doc">${state.packing_count} packing list${state.packing_count===1?'':'s'} in the folder will be combined.</div>`;
+    } else if (slot==='fab_sheets'){
+      body += `<div class="slot-doc">${state.fab_count} fab sheet${state.fab_count===1?'':'s'} in the folder will be combined.</div>`;
+    } else if (slot==='spreadsheet'){
+      body += state.spreadsheet_file
+        ? `<div class="slot-doc">Current file: <b>${esc(state.spreadsheet_file)}</b>${state.sheets_url?' · <span style="color:var(--green)">🔗 Google Sheet linked</span>':' · <span style="color:var(--text2)">no Google Sheet linked yet (link one in Documents)</span>'}</div>`
+        : `<div class="empty-note" style="margin-bottom:10px">No spreadsheet yet — build one with “Pull Data into Spreadsheet” in Documents.</div>`;
+    } else if (slot==='job_page'){
+      const liveDocs = SLOT_ORDER.filter(k=>k!=='job_page' && state.slots[k].live).map(k=>state.slots[k].name);
+      body += liveDocs.length
+        ? `<div class="slot-doc">Will show: <b>${liveDocs.join(' · ')}</b></div>`
+        : `<div class="empty-note" style="margin-bottom:10px">No live documents yet — the page will be empty until you publish some above.</div>`;
+    }
+
+    if (live){
+      body += `
+        <div class="link-row">
+          <input type="text" readonly value="${esc(s.url)}" onclick="this.select()">
+          <button class="btn btn-subtle copy-btn" onclick="copyLink(this,'${esc(s.url)}')">📋 Copy</button>
+        </div>`;
+    }
+
+    let actions = '';
+    const canPublish = !( (slot==='prints'||slot==='panels_only') && !picked[slot] && !s.file );
+    const pubLabel = live ? '🔁 Publish (swap document)' : '🌐 Publish & create link';
+    actions += `<button class="btn btn-green" onclick="publish('${slot}')" ${canPublish?'':'disabled'}>${pubLabel}</button>`;
+    if (live){
+      actions += `<button class="btn btn-subtle" onclick="rotate('${slot}')">♻️ New Link</button>`;
+      actions += `<button class="btn btn-danger" onclick="disableLink('${slot}')">🚫 Disable</button>`;
+      actions += `<a class="btn btn-subtle" href="${esc(s.url)}" target="_blank">👁 Preview</a>`;
+    }
+
+    return `<div class="slot-card">
+      <div class="slot-head">
+        <span style="font-size:1.1rem">${SLOT_ICONS[slot]}</span>
+        <span class="slot-title">${s.name}</span>
+        <span class="pill ${live?'live':'off'}">${live?'LIVE':'NOT PUBLIC'}</span>
+      </div>
+      ${body}
+      <div class="slot-actions">${actions}</div>
+      ${s.published ? `<div class="pub-date">Last published ${esc(s.published)}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function togglePicker(slot){
+  pickersOpen[slot] = !(pickersOpen[slot] || !state.slots[slot].file);
+  render();
+}
+
+function pick(slot, folder, file){
+  picked[slot] = {folder, file};
+  pickersOpen[slot] = true;
+  render();
+}
+
+function publish(slot){
+  clearErr();
+  const body = {slot};
+  if (slot==='prints' || slot==='panels_only'){
+    const p = picked[slot];
+    if (p){ body.folder = p.folder; body.file = p.file; }
+    else if (state.slots[slot].file){
+      const [folder, ...rest] = state.slots[slot].file.split('/');
+      body.folder = folder; body.file = rest.join('/');
+    } else { showErr('Pick a PDF first.'); return; }
+  }
+  fetch('/api/public-links/'+encodeURIComponent(job)+'/publish', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)
+  }).then(r=>r.json()).then(d=>{
+    if (d.error){ showErr(d.error); return; }
+    delete picked[slot]; pickersOpen[slot] = false;
+    load();
+  }).catch(()=>showErr('Publish failed.'));
+}
+
+function rotate(slot){
+  if (!confirm('Generate a NEW link for "'+state.slots[slot].name+'"?\n\n' +
+               'The current link will STOP WORKING immediately for everyone who has it.')) return;
+  fetch('/api/public-links/'+encodeURIComponent(job)+'/rotate', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slot})
+  }).then(r=>r.json()).then(d=>{
+    if (d.error){ showErr(d.error); return; }
+    load();
+  }).catch(()=>showErr('Could not create a new link.'));
+}
+
+function disableLink(slot){
+  if (!confirm('Disable the public link for "'+state.slots[slot].name+'"?\n\n' +
+               'The link will stop working immediately. Publishing again later will create a fresh link.')) return;
+  fetch('/api/public-links/'+encodeURIComponent(job)+'/disable', {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({slot})
+  }).then(r=>r.json()).then(d=>{
+    if (d.error){ showErr(d.error); return; }
+    load();
+  }).catch(()=>showErr('Could not disable the link.'));
+}
+
+function copyLink(btn, url){
+  const done = ()=>{ btn.classList.add('copied'); btn.textContent='✓ Copied';
+                     setTimeout(()=>{ btn.classList.remove('copied'); btn.textContent='📋 Copy'; }, 1600); };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(done).catch(()=>fallbackCopy(url, done));
+  } else fallbackCopy(url, done);
+}
+function fallbackCopy(text, done){
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta);
+  ta.select(); try{ document.execCommand('copy'); }catch(_){}
+  document.body.removeChild(ta); done();
+}
+{% endblock %}

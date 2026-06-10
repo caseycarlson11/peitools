@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <title>{{ title }} — {{ job }} | PEI</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+    :root { --bg:#0d1117; --surface:#161b22; --border:#30363d; --text:#e6edf3; --text2:#8b949e; --blue:#60b4f0; }
+    body { font-family:'Inter',sans-serif; background:#2b2f36; color:var(--text); min-height:100vh; display:flex; flex-direction:column; }
+    .bar {
+      display:flex; align-items:center; gap:10px; padding:9px 14px;
+      background:var(--surface); border-bottom:1px solid var(--border);
+      position:sticky; top:0; z-index:50; flex-wrap:wrap;
+    }
+    .logo { width:26px; height:26px; border-radius:6px; object-fit:cover; flex-shrink:0; }
+    .ttl { display:flex; flex-direction:column; min-width:0; flex:1; }
+    .ttl .t1 { font-size:.85rem; font-weight:700; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .ttl .t2 { font-size:.7rem; color:var(--text2); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .bbtn {
+      display:inline-flex; align-items:center; gap:5px;
+      background:var(--bg); color:var(--text); border:1px solid var(--border);
+      padding:7px 12px; border-radius:8px; font-family:inherit; font-size:.78rem;
+      font-weight:600; cursor:pointer; text-decoration:none; white-space:nowrap;
+    }
+    .bbtn:hover { border-color:var(--blue); }
+    .zbtn { padding:7px 11px; font-size:.9rem; }
+    .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; }
+    .pg { margin:0 auto 14px; width:var(--pagew, 980px); max-width:97%; background:#fff;
+          box-shadow:0 3px 14px rgba(0,0,0,.45); }
+    .pg canvas { display:block; width:100%; height:auto; }
+    .load { color:var(--text2); text-align:center; padding:40px 16px; font-size:.9rem; }
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <img class="logo" src="/static/logo.jpg" alt="PEI">
+    <div class="ttl">
+      <span class="t1">{{ title }} — {{ job }}</span>
+      <span class="t2">{{ fname }} · Pacific Erectors Inc.</span>
+    </div>
+    <button class="bbtn zbtn" onclick="zoom(-1)" title="Zoom out">−</button>
+    <button class="bbtn zbtn" onclick="zoom(1)" title="Zoom in">＋</button>
+    <a class="bbtn" href="/pl/{{ token }}/file" target="_blank">🖨 Print</a>
+    <a class="bbtn" href="/pl/{{ token }}/file?dl=1">⬇ Download</a>
+  </div>
+  <div class="pages" id="pages"><div class="load">Loading document…</div></div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+    let pageW = Math.min(980, window.innerWidth - 16);
+    document.documentElement.style.setProperty('--pagew', pageW + 'px');
+    function zoom(dir){
+      pageW = Math.max(320, Math.min(2600, pageW + dir * 160));
+      document.documentElement.style.setProperty('--pagew', pageW + 'px');
+    }
+
+    const holder = document.getElementById('pages');
+    pdfjsLib.getDocument('/pl/{{ token }}/file').promise.then(doc=>{
+      holder.innerHTML = '';
+      const obs = new IntersectionObserver(entries=>{
+        entries.forEach(en=>{
+          if (!en.isIntersecting) return;
+          const el = en.target;
+          if (el.dataset.rendered) return;
+          el.dataset.rendered = '1';
+          doc.getPage(parseInt(el.dataset.pg,10)).then(page=>{
+            const base = page.getViewport({scale:1});
+            const vp = page.getViewport({scale: 1400 / base.width});
+            const c = el.querySelector('canvas');
+            c.width = vp.width; c.height = vp.height;
+            page.render({canvasContext:c.getContext('2d'), viewport:vp});
+          });
+        });
+      }, {root:holder, rootMargin:'800px 0px'});
+      for (let pg=1; pg<=doc.numPages; pg++){
+        const w = document.createElement('div');
+        w.className = 'pg'; w.dataset.pg = pg;
+        w.innerHTML = '<canvas></canvas>';
+        holder.appendChild(w);
+        obs.observe(w);
+      }
+    }).catch(err=>{
+      holder.innerHTML = '<div class="load">Could not load the document. ' +
+        'The link may have been replaced — ask for a new one.</div>';
+    });
+  </script>
+</body>
+</html>
