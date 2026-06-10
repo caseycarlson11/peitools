@@ -3058,9 +3058,13 @@ def public_link_view(token):
         abort(404)
 
     if slot == "spreadsheet":
+        # If the All-Packing-Lists link is live, packing-list cells link to it
+        pl_info = _pub_load().get(job, {}).get("packing_lists") or {}
+        pl_url = ("/pl/" + pl_info["token"]) if pl_info.get("token") else ""
         return render_template("public_sheet_view.html", job=job, token=token,
                                fname=os.path.basename(path),
-                               sheets_url=_pub_sheets_url(job))
+                               sheets_url=_pub_sheets_url(job),
+                               pl_public_url=pl_url)
     return render_template("public_doc_view.html", job=job, token=token,
                            title=_PUB_SLOT_NAMES.get(slot, "Document"),
                            fname=os.path.basename(path))

@@ -59,6 +59,8 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script>
     const SHEETS_URL = {{ (sheets_url or '') | tojson }};
+    const PL_PUBLIC_URL = {{ (pl_public_url or '') | tojson }};
+    const REVIEW_URL = '/panel-tracking/' + encodeURIComponent({{ job | tojson }}) + '/review';
     let rows = [];   // array of arrays, for TSV export
 
     fetch('/pl/{{ token }}/file').then(r=>{
@@ -69,12 +71,26 @@
       const ws = wb.Sheets[wb.SheetNames[0]];
       rows = XLSX.utils.sheet_to_json(ws, {header:1, defval:''});
       const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+      // Find the linkable columns by header name
+      const heads = (rows[0] || []).map(h => String(h).trim().toLowerCase());
+      const panelCol = heads.indexOf('panel number');
+      const plCol    = heads.indexOf('packing list');
       let html = '<table>';
       rows.forEach((r,i)=>{
-        html += '<tr>' + r.map(c=>{
+        html += '<tr>' + r.map((c,ci)=>{
           const v = esc(c);
-          const cell = /^https?:\/\//.test(String(c))
-            ? `<a href="${v}" target="_blank">${v}</a>` : v;
+          let cell = v;
+          if (i > 0 && c !== '') {
+            if (ci === panelCol) {
+              // Panel number → Review & Fix, zoomed to the panel (login-protected)
+              cell = `<a href="${REVIEW_URL}?panel=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
+            } else if (ci === plCol && PL_PUBLIC_URL) {
+              // Packing list → public combined doc, jumped to its bookmark
+              cell = `<a href="${PL_PUBLIC_URL}?goto=${encodeURIComponent(String(c))}" target="_blank" rel="noopener">${v}</a>`;
+            } else if (/^https?:\/\//.test(String(c))) {
+              cell = `<a href="${v}" target="_blank">${v}</a>`;
+            }
+          }
           return i===0 ? `<th>${cell}</th>` : `<td>${cell}</td>`;
         }).join('') + '</tr>';
       });

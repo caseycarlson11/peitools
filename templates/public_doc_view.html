@@ -85,10 +85,32 @@
         holder.appendChild(w);
         obs.observe(w);
       }
+      // ?goto=<bookmark title> — jump to that source file inside the combined doc
+      const want = new URLSearchParams(location.search).get('goto');
+      if (want) jumpToBookmark(doc, want);
     }).catch(err=>{
       holder.innerHTML = '<div class="load">Could not load the document. ' +
         'The link may have been replaced — ask for a new one.</div>';
     });
+
+    async function jumpToBookmark(doc, title){
+      try{
+        const outline = await doc.getOutline();
+        if (!outline || !outline.length) return;
+        const want = title.trim().toLowerCase();
+        const norm = s => String(s).trim().toLowerCase();
+        const item = outline.find(o => norm(o.title) === want)
+                  || outline.find(o => norm(o.title).startsWith(want))
+                  || outline.find(o => want.startsWith(norm(o.title)));
+        if (!item || !item.dest) return;
+        let dest = item.dest;
+        if (typeof dest === 'string') dest = await doc.getDestination(dest);
+        if (!dest || !dest[0]) return;
+        const pi = await doc.getPageIndex(dest[0]);   // 0-based
+        const el = holder.querySelector(`.pg[data-pg="${pi+1}"]`);
+        if (el) setTimeout(()=>el.scrollIntoView({behavior:'smooth', block:'start'}), 150);
+      }catch(_){}
+    }
   </script>
 </body>
 </html>
