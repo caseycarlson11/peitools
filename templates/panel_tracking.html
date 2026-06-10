@@ -125,7 +125,10 @@
   <div class="card">
     <div class="card-title">Fab Sheets</div>
     <p class="empty-note" id="fabNote" style="margin-bottom:12px;">Mark up fab sheets before sending to KPS.</p>
-    <a class="btn btn-subtle" href="/panel-tracking/{{ pt_job }}/fab">Open Fab Sheets →</a>
+    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+      <a class="btn btn-subtle" href="/panel-tracking/{{ pt_job }}/fab">Open Fab Sheets →</a>
+      <a class="btn btn-subtle" id="openSheetBtn" href="#" target="_blank" rel="noopener" style="display:none;">📊 Open Spreadsheet</a>
+    </div>
   </div>
 
   <div class="card">
@@ -234,6 +237,13 @@
                   <span class="pub-off-note">not public</span>
                 </div>`;
       }).join('');
+      // "Open Spreadsheet" button (next to Open Fab Sheets) → the public spreadsheet link
+      const ss = (pl.slots || {}).spreadsheet;
+      if (ss && ss.live) {
+        const b = document.getElementById('openSheetBtn');
+        b.href = ss.url;
+        b.style.display = '';
+      }
     }).catch(() => {
       document.getElementById('pubList').innerHTML =
         '<span class="empty-note">Could not load public links.</span>';
