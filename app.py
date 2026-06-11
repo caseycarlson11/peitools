@@ -3420,10 +3420,15 @@ def field_report():
 # Dictate button records real audio and transcribes it server-side; when
 # absent, the page falls back to the free browser Web Speech engine.
 _TRANSCRIBE_KEY_FILE = os.path.join(JOBS_DIR, ".openai_key.txt")
-_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+# whisper-1, NOT gpt-4o-mini-transcribe: the 4o models hallucinate full wrong
+# sentences on quiet/noisy jobsite audio; whisper degrades gracefully instead.
+_TRANSCRIBE_MODEL = "whisper-1"
 _TRANSCRIBE_PROMPT = ("Field note from a metal panel siding installation company. Common terms: "
                       "Pacific Erectors, KPS, fab sheet, packing list, skid, panel, girt, "
                       "clip, soffit, parapet, flashing, RFI, GC, foreman, blueprint.")
+# Last recording + result, kept for debugging bad transcriptions
+_FR_LAST_AUDIO = os.path.join(JOBS_DIR, ".last_voice_note.bin")
+_FR_LAST_META  = os.path.join(JOBS_DIR, ".last_voice_note.json")
 
 def _load_transcribe_key():
     try:
@@ -3459,17 +3464,45 @@ def field_report_transcribe():
         resp = requests.post(
             "https://api.openai.com/v1/audio/transcriptions",
             headers={"Authorization": f"Bearer {key}"},
-            data={"model": _TRANSCRIBE_MODEL, "prompt": _TRANSCRIBE_PROMPT},
+            data={"model": _TRANSCRIBE_MODEL, "prompt": _TRANSCRIBE_PROMPT,
+                  "language": "en", "temperature": 0},
             files={"file": (f.filename or "note.webm", data, f.mimetype or "audio/webm")},
             timeout=60,
         )
     except requests.RequestException:
         return jsonify({"error": "Could not reach the transcription service — try again."}), 502
+
+    text = resp.json().get("text", "") if resp.status_code == 200 else ""
+    try:  # keep the last recording + result for debugging; never let this fail a request
+        with open(_FR_LAST_AUDIO, "wb") as fa:
+            fa.write(data)
+        with open(_FR_LAST_META, "w", encoding="utf-8") as fm:
+            json.dump({"filename": f.filename, "mimetype": f.mimetype, "bytes": len(data),
+                       "status": resp.status_code, "model": _TRANSCRIBE_MODEL, "text": text,
+                       "user": session.get("user", ""),
+                       "time": datetime.now(timezone.utc).isoformat()}, fm)
+    except Exception:
+        pass
+
     if resp.status_code == 200:
-        return jsonify({"text": resp.json().get("text", "")})
+        return jsonify({"text": text})
     if resp.status_code == 401:
         return jsonify({"error": "Transcription API key is invalid — check the key on the server."}), 502
     return jsonify({"error": f"Transcription failed (HTTP {resp.status_code})."}), 502
+
+@app.route("/api/field-report/last-audio")
+@login_required
+def field_report_last_audio():
+    """Debug: download the most recent voice recording (?info=1 for metadata)."""
+    if request.args.get("info"):
+        try:
+            with open(_FR_LAST_META, encoding="utf-8") as fm:
+                return jsonify(json.load(fm))
+        except Exception:
+            return jsonify({"error": "No recording captured yet."}), 404
+    if not os.path.isfile(_FR_LAST_AUDIO):
+        return jsonify({"error": "No recording captured yet."}), 404
+    return send_file(_FR_LAST_AUDIO, download_name="last_voice_note.bin")
 
 @app.route("/api/field-report/channels")
 @login_required
