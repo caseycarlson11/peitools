@@ -6,3 +6,5 @@ Pillow
 ezdxf
 openpyxl
 requests
+av
+numpy

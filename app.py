@@ -3423,12 +3423,47 @@ _TRANSCRIBE_KEY_FILE = os.path.join(JOBS_DIR, ".openai_key.txt")
 # whisper-1, NOT gpt-4o-mini-transcribe: the 4o models hallucinate full wrong
 # sentences on quiet/noisy jobsite audio; whisper degrades gracefully instead.
 _TRANSCRIBE_MODEL = "whisper-1"
-_TRANSCRIBE_PROMPT = ("Field note from a metal panel siding installation company. Common terms: "
-                      "Pacific Erectors, KPS, fab sheet, packing list, skid, panel, girt, "
-                      "clip, soffit, parapet, flashing, RFI, GC, foreman, blueprint.")
+_TRANSCRIBE_PROMPT = ("Field note from a metal panel siding installation crew. Jobsite terms: "
+                      "Pacific Erectors, KPS, fab sheet, packing list, skid, panel, girt, clip, "
+                      "soffit, parapet, flashing, RFI, GC, foreman, blueprint, conex, gang box, "
+                      "fire locker, fire extinguisher, gas can, shelf, scissor lift, boom lift, "
+                      "lull, swing stage, safety harness, lanyard, tie-off.")
 # Last recording + result, kept for debugging bad transcriptions
 _FR_LAST_AUDIO = os.path.join(JOBS_DIR, ".last_voice_note.bin")
 _FR_LAST_META  = os.path.join(JOBS_DIR, ".last_voice_note.json")
+
+def _fr_normalize_audio(data):
+    """Phone recordings (esp. iPhone Safari) often arrive 25dB too quiet for
+    the transcriber. Decode, boost peak to -3dBFS, return 16kHz mono WAV.
+    Returns None on any failure — caller falls back to the raw audio."""
+    try:
+        import io, wave
+        import av
+        import numpy as np
+        c = av.open(io.BytesIO(data))
+        st = c.streams.audio[0]
+        sr = st.codec_context.sample_rate or 48000
+        chunks = [fr.to_ndarray() for fr in c.decode(st)]
+        if not chunks:
+            return None
+        a = np.concatenate(chunks, axis=-1).astype(np.float32)
+        if a.ndim > 1:
+            a = a.mean(axis=0)
+        if np.abs(a).max() > 2:       # int16-scaled samples
+            a = a / 32768.0
+        peak = np.abs(a).max()
+        if peak < 1e-6:               # pure silence
+            return None
+        a = np.clip(a * ((10 ** (-3 / 20)) / peak), -1, 1)
+        idx = (np.arange(int(len(a) * 16000 / sr)) * (sr / 16000)).astype(int)
+        pcm = (a[idx] * 32767).astype(np.int16)
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as w:
+            w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
+            w.writeframes(pcm.tobytes())
+        return buf.getvalue()
+    except Exception:
+        return None
 
 def _load_transcribe_key():
     try:
@@ -3460,13 +3495,16 @@ def field_report_transcribe():
         return jsonify({"error": "Recording was empty — try again."}), 400
     if len(data) > 20 * 1024 * 1024:
         return jsonify({"error": "Recording too long — keep voice notes under ~5 minutes."}), 413
+    wav = _fr_normalize_audio(data)
+    send = (wav, "note.wav", "audio/wav") if wav else \
+           (data, f.filename or "note.webm", f.mimetype or "audio/webm")
     try:
         resp = requests.post(
             "https://api.openai.com/v1/audio/transcriptions",
             headers={"Authorization": f"Bearer {key}"},
             data={"model": _TRANSCRIBE_MODEL, "prompt": _TRANSCRIBE_PROMPT,
                   "language": "en", "temperature": 0},
-            files={"file": (f.filename or "note.webm", data, f.mimetype or "audio/webm")},
+            files={"file": (send[1], send[0], send[2])},
             timeout=60,
         )
     except requests.RequestException:
@@ -3478,6 +3516,7 @@ def field_report_transcribe():
             fa.write(data)
         with open(_FR_LAST_META, "w", encoding="utf-8") as fm:
             json.dump({"filename": f.filename, "mimetype": f.mimetype, "bytes": len(data),
+                       "normalized": bool(wav),
                        "status": resp.status_code, "model": _TRANSCRIBE_MODEL, "text": text,
                        "user": session.get("user", ""),
                        "time": datetime.now(timezone.utc).isoformat()}, fm)
