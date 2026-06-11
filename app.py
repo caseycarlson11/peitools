@@ -676,7 +676,7 @@ def serve_file(filepath):
 
 # ── Share links (job-level) ───────────────────────────────────
 import json, secrets
-from datetime import datetime
+from datetime import datetime, timezone
 
 SHARES_FILE = os.path.join(JOBS_DIR, ".shares.json")
 
@@ -3351,6 +3351,110 @@ def public_link_panels(token):
             except Exception:
                 pass
     return jsonify(locations)
+
+
+# ── Field Report → Discord ───────────────────────────────────
+# Each channel maps to ONE Discord webhook URL (created per channel in
+# Discord: Edit Channel → Integrations → Webhooks → New Webhook → Copy URL).
+# URLs live in <JOBS_DIR>/.discord_webhooks.json — on the persistent jobs
+# volume (like .public_links.json) so they survive deploys and stay out of git.
+DISCORD_CHANNELS = [
+    ("formen",       "Foremen"),
+    ("apprentices",  "Apprentices"),
+    ("gc",           "GC"),
+    ("pm",           "PM"),
+    ("todo",         "To-Do"),
+    ("morning_talk", "Morning Talk"),
+    ("general",      "General"),
+    ("panels",        "Panels"),
+    ("insulation",    "Insulation"),
+    ("clips_girts",   "Clips-Girts"),
+    ("layout",        "Layout"),
+    ("waterproofing", "Waterproofing"),
+    ("trade_damage",  "Trade Damage"),
+]
+_WEBHOOKS_FILE = os.path.join(JOBS_DIR, ".discord_webhooks.json")
+
+def _load_webhooks():
+    try:
+        with open(_WEBHOOKS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+@app.route("/field-report")
+@login_required
+def field_report():
+    return render_template("field_report.html", page_title="Field Report")
+
+@app.route("/api/field-report/channels")
+@login_required
+def field_report_channels():
+    hooks = _load_webhooks()
+    return jsonify([
+        {"key": key, "label": label, "configured": bool(hooks.get(key))}
+        for key, label in DISCORD_CHANNELS
+    ])
+
+@app.route("/api/field-report/send", methods=["POST"])
+@login_required
+def field_report_send():
+    try:
+        import requests
+    except ImportError:
+        return jsonify({"error": "Server missing the 'requests' library — run the full deploy (deploy.bat) once."}), 500
+
+    hooks = _load_webhooks()
+    labels = dict(DISCORD_CHANNELS)
+
+    channel = (request.form.get("channel") or "").strip()
+    note    = (request.form.get("note") or "").strip()
+    photos  = request.files.getlist("photos")
+
+    if channel not in labels:
+        return jsonify({"error": "Unknown channel."}), 400
+    webhook = hooks.get(channel)
+    if not webhook:
+        return jsonify({"error": f"The “{labels[channel]}” channel isn’t set up yet (no webhook configured)."}), 400
+    if not note and not photos:
+        return jsonify({"error": "Add a photo or a note before sending."}), 400
+    if len(photos) > 10:
+        return jsonify({"error": "Discord allows up to 10 photos per message."}), 400
+
+    poster = session.get("user", "")
+    embed = {
+        "title": "📋 Field Report",
+        "color": 0x60B4F0,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    if note:
+        embed["description"] = note[:4096]
+    if poster:
+        embed["author"] = {"name": poster}
+
+    payload = {"username": "PEI Field Report", "embeds": [embed]}
+    files = []
+    for i, f in enumerate(photos):
+        data = f.read()
+        if not data:
+            continue
+        files.append((f"files[{i}]", (f"photo{i + 1}.jpg", data, f.mimetype or "image/jpeg")))
+
+    try:
+        resp = requests.post(
+            webhook,
+            data={"payload_json": json.dumps(payload)},
+            files=files or None,
+            timeout=30,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "Could not reach Discord. Check the connection and try again."}), 502
+
+    if resp.status_code in (200, 204):
+        return jsonify({"ok": True, "channel": labels[channel]})
+    if resp.status_code == 413:
+        return jsonify({"error": "Photos are too large for Discord. Try sending fewer at once."}), 413
+    return jsonify({"error": f"Discord rejected the message (HTTP {resp.status_code})."}), 502
 
 
 if __name__ == "__main__":

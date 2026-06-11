@@ -1,0 +1,16 @@
+{
+  "_README": "The real config lives at Jobs/.discord_webhooks.json locally and /var/www/pei-jobs/.discord_webhooks.json on the server (the persistent jobs volume, so it survives deploys and stays out of git). Create one webhook per channel in Discord: open the channel -> Edit Channel -> Integrations -> Webhooks -> New Webhook -> Copy Webhook URL. Leave a value as \"\" to keep that channel disabled in the Field Report tool. After editing, run upload_webhooks.bat to push it to the server.",
+  "formen":        "",
+  "apprentices":   "",
+  "gc":            "",
+  "pm":            "",
+  "todo":          "",
+  "morning_talk":  "",
+  "general":       "",
+  "panels":        "",
+  "insulation":    "",
+  "clips_girts":   "",
+  "layout":        "",
+  "waterproofing": "",
+  "trade_damage":  ""
+}

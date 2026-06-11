@@ -1,0 +1,272 @@
+{% extends "base.html" %}
+{% block title %}Field Report{% endblock %}
+
+{% block extra_style %}
+  /* Channel chips */
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip {
+    padding: 9px 16px; border-radius: 999px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); font-size: 0.86rem; font-weight: 600;
+    cursor: pointer; transition: all 0.15s; user-select: none;
+  }
+  .chip:hover:not(.disabled) { border-color: var(--blue); }
+  .chip.active { background: var(--blue); color: #0d1117; border-color: var(--blue); }
+  .chip.disabled { opacity: 0.4; cursor: not-allowed; }
+  .chip .dot { font-size: 0.7rem; }
+
+  /* Photo grid */
+  .photo-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px; margin-top: 6px;
+  }
+  .photo-tile {
+    position: relative; aspect-ratio: 1; border-radius: 10px; overflow: hidden;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .photo-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .photo-remove {
+    position: absolute; top: 4px; right: 4px;
+    width: 24px; height: 24px; border-radius: 999px; border: none;
+    background: rgba(13,17,23,0.78); color: #fff; font-size: 1rem; line-height: 1;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .add-photo-tile {
+    display: flex; align-items: center; justify-content: center;
+    aspect-ratio: 1; border-radius: 10px; cursor: pointer;
+    border: 1.5px dashed var(--border); color: var(--text2);
+    flex-direction: column; gap: 4px; font-size: 0.72rem; text-align: center;
+    transition: border-color 0.15s, color 0.15s;
+  }
+  .add-photo-tile:hover { border-color: var(--blue); color: var(--blue); }
+  .add-photo-tile svg { width: 26px; height: 26px; }
+
+  /* Note + dictate */
+  .note-wrap { position: relative; }
+  #note { min-height: 130px; resize: vertical; line-height: 1.5; }
+  .dictate-btn {
+    margin-top: 10px; display: none; /* shown by JS only if supported */
+  }
+  .dictate-btn.recording { background: var(--red); color: #fff; border-color: var(--red); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.6; } }
+  .hint { color: var(--text2); font-size: 0.78rem; margin-top: 8px; }
+
+  .send-row { position: sticky; bottom: 0; padding-top: 8px; }
+  #sendBtn { width: 100%; justify-content: center; padding: 14px; font-size: 0.95rem; }
+  .elapsed { font-variant-numeric: tabular-nums; }
+{% endblock %}
+
+{% block content %}
+  <h1 class="page-heading">Field Report</h1>
+  <p class="page-subtitle">Snap photos, dictate a note, and send it straight to a Discord channel.</p>
+
+  <div id="alert" class="alert"></div>
+
+  <!-- 1. Channel -->
+  <div class="card">
+    <div class="card-title">1 — Pick a channel</div>
+    <div id="chips" class="chip-row">
+      <span class="hint">Loading channels…</span>
+    </div>
+  </div>
+
+  <!-- 2. Photos -->
+  <div class="card">
+    <div class="card-title">2 — Photos</div>
+    <div id="photoGrid" class="photo-grid">
+      <label class="add-photo-tile" for="photoInput">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
+        <span>Add photos</span>
+      </label>
+    </div>
+    <input id="photoInput" type="file" accept="image/*" multiple style="display:none">
+    <p class="hint">Up to 10 photos. On a phone or iPad you can take a new photo or pick from your library.</p>
+  </div>
+
+  <!-- 3. Note -->
+  <div class="card">
+    <div class="card-title">3 — Note</div>
+    <div class="note-wrap">
+      <textarea id="note" placeholder="Type your note, or use voice…"></textarea>
+    </div>
+    <button id="dictateBtn" class="btn btn-subtle dictate-btn" type="button">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
+      <span id="dictateLabel">Dictate</span>
+    </button>
+    <p class="hint" id="dictateHint">On an iPad or iPhone, tap the 🎤 on your keyboard to dictate.</p>
+  </div>
+
+  <!-- Progress + send -->
+  <div class="progress-wrap" id="prog">
+    <div class="progress-bar-bg"><div class="progress-bar-fill" id="progFill"></div></div>
+    <div class="progress-msg" id="progMsg">Sending… <span class="elapsed" id="elapsed">0.0s</span></div>
+  </div>
+
+  <div class="send-row">
+    <button id="sendBtn" class="btn btn-green" disabled>Send to Discord</button>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  const state = { channel: null, configured: {}, photos: [] };
+  const $ = (id) => document.getElementById(id);
+
+  function showAlert(msg, kind) {
+    const a = $('alert');
+    a.textContent = msg;
+    a.className = 'alert show alert-' + kind;
+  }
+  function clearAlert() { $('alert').className = 'alert'; }
+
+  // ── Channels ──────────────────────────────────────────────
+  fetch('/api/field-report/channels')
+    .then(r => r.json())
+    .then(list => {
+      const box = $('chips');
+      box.innerHTML = '';
+      list.forEach(c => {
+        state.configured[c.key] = c.configured;
+        const el = document.createElement('div');
+        el.className = 'chip' + (c.configured ? '' : ' disabled');
+        el.dataset.key = c.key;
+        el.innerHTML = c.label + (c.configured ? '' : ' <span class="dot">· not set up</span>');
+        if (c.configured) el.onclick = () => selectChannel(c.key);
+        box.appendChild(el);
+      });
+    })
+    .catch(() => { $('chips').innerHTML = '<span class="hint">Could not load channels.</span>'; });
+
+  function selectChannel(key) {
+    state.channel = key;
+    document.querySelectorAll('.chip').forEach(c =>
+      c.classList.toggle('active', c.dataset.key === key));
+    refreshSend();
+  }
+
+  // ── Photos (compressed client-side for fast upload) ───────
+  $('photoInput').addEventListener('change', async (e) => {
+    clearAlert();
+    const files = Array.from(e.target.files || []);
+    for (const f of files) {
+      if (state.photos.length >= 10) { showAlert('Max 10 photos per report.', 'info'); break; }
+      try { state.photos.push(await compress(f)); }
+      catch { /* skip unreadable file */ }
+    }
+    e.target.value = '';
+    renderPhotos();
+    refreshSend();
+  });
+
+  function compress(file) {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      const url = URL.createObjectURL(file);
+      img.onload = () => {
+        const max = 1600;
+        let { width: w, height: h } = img;
+        if (w > max || h > max) {
+          const s = Math.min(max / w, max / h);
+          w = Math.round(w * s); h = Math.round(h * s);
+        }
+        const cv = document.createElement('canvas');
+        cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        cv.toBlob(b => b ? resolve({ blob: b, url: cv.toDataURL('image/jpeg', 0.5) })
+                          : reject(), 'image/jpeg', 0.82);
+      };
+      img.onerror = () => { URL.revokeObjectURL(url); reject(); };
+      img.src = url;
+    });
+  }
+
+  function renderPhotos() {
+    const grid = $('photoGrid');
+    grid.querySelectorAll('.photo-tile').forEach(t => t.remove());
+    const addTile = grid.querySelector('.add-photo-tile');
+    state.photos.forEach((p, i) => {
+      const tile = document.createElement('div');
+      tile.className = 'photo-tile';
+      tile.innerHTML = `<img src="${p.url}"><button class="photo-remove" data-i="${i}">&times;</button>`;
+      tile.querySelector('.photo-remove').onclick = () => {
+        state.photos.splice(i, 1); renderPhotos(); refreshSend();
+      };
+      grid.insertBefore(tile, addTile);
+    });
+  }
+
+  // ── Dictation (Web Speech API where available) ────────────
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (SR) {
+    $('dictateBtn').style.display = 'inline-flex';
+    $('dictateHint').textContent = 'Tap Dictate to talk, or use the 🎤 on your keyboard.';
+    let rec = null, listening = false, base = '';
+    $('dictateBtn').onclick = () => {
+      if (listening) { rec && rec.stop(); return; }
+      rec = new SR();
+      rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
+      base = $('note').value ? $('note').value.replace(/\s*$/, '') + ' ' : '';
+      rec.onresult = (ev) => {
+        let txt = '';
+        for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
+        $('note').value = base + txt;
+        refreshSend();
+      };
+      rec.onend = () => {
+        listening = false;
+        $('dictateBtn').classList.remove('recording');
+        $('dictateLabel').textContent = 'Dictate';
+      };
+      rec.onerror = () => { showAlert('Voice input stopped. You can type or try again.', 'info'); };
+      rec.start();
+      listening = true;
+      $('dictateBtn').classList.add('recording');
+      $('dictateLabel').textContent = 'Stop';
+    };
+  }
+  $('note').addEventListener('input', refreshSend);
+
+  // ── Send ──────────────────────────────────────────────────
+  function refreshSend() {
+    const hasContent = state.photos.length > 0 || $('note').value.trim().length > 0;
+    $('sendBtn').disabled = !(state.channel && hasContent);
+  }
+
+  let timer = null;
+  $('sendBtn').onclick = async () => {
+    clearAlert();
+    const btn = $('sendBtn');
+    btn.disabled = true;
+    $('prog').classList.add('visible');
+    $('progFill').style.width = '30%';
+    const start = Date.now();
+    timer = setInterval(() => {
+      $('elapsed').textContent = ((Date.now() - start) / 1000).toFixed(1) + 's';
+    }, 100);
+
+    const fd = new FormData();
+    fd.append('channel', state.channel);
+    fd.append('note', $('note').value.trim());
+    state.photos.forEach((p, i) => fd.append('photos', p.blob, `photo${i + 1}.jpg`));
+
+    try {
+      const r = await fetch('/api/field-report/send', { method: 'POST', body: fd });
+      const data = await r.json().catch(() => ({}));
+      clearInterval(timer);
+      $('progFill').style.width = '100%';
+      if (r.ok && data.ok) {
+        setTimeout(() => $('prog').classList.remove('visible'), 600);
+        showAlert('Sent to ' + data.channel + '. ✓', 'success');
+        state.photos = []; $('note').value = ''; renderPhotos();
+      } else {
+        $('prog').classList.remove('visible');
+        showAlert(data.error || 'Send failed. Please try again.', 'error');
+      }
+    } catch {
+      clearInterval(timer);
+      $('prog').classList.remove('visible');
+      showAlert('Network error — check your connection and try again.', 'error');
+    }
+    refreshSend();
+  };
+{% endblock %}
