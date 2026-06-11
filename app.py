@@ -3698,5 +3698,108 @@ def field_report_complete_post(token):
     return jsonify({"ok": True, "by": name})
 
 
+# ── To-Do channel web viewer ─────────────────────────────────
+# Public, token-gated page (Public Links trust model) showing the #to-do
+# Discord channel. Reading a channel needs a BOT token (webhooks can't read);
+# it lives on the jobs volume like the other secrets. The channel id is
+# resolved once from the to-do webhook itself.
+_DISCORD_BOT_FILE = os.path.join(JOBS_DIR, ".discord_bot_token.txt")
+_TODO_VIEW_TOKEN_FILE = os.path.join(JOBS_DIR, ".todo_view_token.txt")
+_todo_cache = {"channel_id": None, "msg_t": 0.0, "msgs": None}
+
+def _load_bot_token():
+    try:
+        with open(_DISCORD_BOT_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+def _todo_view_token(create=False):
+    try:
+        with open(_TODO_VIEW_TOKEN_FILE, encoding="utf-8") as f:
+            tok = f.read().strip()
+            if tok:
+                return tok
+    except Exception:
+        pass
+    if not create:
+        return ""
+    tok = secrets.token_urlsafe(16)
+    with open(_TODO_VIEW_TOKEN_FILE, "w", encoding="utf-8") as f:
+        f.write(tok)
+    return tok
+
+def _todo_channel_id():
+    if _todo_cache["channel_id"]:
+        return _todo_cache["channel_id"]
+    import requests
+    webhook = _load_webhooks().get("todo", "")
+    if not webhook:
+        return None
+    try:
+        cid = requests.get(webhook, timeout=15).json().get("channel_id")
+    except Exception:
+        return None
+    _todo_cache["channel_id"] = cid
+    return cid
+
+@app.route("/todo")
+@login_required
+def todo_link():
+    """Logged-in helper: visit /todo to get (and create) the shareable link."""
+    return redirect("/todo/" + _todo_view_token(create=True))
+
+@app.route("/todo/<tok>")
+def todo_view(tok):
+    if not tok or tok != _todo_view_token():
+        abort(404)
+    return render_template("todo_view.html", tok=tok)
+
+@app.route("/api/todo/<tok>/messages")
+def todo_messages(tok):
+    if not tok or tok != _todo_view_token():
+        abort(404)
+    import time as _t
+    if _todo_cache["msgs"] is not None and _t.time() - _todo_cache["msg_t"] < 20:
+        return jsonify(_todo_cache["msgs"])  # cache: don't hammer Discord on refreshes
+    bot = _load_bot_token()
+    if not bot:
+        return jsonify({"error": "The viewer isn’t set up yet (no Discord bot token on the server)."}), 503
+    cid = _todo_channel_id()
+    if not cid:
+        return jsonify({"error": "Could not find the to-do channel (webhook missing?)."}), 503
+    import requests
+    try:
+        r = requests.get(f"https://discord.com/api/v10/channels/{cid}/messages",
+                         params={"limit": 50},
+                         headers={"Authorization": f"Bot {bot}"}, timeout=20)
+    except requests.RequestException:
+        return jsonify({"error": "Could not reach Discord — try again."}), 502
+    if r.status_code == 401:
+        return jsonify({"error": "The bot token is invalid — check it on the server."}), 503
+    if r.status_code == 403:
+        return jsonify({"error": "The bot doesn’t have access to #to-do — invite it to the server with View Channels + Read Message History."}), 503
+    if r.status_code != 200:
+        return jsonify({"error": f"Discord error (HTTP {r.status_code})."}), 502
+    msgs = []
+    for m in r.json():  # Discord returns newest first
+        msgs.append({
+            "author": m.get("author", {}).get("username", "?"),
+            "time": m.get("timestamp", ""),
+            "content": m.get("content", ""),
+            "embeds": [{"title": e.get("title", ""),
+                        "description": e.get("description", ""),
+                        "color": e.get("color", 0)} for e in m.get("embeds", [])],
+            "images": [a["url"] for a in m.get("attachments", [])
+                       if (a.get("content_type") or "").startswith("image/")],
+            "files": [{"name": a.get("filename", "file"), "url": a["url"]}
+                      for a in m.get("attachments", [])
+                      if not (a.get("content_type") or "").startswith("image/")],
+        })
+    _todo_cache["msgs"] = msgs
+    _todo_cache["msg_t"] = _t.time()
+    return jsonify(msgs)
+
+
 if __name__ == "__main__":
     app.run(debug=True)

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>#to-do | PEI Tools</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0d1117; --surface: #161b22; --card: #1c2230; --border: #30363d;
+      --text: #e6edf3; --text2: #8b949e; --blue: #60b4f0; --green: #3fb950;
+    }
+    body { font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+    .header {
+      position: sticky; top: 0; z-index: 10;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 18px; background: rgba(22,27,34,0.92);
+      backdrop-filter: blur(10px); border-bottom: 1px solid var(--border);
+    }
+    .htitle { display: flex; align-items: center; gap: 10px; }
+    .htitle img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; }
+    .htitle .name { font-weight: 800; font-size: 0.95rem; }
+    .htitle .name .hash { color: var(--blue); }
+    .refresh-btn {
+      background: var(--surface); border: 1px solid var(--border); color: var(--text2);
+      font-family: inherit; font-size: 0.8rem; font-weight: 600;
+      padding: 7px 14px; border-radius: 8px; cursor: pointer; transition: all 0.15s;
+    }
+    .refresh-btn:hover { color: var(--text); border-color: var(--blue); }
+    .wrap { max-width: 680px; margin: 0 auto; padding: 18px 14px 60px; }
+    .status { color: var(--text2); font-size: 0.85rem; text-align: center; padding: 30px 10px; line-height: 1.5; }
+
+    .msg {
+      background: var(--card); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px; margin-bottom: 12px;
+    }
+    .msg-head { display: flex; align-items: baseline; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+    .msg-author { font-weight: 700; font-size: 0.88rem; color: var(--blue); }
+    .msg-time { color: var(--text2); font-size: 0.72rem; }
+    .msg-content { font-size: 0.9rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+
+    .embed {
+      border-left: 4px solid var(--blue); background: var(--surface);
+      border-radius: 6px; padding: 10px 12px; margin-top: 8px;
+    }
+    .embed.done { border-left-color: var(--green); }
+    .embed-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; }
+    .embed-desc { font-size: 0.87rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .embed-desc a { color: var(--blue); font-weight: 600; }
+    .embed-desc .done-line { color: var(--green); }
+
+    .img-grid { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+    .img-grid a { display: block; flex: 1 1 140px; max-width: 240px; }
+    .img-grid img { width: 100%; border-radius: 8px; border: 1px solid var(--border); display: block; }
+    .file-link { display: inline-block; margin-top: 8px; color: var(--blue); font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="htitle">
+      <img src="/static/logo.jpg" alt="PEI">
+      <span class="name"><span class="hash">#</span>to-do</span>
+    </div>
+    <button class="refresh-btn" id="refreshBtn">Refresh</button>
+  </div>
+
+  <div class="wrap">
+    <div id="list"><div class="status">Loading…</div></div>
+  </div>
+
+  <script>
+    const TOK = {{ tok|tojson }};
+    const esc = (s) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+
+    // minimal Discord-markdown: **bold**, [text](https url), <t:unix:f> timestamps
+    function md(s) {
+      let h = esc(s);
+      h = h.replace(/&lt;t:(\d+):[a-zA-Z]&gt;/g, (_, u) =>
+        new Date(u * 1000).toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' }));
+      h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      h = h.replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>');
+      h = h.replace(/^(✅.*)$/m, '<span class="done-line">$1</span>');
+      return h;
+    }
+
+    function fmtTime(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString([], { month:'short', day:'numeric', hour:'numeric', minute:'2-digit' });
+    }
+
+    async function load() {
+      try {
+        const r = await fetch('/api/todo/' + TOK + '/messages');
+        const data = await r.json();
+        const list = document.getElementById('list');
+        if (!r.ok) { list.innerHTML = '<div class="status">' + esc(data.error || 'Could not load messages.') + '</div>'; return; }
+        if (!data.length) { list.innerHTML = '<div class="status">No messages in #to-do yet.</div>'; return; }
+        list.innerHTML = data.map(m => {
+          const embeds = m.embeds.map(e => {
+            const done = (e.description || '').includes('✅');
+            return '<div class="embed' + (done ? ' done' : '') + '">'
+              + (e.title ? '<div class="embed-title">' + esc(e.title) + '</div>' : '')
+              + (e.description ? '<div class="embed-desc">' + md(e.description) + '</div>' : '')
+              + '</div>';
+          }).join('');
+          const imgs = m.images.length
+            ? '<div class="img-grid">' + m.images.map(u =>
+                '<a href="' + esc(u) + '" target="_blank" rel="noopener"><img src="' + esc(u) + '" loading="lazy"></a>').join('') + '</div>'
+            : '';
+          const files = m.files.map(f =>
+            '<a class="file-link" href="' + esc(f.url) + '" target="_blank" rel="noopener">📎 ' + esc(f.name) + '</a>').join('');
+          return '<div class="msg">'
+            + '<div class="msg-head"><span class="msg-author">' + esc(m.author) + '</span>'
+            + '<span class="msg-time">' + fmtTime(m.time) + '</span></div>'
+            + (m.content ? '<div class="msg-content">' + md(m.content) + '</div>' : '')
+            + embeds + imgs + files
+            + '</div>';
+        }).join('');
+      } catch {
+        document.getElementById('list').innerHTML = '<div class="status">Network error — pull to refresh or tap Refresh.</div>';
+      }
+    }
+
+    document.getElementById('refreshBtn').onclick = load;
+    load();
+    setInterval(load, 60000);
+  </script>
+</body>
+</html>
