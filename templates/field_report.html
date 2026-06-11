@@ -217,7 +217,17 @@
         $('dictateBtn').classList.remove('recording');
         $('dictateLabel').textContent = 'Dictate';
       };
-      rec.onerror = () => { showAlert('Voice input stopped. You can type or try again.', 'info'); };
+      rec.onerror = (ev) => {
+        const messages = {
+          'not-allowed':         'Microphone is blocked. Tap the lock/mic icon in the address bar (iPhone/iPad: the “AA” or puzzle icon) and allow the microphone, then try again — or use the 🎤 on your keyboard.',
+          'service-not-allowed': 'Microphone is blocked by the browser. Allow it in site settings, or use the 🎤 on your keyboard.',
+          'audio-capture':       'No microphone found on this device.',
+          'network':             'This browser’s voice service isn’t responding — dictation works best in Chrome or Safari. You can also use the 🎤 on your keyboard.',
+          'language-not-supported': 'This browser doesn’t support dictation — use Chrome or Safari, or the 🎤 on your keyboard.',
+          'no-speech':           'Didn’t hear anything — tap Dictate and start talking.',
+        };
+        showAlert(messages[ev.error] || 'Voice input stopped (' + ev.error + '). You can type or try again.', 'info');
+      };
       rec.start();
       listening = true;
       $('dictateBtn').classList.add('recording');
