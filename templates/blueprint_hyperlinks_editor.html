@@ -657,9 +657,14 @@
       const rect = [pt.x-hw, pt.y-hh, pt.x+hw, pt.y+hh];
       linksData.push({ page: pi, rect, dest_page: stampTool.destPage });
       renderAllLinks();
-      showToast(`D${stampTool.dn} placed`);
-      clearStampTool();
-      setMode('');
+      if (e.shiftKey) {
+        // Hold Shift → stay in stamp mode so the same link can be placed again
+        showToast(`D${stampTool.dn} placed — release Shift to finish`);
+      } else {
+        showToast(`D${stampTool.dn} placed`);
+        clearStampTool();
+        setMode('');
+      }
     }
 
     // Click on blank page area in no-mode → confirm dragging link
@@ -732,7 +737,7 @@
         select:  'Click an orange box to edit or delete it',
         test:    'Click an orange box to jump to its destination --- use Back to return',
         add:     'Click and drag on the page to draw a new link',
-        stamp:   'Click the document to place the link'
+        stamp:   'Click to place • hold Shift to place multiple'
       };
       document.getElementById('tbHint').textContent = hints[next] || '';
       document.body.style.cursor = (m==='add'||m==='stamp') ? 'crosshair' : '';
