@@ -3385,7 +3385,7 @@ def _load_webhooks():
 @app.route("/field-report")
 @login_required
 def field_report():
-    return render_template("field_report.html", page_title="Field Report")
+    return render_template("field_report.html", page_title="Push to Discord")
 
 @app.route("/api/field-report/channels")
 @login_required
