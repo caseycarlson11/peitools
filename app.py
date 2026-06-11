@@ -3632,29 +3632,51 @@ def field_report_send():
     return jsonify({"error": f"Discord rejected the message (HTTP {resp.status_code})."}), 502
 
 
-_FR_RESULT_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
+
+# No login on these routes — anyone with the (unguessable) link can complete
+# the task, same trust model as Public Links. The GET page changes nothing;
+# the page's own JS fires the POST, so link-preview crawlers (Discord, iOS,
+# mail scanners) that fetch the URL can't accidentally complete tasks.
+_FR_CLICK_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{title} | PEI Tools</title><link rel="icon" href="/static/favicon.png">
-<style>body{{font-family:'Inter',-apple-system,sans-serif;background:#0d1117;color:#e6edf3;
-display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
-.box{{background:#1c2230;border:1px solid #30363d;border-radius:14px;padding:36px 32px;
-max-width:420px;text-align:center}}.big{{font-size:2.6rem;margin-bottom:14px}}
-h1{{font-size:1.15rem;margin:0 0 8px}}p{{color:#8b949e;font-size:.9rem;line-height:1.5;margin:0}}</style>
-</head><body><div class="box"><div class="big">{icon}</div><h1>{title}</h1><p>{msg}</p></div></body></html>"""
+<title>Task | PEI Tools</title><link rel="icon" href="/static/favicon.png">
+<style>body{font-family:'Inter',-apple-system,sans-serif;background:#0d1117;color:#e6edf3;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}
+.box{background:#1c2230;border:1px solid #30363d;border-radius:14px;padding:36px 32px;
+max-width:420px;text-align:center}.big{font-size:2.6rem;margin-bottom:14px}
+h1{font-size:1.15rem;margin:0 0 8px}p{color:#8b949e;font-size:.9rem;line-height:1.5;margin:0}</style>
+</head><body><div class="box"><div class="big" id="i">⏳</div><h1 id="t">Marking task complete…</h1>
+<p id="m"></p></div>
+<script>
+fetch('/fr/__TOKEN__/complete', {method: 'POST'})
+  .then(r => r.json())
+  .then(d => {
+    if (d.already) { i.textContent = '✅'; t.textContent = 'Already completed';
+      m.textContent = 'This task was already marked complete by ' + d.completed_by + '.'; }
+    else if (d.ok) { i.textContent = '✅'; t.textContent = 'Task marked complete';
+      m.textContent = 'The Discord message now shows it was completed by ' + d.by + '. You can close this tab.'; }
+    else { i.textContent = '🤷'; t.textContent = 'Link not found';
+      m.textContent = d.error || 'This task link is no longer on file.'; }
+  })
+  .catch(() => { i.textContent = '⚠️'; t.textContent = 'Something went wrong';
+    m.textContent = 'Check your connection and tap the link again.'; });
+</script></body></html>"""
 
 @app.route("/fr/<token>")
-@login_required
 def field_report_complete(token):
+    return _FR_CLICK_PAGE.replace("__TOKEN__", token)
+
+@app.route("/fr/<token>/complete", methods=["POST"])
+def field_report_complete_post(token):
     reports = _fr_load_reports()
     rec = reports.get(token)
     if not rec:
-        return _FR_RESULT_PAGE.format(icon="🤷", title="Link not found",
-            msg="This task link is no longer on file."), 404
+        return jsonify({"error": "This task link is no longer on file."}), 404
     if rec.get("completed_by"):
-        return _FR_RESULT_PAGE.format(icon="✅", title="Already completed",
-            msg=f"This task was already marked complete by {rec['completed_by']}.")
+        return jsonify({"already": True, "completed_by": rec["completed_by"]})
 
-    name = _fr_display_name(session.get("user", ""))
+    user = session.get("user", "")
+    name = _fr_display_name(user) if user else "a crew member"
     done_md = (f"✅ **Completed by {name}** · "
                f"<t:{int(datetime.now(timezone.utc).timestamp())}:f>")
     embed = rec["embed"]
@@ -3673,8 +3695,7 @@ def field_report_complete(token):
     rec["completed_by"] = name
     rec["completed_at"] = datetime.now(timezone.utc).isoformat()
     _fr_save_reports(reports)
-    return _FR_RESULT_PAGE.format(icon="✅", title="Task marked complete",
-        msg=f"The Discord message now shows it was completed by {name}. You can close this tab.")
+    return jsonify({"ok": True, "by": name})
 
 
 if __name__ == "__main__":
