@@ -64,13 +64,20 @@
 
     const holder = document.getElementById('pages');
     // Render sharpness: canvases are rasterized at the CURRENT page width x the
-    // device pixel ratio, and re-rasterized whenever the zoom changes — pages
-    // stay crisp at any zoom level instead of stretching a fixed-size render.
-    const DPR = Math.min(window.devicePixelRatio || 1, 2);
-    const MAX_CANVAS_W = 4000;            // memory cap for very deep zooms
+    // EFFECTIVE zoom (device pixel ratio x pinch-zoom scale x browser zoom) and
+    // re-rasterized whenever any of those change — pinch-zooming into a
+    // blueprint re-renders it at full PDF quality instead of stretching a
+    // screen-sized image (which is what made zoomed prints blurry).
+    const MAX_CANVAS_W = 4000;            // iOS canvas-size/memory cap
     let pageW = Math.min(980, window.innerWidth - 16);
     let pdfDoc = null;
     let pageDims = [];                    // 0-based {w,h} at PDF scale 1 (panel bbox space)
+
+    function effScale(){                  // raster pixels per CSS pixel right now
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const pinch = (window.visualViewport && window.visualViewport.scale) || 1;
+      return Math.min(dpr * pinch, 8);
+    }
 
     function setPageW(w){
       pageW = Math.max(320, Math.min(2600, w));
@@ -80,7 +87,7 @@
 
     async function renderPage(el){
       if (!pdfDoc) return;
-      const targetPx = Math.round(Math.min(pageW * DPR, MAX_CANVAS_W));
+      const targetPx = Math.round(Math.min(pageW * effScale(), MAX_CANVAS_W));
       if (el.dataset.rw === String(targetPx)) return;   // already sharp at this zoom
       el.dataset.rw = String(targetPx);
       const pg = parseInt(el.dataset.pg, 10);
@@ -93,16 +100,28 @@
     }
 
     let rerasterT = null;
-    function rerasterRendered(){           // refresh pages already drawn, debounced
+    function rerasterRendered(){           // refresh drawn pages, debounced.
       clearTimeout(rerasterT);
       rerasterT = setTimeout(()=>{
-        holder.querySelectorAll('.pg[data-rw]').forEach(el => renderPage(el).catch(()=>{}));
-      }, 200);
+        // Re-render only pages near the viewport at the new sharpness; just
+        // mark far-away ones stale so they re-render when scrolled to.
+        holder.querySelectorAll('.pg[data-rw]').forEach(el=>{
+          const r = el.getBoundingClientRect();
+          const near = r.bottom > -800 && r.top < window.innerHeight + 800;
+          if (near) renderPage(el).catch(()=>{});
+          else el.dataset.rw = '';
+        });
+      }, 250);
     }
     function zoom(dir){
       setPageW(pageW + dir * 160);
       rerasterRendered();
     }
+    // Pinch-zoom (iPad/iPhone) and desktop browser-zoom both change the
+    // effective scale without touching the buttons — re-rasterize for both.
+    if (window.visualViewport)
+      window.visualViewport.addEventListener('resize', rerasterRendered);
+    window.addEventListener('resize', rerasterRendered);
 
     pdfjsLib.getDocument('/pl/{{ token }}/file').promise.then(async doc=>{
       pdfDoc = doc;
