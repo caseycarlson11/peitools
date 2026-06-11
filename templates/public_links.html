@@ -40,6 +40,24 @@
   .slot-actions .btn { padding:7px 14px; font-size:.82rem; }
   .pub-date { color:var(--text2); font-size:.74rem; margin-top:8px; }
   .empty-note { color:var(--text2); font-size:.83rem; }
+
+  .qr-overlay {
+    position:fixed; inset:0; z-index:200; display:none;
+    align-items:center; justify-content:center;
+    background:rgba(10,14,20,0.75); backdrop-filter:blur(4px); padding:20px;
+  }
+  .qr-overlay.open { display:flex; }
+  .qr-box {
+    background:var(--card); border:1px solid var(--border); border-radius:14px;
+    padding:26px 26px 22px; max-width:340px; width:100%; text-align:center;
+  }
+  .qr-box h3 { font-size:.95rem; margin-bottom:4px; }
+  .qr-box .qr-job { color:var(--text2); font-size:.78rem; margin-bottom:14px; }
+  .qr-box img { width:100%; max-width:260px; border-radius:10px; background:#fff; padding:6px; }
+  .qr-box .qr-url { font-size:.7rem; word-break:break-all; margin:12px 0; }
+  .qr-box .qr-url a { color:var(--blue); text-decoration:none; }
+  .qr-box .qr-url a:hover { text-decoration:underline; }
+  .qr-box .btn-row { justify-content:center; }
 {% endblock %}
 
 {% block content %}
@@ -59,6 +77,21 @@
 
 <div id="slotsWrap" style="display:none"></div>
 <div class="alert alert-error" id="errBox"></div>
+
+<div class="qr-overlay" id="qrOverlay" onclick="if(event.target===this)closeQr()">
+  <div class="qr-box">
+    <h3 id="qrTitle"></h3>
+    <div class="qr-job" id="qrJob"></div>
+    <img id="qrImg" alt="QR code">
+    <div class="qr-url"><a id="qrUrl" target="_blank" rel="noopener"></a></div>
+    <div class="btn-row">
+      <button class="btn btn-subtle" onclick="printQr()">🖨 Print</button>
+      <a class="btn btn-subtle" id="qrDownload">⬇️ Download</a>
+      <button class="btn btn-subtle" id="qrCopyBtn" onclick="copyQr(this)">📋 Copy</button>
+      <button class="btn btn-subtle" onclick="closeQr()">Close</button>
+    </div>
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -159,6 +192,7 @@ function render(){
     const pubLabel = live ? '🔁 Publish (swap document)' : '🌐 Publish & create link';
     actions += `<button class="btn btn-green" onclick="publish('${slot}')" ${canPublish?'':'disabled'}>${pubLabel}</button>`;
     if (live){
+      actions += `<button class="btn btn-subtle" onclick="showQr('${slot}')">🔳 QR Code</button>`;
       actions += `<button class="btn btn-subtle" onclick="rotate('${slot}')">♻️ New Link</button>`;
       actions += `<button class="btn btn-danger" onclick="disableLink('${slot}')">🚫 Disable</button>`;
       actions += `<a class="btn btn-subtle" href="${esc(s.url)}" target="_blank">👁 Preview</a>`;
@@ -228,6 +262,55 @@ function disableLink(slot){
     if (d.error){ showErr(d.error); return; }
     load();
   }).catch(()=>showErr('Could not disable the link.'));
+}
+
+let qrCurrent = null;  // {src, url, name} of the QR shown in the overlay
+
+function showQr(slot){
+  const s = state.slots[slot];
+  if (!s || !s.url) return;
+  const fname = 'QR - ' + job + ' - ' + s.name;
+  const src = '/api/qr?data=' + encodeURIComponent(s.url) + '&name=' + encodeURIComponent(fname);
+  qrCurrent = { src, url: s.url, name: s.name };
+  $('qrTitle').textContent = s.name;
+  $('qrJob').textContent = job;
+  $('qrUrl').textContent = s.url;
+  $('qrUrl').href = s.url;
+  $('qrImg').src = src;
+  $('qrDownload').href = src + '&dl=1';
+  $('qrOverlay').classList.add('open');
+}
+function closeQr(){ $('qrOverlay').classList.remove('open'); }
+
+function printQr(){
+  if (!qrCurrent) return;
+  const w = window.open('', '_blank', 'width=420,height=580');
+  if (!w){ showErr('Pop-up blocked — allow pop-ups for this site to print.'); return; }
+  w.document.write(`<!DOCTYPE html><html><head><title>${esc(qrCurrent.name)} — ${esc(job)}</title>
+    <style>body{font-family:sans-serif;text-align:center;padding:30px;color:#000}
+    h2{margin:0 0 4px;font-size:1.2rem} .j{color:#555;margin-bottom:18px}
+    img{width:300px;height:300px} .u{font-size:.75rem;color:#555;word-break:break-all;margin-top:14px}</style></head>
+    <body><h2>${esc(qrCurrent.name)}</h2><div class="j">${esc(job)}</div>
+    <img src="${qrCurrent.src}" onload="window.print()">
+    <div class="u">${esc(qrCurrent.url)}</div></body></html>`);
+  w.document.close();
+}
+
+async function copyQr(btn){
+  if (!qrCurrent) return;
+  const done = (txt) => { btn.textContent = txt;
+    setTimeout(() => { btn.textContent = '📋 Copy'; }, 1600); };
+  try {
+    // copy the QR as an image (paste into texts, emails, docs)
+    await navigator.clipboard.write([new ClipboardItem({
+      'image/png': fetch(qrCurrent.src).then(r => r.blob())
+    })]);
+    done('✓ Copied');
+  } catch (_) {
+    // image copy unsupported — copy the link text instead
+    try { await navigator.clipboard.writeText(qrCurrent.url); done('✓ Link copied'); }
+    catch (__) { fallbackCopy(qrCurrent.url, () => done('✓ Link copied')); }
+  }
 }
 
 function copyLink(btn, url){

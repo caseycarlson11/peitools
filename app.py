@@ -3045,6 +3045,27 @@ def public_links_disable(job_name):
     return jsonify({"ok": True})
 
 
+@app.route("/api/qr")
+@login_required
+def qr_png():
+    """PNG QR code for a public link (Public Links page QR buttons)."""
+    data = request.args.get("data", "")
+    if not data or len(data) > 500:
+        abort(400)
+    try:
+        import qrcode
+    except ImportError:
+        return jsonify({"error": "Server missing the 'qrcode' library — run the full deploy (deploy.bat) once."}), 500
+    img = qrcode.make(data, box_size=10, border=2)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    buf.seek(0)
+    fname = (request.args.get("name") or "qr") + ".png"
+    return send_file(buf, mimetype="image/png",
+                     as_attachment=(request.args.get("dl") == "1"),
+                     download_name=fname)
+
+
 # ── Public: no login required — the token IS the access ─────────────
 
 @app.route("/pl/<token>")
