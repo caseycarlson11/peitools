@@ -254,6 +254,8 @@
         showAlert(e.name === 'NotFoundError' ? 'No microphone found on this device.' : MIC_BLOCKED_MSG, 'info');
         return;
       }
+      const micTrack = stream.getAudioTracks()[0];
+      const micLabel = (micTrack && micTrack.label) || 'unknown';
       const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
                  : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
       mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
@@ -270,6 +272,7 @@
         timer = setInterval(() => label('Transcribing… ' + ((Date.now() - t0) / 1000).toFixed(1) + 's'), 100);
         const fd = new FormData();
         fd.append('audio', blob, 'note.' + (blob.type.includes('mp4') ? 'mp4' : 'webm'));
+        fd.append('mic', micLabel);
         try {
           const r = await fetch('/api/field-report/transcribe', { method: 'POST', body: fd });
           const data = await r.json().catch(() => ({}));
