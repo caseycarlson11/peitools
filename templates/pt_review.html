@@ -64,7 +64,9 @@
       font-family: inherit; font-size: .9rem; line-height: 1.6;
       white-space: pre-wrap; word-break: break-word; color: #dbe6f3; }
     .fixmodal-foot { padding: 12px 18px; border-top: 1px solid rgba(255,255,255,.1);
-      display: flex; justify-content: flex-end; flex-shrink: 0; }
+      display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+    #fixCopyBtn.copied { background: linear-gradient(135deg,#14532d,#16a34a);
+      border-color: #22c55e; color: #fff; }
 
     /* ── Main split ── */
     .main { display: flex; flex: 1; overflow: hidden; }
@@ -338,7 +340,10 @@
     <div class="fixmodal-box">
       <div class="fixmodal-title">🔧 Fix Missed — Results</div>
       <pre class="fixmodal-body" id="fixModalBody"></pre>
-      <div class="fixmodal-foot"><button class="tb-btn blue" onclick="closeFixModal()">OK</button></div>
+      <div class="fixmodal-foot">
+        <button class="tb-btn" id="fixCopyBtn" onclick="copyFixReport()">📋 Copy</button>
+        <button class="tb-btn blue" onclick="closeFixModal()">OK</button>
+      </div>
     </div>
   </div>
 
@@ -1761,6 +1766,25 @@
   function closeFixModal(){
     $('fixModal').classList.remove('open');
     if(_fixReload){ _fixReload=false; location.reload(); }   // pull the fixed data + PDF
+  }
+  function copyFixReport(){
+    const text = $('fixModalBody').textContent;
+    const btn = $('fixCopyBtn');
+    const done = ()=>{ btn.classList.add('copied'); btn.textContent='✓ Copied';
+      setTimeout(()=>{ btn.classList.remove('copied'); btn.textContent='📋 Copy'; }, 1600); };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(()=>{
+        const ta=document.createElement('textarea'); ta.value=text;
+        document.body.appendChild(ta); ta.select();
+        try{ document.execCommand('copy'); }catch(_){}
+        document.body.removeChild(ta); done();
+      });
+    } else {
+      const ta=document.createElement('textarea'); ta.value=text;
+      document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      document.body.removeChild(ta); done();
+    }
   }
 
   // ── Elapsed clock on a busy button — every long action visibly ticks so

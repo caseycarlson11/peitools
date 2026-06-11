@@ -1136,11 +1136,12 @@ function onJobSelect(job) {
   if (!job) { listEl.style.display = 'none'; listEl.innerHTML = ''; return; }
   const files = (window._fabJobData || {})[job] || [];
   listEl.style.display = 'flex';
-  listEl.innerHTML = files.map(fname =>
-    `<button class="fab-file-btn" onclick="loadServerFile('${job}', '${fname}')">
+  listEl.innerHTML = files.map(entry => {
+    const fname = typeof entry === 'object' ? entry.name : entry;
+    return `<button class="fab-file-btn" onclick="loadServerFile('${job}', '${encodeURIComponent(fname)}')">
       <span class="file-icon">📄</span>${fname}
-    </button>`
-  ).join('');
+    </button>`;
+  }).join('');
 }
 
 async function loadServerFile(job, filename) {
@@ -1149,7 +1150,7 @@ async function loadServerFile(job, filename) {
     document.getElementById('processingScreen').style.display = 'flex';
     setProgress(0, 1, 'Fetching file from server…');
 
-    const url = `/files/${encodeURIComponent(job)}/Fab Sheets/${encodeURIComponent(filename)}`;
+    const url = `/files/${encodeURIComponent(job)}/Fab%20Sheets/${filename}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
     const buffer = await res.arrayBuffer();
