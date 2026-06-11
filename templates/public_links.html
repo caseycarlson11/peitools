@@ -67,14 +67,15 @@ let state = null;           // last /api/public-links response
 let picked = {};            // slot -> {folder, file} chosen in the picker
 let pickersOpen = {};       // slot -> bool, survives re-render
 
-const SLOT_ORDER = ['prints','panels_only','packing_lists','fab_sheets','spreadsheet','job_page'];
-const SLOT_ICONS = {prints:'📐', panels_only:'🟥', packing_lists:'📦', fab_sheets:'📄', spreadsheet:'📊', job_page:'🏠'};
+const SLOT_ORDER = ['prints','panels_only','packing_lists','fab_sheets','spreadsheet','todo_board','job_page'];
+const SLOT_ICONS = {prints:'📐', panels_only:'🟥', packing_lists:'📦', fab_sheets:'📄', spreadsheet:'📊', todo_board:'✅', job_page:'🏠'};
 const SLOT_DESC = {
   prints:        'The full marked-up print set — pick which PDF from Blueprints or Panel Mapper is public.',
   panels_only:   'The panels-only version of the prints — pick which PDF is public.',
   packing_lists: 'One combined PDF of every packing list on this job. Always current — new packing lists appear automatically.',
   fab_sheets:    'One combined PDF of every fab sheet on this job. Always current — new fab sheets appear automatically.',
   spreadsheet:   'The job spreadsheet in a viewer, with Download and Open-in-Google-Sheets. Always serves the latest version.',
+  todo_board:    'The live #to-do board from Discord — view field reports, photos, and mark tasks complete. No Discord or login needed.',
   job_page:      'A single public page with buttons for every live document above — one bookmark for the whole job.',
 };
 

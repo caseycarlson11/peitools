@@ -2770,13 +2770,14 @@ def panel_tracking_overview(job_name):
 
 PUBLIC_LINKS_FILE = os.path.join(JOBS_DIR, ".public_links.json")
 _PUB_SLOTS = ("prints", "panels_only", "packing_lists", "fab_sheets",
-              "spreadsheet", "job_page")
+              "spreadsheet", "todo_board", "job_page")
 _PUB_SLOT_NAMES = {
     "prints":        "Marked-Up Prints",
     "panels_only":   "Panels-Only Prints",
     "packing_lists": "All Packing Lists",
     "fab_sheets":    "All Fab Sheets",
     "spreadsheet":   "Job Spreadsheet",
+    "todo_board":    "To-Do Board",
     "job_page":      "Job Page",
 }
 # Slots whose document is picked by hand at Publish time
@@ -2983,6 +2984,13 @@ def public_links_publish(job_name):
         if not os.path.isfile(path):
             return jsonify({"error": "File not found"}), 404
         info["file"] = f"{folder}/{fname}"
+    elif slot == "todo_board":
+        # No document — the /pl link forwards to the live to-do viewer
+        try:
+            _todo_view_token(create=True)
+        except Exception:
+            return jsonify({"error": "Could not set up the To-Do viewer "
+                            "on the server."}), 500
     else:
         # Auto slots: just verify there is something to serve right now
         if not _pub_current_file(job_name, slot, info) and slot != "job_page":
@@ -3041,6 +3049,12 @@ def public_link_view(token):
     if not job:
         abort(404)
 
+    if slot == "todo_board":
+        view_tok = _todo_view_token()
+        if not view_tok:
+            abort(404)
+        return redirect("/todo/" + view_tok)
+
     if slot == "job_page":
         job_links = _pub_load().get(job, {})
         docs = []
@@ -3048,7 +3062,8 @@ def public_link_view(token):
             if s == "job_page":
                 continue
             i = job_links.get(s) or {}
-            if i.get("token") and _pub_current_file(job, s, i):
+            has_doc = (s == "todo_board") or _pub_current_file(job, s, i)
+            if i.get("token") and has_doc:
                 docs.append({"slot": s, "name": _PUB_SLOT_NAMES[s],
                              "url": "/pl/" + i["token"]})
         return render_template("public_job_page.html", job=job, docs=docs)
