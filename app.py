@@ -10,6 +10,12 @@ app = Flask(__name__)
 app.secret_key = "pei-tools-secret-2024"
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 
+# Behind the nginx proxy, trust X-Forwarded-Proto/Host so generated absolute
+# links (public links, QR codes, task-complete links) say https://peitools.com
+# instead of http:// — without this, every QR scan takes a redirect hop.
+from werkzeug.middleware.proxy_fix import ProxyFix
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
 
 # ── Jobs folder (persisted via Docker volume) ────────────────
 JOBS_DIR = os.path.join(os.path.dirname(__file__), "jobs")
