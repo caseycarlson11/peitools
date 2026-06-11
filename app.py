@@ -2948,6 +2948,9 @@ def public_links_state(job_name):
     for slot in _PUB_SLOTS:
         info = job_links.get(slot) or {}
         live = bool(info.get("token"))
+        if slot == "todo_board" and not live and \
+           not _load_webhooks().get(job_name, {}).get("todo"):
+            continue  # only jobs with a to-do channel get the board slot
         slots[slot] = {
             "name": _PUB_SLOT_NAMES[slot],
             "live": live,
@@ -3422,16 +3425,16 @@ DISCORD_CHANNELS = [
 _WEBHOOKS_FILE = os.path.join(JOBS_DIR, ".discord_webhooks.json")
 
 def _load_webhooks():
-    """Webhook config: {job_or_"Company": {channel_key: url}} — one Discord
-    server per job, plus "Company" for the original company-wide server.
-    Legacy flat {channel: url} files load as Company's channels."""
+    """Webhook config: {job: {channel_key: url}} — one Discord server per
+    job. Legacy flat {channel: url} files load as Modesto Courthouse's
+    channels (the original server belongs to that job)."""
     try:
         with open(_WEBHOOKS_FILE, encoding="utf-8") as f:
             raw = json.load(f)
     except Exception:
         return {}
     if raw and all(isinstance(v, str) for v in raw.values()):
-        return {"Company": raw}
+        return {"Modesto Courthouse": raw}
     return {k: v for k, v in raw.items() if isinstance(v, dict)}
 
 # Sent reports awaiting a "Mark task complete" click. Keyed by token; each
@@ -3742,7 +3745,11 @@ def field_report_complete_post(token):
     embed["description"] = embed["description"].replace(rec["checkbox_md"], done_md)
     embed["color"] = 0x3FB950  # green once complete
 
-    webhook = _load_webhooks().get(rec.get("job", "Company"), {}).get(rec["channel"], "")
+    hooks = _load_webhooks()
+    rec_job = rec.get("job", "")
+    if rec_job not in hooks and len(hooks) == 1:
+        rec_job = next(iter(hooks))  # heal records from before the server was renamed
+    webhook = hooks.get(rec_job, {}).get(rec["channel"], "")
     if webhook:
         try:
             import requests

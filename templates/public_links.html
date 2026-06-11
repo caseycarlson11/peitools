@@ -142,7 +142,7 @@ function load(){
 
 function render(){
   const wrap = $('slotsWrap');
-  wrap.innerHTML = SLOT_ORDER.map(slot=>{
+  wrap.innerHTML = SLOT_ORDER.filter(slot=>state.slots[slot]).map(slot=>{
     const s = state.slots[slot];
     const live = s.live;
     let body = `<div class="slot-sub">${SLOT_DESC[slot]}</div>`;
@@ -173,7 +173,7 @@ function render(){
         ? `<div class="slot-doc">Current file: <b>${esc(state.spreadsheet_file)}</b>${state.sheets_url?' · <span style="color:var(--green)">🔗 Google Sheet linked</span>':' · <span style="color:var(--text2)">no Google Sheet linked yet (link one in Documents)</span>'}</div>`
         : `<div class="empty-note" style="margin-bottom:10px">No spreadsheet yet — build one with “Pull Data into Spreadsheet” in Documents.</div>`;
     } else if (slot==='job_page'){
-      const liveDocs = SLOT_ORDER.filter(k=>k!=='job_page' && state.slots[k].live).map(k=>state.slots[k].name);
+      const liveDocs = SLOT_ORDER.filter(k=>k!=='job_page' && state.slots[k] && state.slots[k].live).map(k=>state.slots[k].name);
       body += liveDocs.length
         ? `<div class="slot-doc">Will show: <b>${liveDocs.join(' · ')}</b></div>`
         : `<div class="empty-note" style="margin-bottom:10px">No live documents yet — the page will be empty until you publish some above.</div>`;

@@ -62,25 +62,25 @@
 
   <div id="alert" class="alert"></div>
 
-  <!-- 1. Job -->
-  <div class="card">
-    <div class="card-title">1 — Pick a job</div>
+  <!-- Job (hidden when only one Discord server is configured) -->
+  <div class="card" id="jobCard" style="display:none">
+    <div class="card-title"><span class="step-job"></span>Pick a job</div>
     <select id="jobSelect">
       <option value="">Loading jobs…</option>
     </select>
   </div>
 
-  <!-- 2. Channel -->
+  <!-- Channel -->
   <div class="card">
-    <div class="card-title">2 — Pick a channel</div>
+    <div class="card-title"><span class="step-channel">1 — </span>Pick a channel</div>
     <div id="chips" class="chip-row">
-      <span class="hint">Pick a job first.</span>
+      <span class="hint">Loading channels…</span>
     </div>
   </div>
 
-  <!-- 3. Photos -->
+  <!-- Photos -->
   <div class="card">
-    <div class="card-title">3 — Photos</div>
+    <div class="card-title"><span class="step-photos">2 — </span>Photos</div>
     <div id="photoGrid" class="photo-grid">
       <label class="add-photo-tile" for="photoInput">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -91,9 +91,9 @@
     <p class="hint">Up to 10 photos. On a phone or iPad you can take a new photo or pick from your library.</p>
   </div>
 
-  <!-- 4. Note -->
+  <!-- Note -->
   <div class="card">
-    <div class="card-title">4 — Note</div>
+    <div class="card-title"><span class="step-note">3 — </span>Note</div>
     <div class="note-wrap">
       <textarea id="note" placeholder="Type your note, or use voice…"></textarea>
     </div>
@@ -139,8 +139,7 @@
     .then(cfg => {
       CFG = cfg;
       const sel = $('jobSelect');
-      const jobs = Object.keys(cfg.jobs)
-        .sort((a, b) => (a === 'Company' ? -1 : b === 'Company' ? 1 : a.localeCompare(b)));
+      const jobs = Object.keys(cfg.jobs).sort((a, b) => a.localeCompare(b));
       sel.innerHTML = '<option value="">— Pick a job —</option>'
         + jobs.map(j => '<option>' + j + '</option>').join('');
       sel.onchange = () => {
@@ -149,9 +148,21 @@
         renderChips();
         refreshSend();
       };
-      if (jobs.length === 1) { sel.value = jobs[0]; sel.onchange(); }
+      if (jobs.length === 1) {
+        // single Discord server — no job question, just use it
+        sel.value = jobs[0];
+        state.job = jobs[0];
+        renderChips();
+      } else {
+        $('jobCard').style.display = '';
+        document.querySelector('.step-job').textContent = '1 — ';
+        document.querySelector('.step-channel').textContent = '2 — ';
+        document.querySelector('.step-photos').textContent = '3 — ';
+        document.querySelector('.step-note').textContent = '4 — ';
+        $('chips').innerHTML = '<span class="hint">Pick a job first.</span>';
+      }
     })
-    .catch(() => { $('jobSelect').innerHTML = '<option value="">Could not load jobs</option>'; });
+    .catch(() => { $('chips').innerHTML = '<span class="hint">Could not load channels.</span>'; });
 
   function renderChips() {
     const box = $('chips');
