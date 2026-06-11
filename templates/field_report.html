@@ -62,17 +62,25 @@
 
   <div id="alert" class="alert"></div>
 
-  <!-- 1. Channel -->
+  <!-- 1. Job -->
   <div class="card">
-    <div class="card-title">1 — Pick a channel</div>
+    <div class="card-title">1 — Pick a job</div>
+    <select id="jobSelect">
+      <option value="">Loading jobs…</option>
+    </select>
+  </div>
+
+  <!-- 2. Channel -->
+  <div class="card">
+    <div class="card-title">2 — Pick a channel</div>
     <div id="chips" class="chip-row">
-      <span class="hint">Loading channels…</span>
+      <span class="hint">Pick a job first.</span>
     </div>
   </div>
 
-  <!-- 2. Photos -->
+  <!-- 3. Photos -->
   <div class="card">
-    <div class="card-title">2 — Photos</div>
+    <div class="card-title">3 — Photos</div>
     <div id="photoGrid" class="photo-grid">
       <label class="add-photo-tile" for="photoInput">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
@@ -83,9 +91,9 @@
     <p class="hint">Up to 10 photos. On a phone or iPad you can take a new photo or pick from your library.</p>
   </div>
 
-  <!-- 3. Note -->
+  <!-- 4. Note -->
   <div class="card">
-    <div class="card-title">3 — Note</div>
+    <div class="card-title">4 — Note</div>
     <div class="note-wrap">
       <textarea id="note" placeholder="Type your note, or use voice…"></textarea>
     </div>
@@ -108,7 +116,8 @@
 {% endblock %}
 
 {% block scripts %}
-  const state = { channel: null, configured: {}, photos: [] };
+  const state = { job: null, channel: null, photos: [] };
+  let CFG = null;  // {channels: [{key,label}], jobs: {job: {key: configured}}}
   const $ = (id) => document.getElementById(id);
 
   function showAlert(msg, kind) {
@@ -118,23 +127,41 @@
   }
   function clearAlert() { $('alert').className = 'alert'; }
 
-  // ── Channels ──────────────────────────────────────────────
+  // ── Job + channels (one Discord server per job) ───────────
   fetch('/api/field-report/channels')
     .then(r => r.json())
-    .then(list => {
-      const box = $('chips');
-      box.innerHTML = '';
-      list.forEach(c => {
-        state.configured[c.key] = c.configured;
-        const el = document.createElement('div');
-        el.className = 'chip' + (c.configured ? '' : ' disabled');
-        el.dataset.key = c.key;
-        el.innerHTML = c.label + (c.configured ? '' : ' <span class="dot">· not set up</span>');
-        if (c.configured) el.onclick = () => selectChannel(c.key);
-        box.appendChild(el);
-      });
+    .then(cfg => {
+      CFG = cfg;
+      const sel = $('jobSelect');
+      const jobs = Object.keys(cfg.jobs)
+        .sort((a, b) => (a === 'Company' ? -1 : b === 'Company' ? 1 : a.localeCompare(b)));
+      sel.innerHTML = '<option value="">— Pick a job —</option>'
+        + jobs.map(j => '<option>' + j + '</option>').join('');
+      sel.onchange = () => {
+        state.job = sel.value || null;
+        state.channel = null;
+        renderChips();
+        refreshSend();
+      };
+      if (jobs.length === 1) { sel.value = jobs[0]; sel.onchange(); }
     })
-    .catch(() => { $('chips').innerHTML = '<span class="hint">Could not load channels.</span>'; });
+    .catch(() => { $('jobSelect').innerHTML = '<option value="">Could not load jobs</option>'; });
+
+  function renderChips() {
+    const box = $('chips');
+    if (!state.job) { box.innerHTML = '<span class="hint">Pick a job first.</span>'; return; }
+    const conf = CFG.jobs[state.job] || {};
+    box.innerHTML = '';
+    CFG.channels.forEach(c => {
+      const ok = conf[c.key];
+      const el = document.createElement('div');
+      el.className = 'chip' + (ok ? '' : ' disabled');
+      el.dataset.key = c.key;
+      el.innerHTML = c.label + (ok ? '' : ' <span class="dot">· not set up</span>');
+      if (ok) el.onclick = () => selectChannel(c.key);
+      box.appendChild(el);
+    });
+  }
 
   function selectChannel(key) {
     state.channel = key;
@@ -329,7 +356,7 @@
   // ── Send ──────────────────────────────────────────────────
   function refreshSend() {
     const hasContent = state.photos.length > 0 || $('note').value.trim().length > 0;
-    $('sendBtn').disabled = !(state.channel && hasContent);
+    $('sendBtn').disabled = !(state.job && state.channel && hasContent);
   }
 
   let timer = null;
@@ -345,6 +372,7 @@
     }, 100);
 
     const fd = new FormData();
+    fd.append('job', state.job);
     fd.append('channel', state.channel);
     fd.append('note', $('note').value.trim());
     state.photos.forEach((p, i) => fd.append('photos', p.blob, `photo${i + 1}.jpg`));

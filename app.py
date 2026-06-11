@@ -2985,9 +2985,13 @@ def public_links_publish(job_name):
             return jsonify({"error": "File not found"}), 404
         info["file"] = f"{folder}/{fname}"
     elif slot == "todo_board":
-        # No document — the /pl link forwards to the live to-do viewer
+        # No document — the /pl link forwards to THIS job's to-do board
+        if not _load_webhooks().get(job_name, {}).get("todo"):
+            return jsonify({"error": f"No to-do channel is set up for "
+                            f"“{job_name}” yet — create its Discord server "
+                            f"and paste its to-do webhook first."}), 400
         try:
-            _todo_view_token(create=True)
+            _todo_token_for(job_name, create=True)
         except Exception:
             return jsonify({"error": "Could not set up the To-Do viewer "
                             "on the server."}), 500
@@ -3050,7 +3054,7 @@ def public_link_view(token):
         abort(404)
 
     if slot == "todo_board":
-        view_tok = _todo_view_token()
+        view_tok = _todo_token_for(job)
         if not view_tok:
             abort(404)
         return redirect("/todo/" + view_tok)
@@ -3391,11 +3395,17 @@ DISCORD_CHANNELS = [
 _WEBHOOKS_FILE = os.path.join(JOBS_DIR, ".discord_webhooks.json")
 
 def _load_webhooks():
+    """Webhook config: {job_or_"Company": {channel_key: url}} — one Discord
+    server per job, plus "Company" for the original company-wide server.
+    Legacy flat {channel: url} files load as Company's channels."""
     try:
         with open(_WEBHOOKS_FILE, encoding="utf-8") as f:
-            return json.load(f)
+            raw = json.load(f)
     except Exception:
         return {}
+    if raw and all(isinstance(v, str) for v in raw.values()):
+        return {"Company": raw}
+    return {k: v for k, v in raw.items() if isinstance(v, dict)}
 
 # Sent reports awaiting a "Mark task complete" click. Keyed by token; each
 # record keeps the sent embed + Discord message id so the completion route can
@@ -3562,10 +3572,11 @@ def field_report_last_audio():
 @login_required
 def field_report_channels():
     hooks = _load_webhooks()
-    return jsonify([
-        {"key": key, "label": label, "configured": bool(hooks.get(key))}
-        for key, label in DISCORD_CHANNELS
-    ])
+    return jsonify({
+        "channels": [{"key": k, "label": l} for k, l in DISCORD_CHANNELS],
+        "jobs": {job: {k: bool(chans.get(k)) for k, _ in DISCORD_CHANNELS}
+                 for job, chans in hooks.items()},
+    })
 
 @app.route("/api/field-report/send", methods=["POST"])
 @login_required
@@ -3578,15 +3589,18 @@ def field_report_send():
     hooks = _load_webhooks()
     labels = dict(DISCORD_CHANNELS)
 
+    job     = (request.form.get("job") or "").strip()
     channel = (request.form.get("channel") or "").strip()
     note    = (request.form.get("note") or "").strip()
     photos  = request.files.getlist("photos")
 
+    if job not in hooks:
+        return jsonify({"error": "Pick a job first."}), 400
     if channel not in labels:
         return jsonify({"error": "Unknown channel."}), 400
-    webhook = hooks.get(channel)
+    webhook = hooks[job].get(channel)
     if not webhook:
-        return jsonify({"error": f"The “{labels[channel]}” channel isn’t set up yet (no webhook configured)."}), 400
+        return jsonify({"error": f"The “{labels[channel]}” channel isn’t set up for {job} yet (no webhook configured)."}), 400
     if not note and not photos:
         return jsonify({"error": "Add a photo or a note before sending."}), 400
     if len(photos) > 10:
@@ -3599,7 +3613,7 @@ def field_report_send():
     token = secrets.token_urlsafe(12)
     checkbox_md = f"[☐ **Mark task complete**]({request.url_root.rstrip('/')}/fr/{token})"
     embed = {
-        "title": "📋 Field Report",
+        "title": "📋 Field Report" + (f" — {job}" if job != "Company" else ""),
         "color": 0x60B4F0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "description": (note[:3800] + "\n\n" if note else "") + checkbox_md,
@@ -3631,6 +3645,7 @@ def field_report_send():
             message_id = resp.json()["id"]
             reports = _fr_load_reports()
             reports[token] = {
+                "job": job,
                 "channel": channel,
                 "message_id": message_id,
                 "embed": embed,
@@ -3698,7 +3713,7 @@ def field_report_complete_post(token):
     embed["description"] = embed["description"].replace(rec["checkbox_md"], done_md)
     embed["color"] = 0x3FB950  # green once complete
 
-    webhook = _load_webhooks().get(rec["channel"], "")
+    webhook = _load_webhooks().get(rec.get("job", "Company"), {}).get(rec["channel"], "")
     if webhook:
         try:
             import requests
@@ -3719,8 +3734,8 @@ def field_report_complete_post(token):
 # it lives on the jobs volume like the other secrets. The channel id is
 # resolved once from the to-do webhook itself.
 _DISCORD_BOT_FILE = os.path.join(JOBS_DIR, ".discord_bot_token.txt")
-_TODO_VIEW_TOKEN_FILE = os.path.join(JOBS_DIR, ".todo_view_token.txt")
-_todo_cache = {"channel_id": None, "msg_t": 0.0, "msgs": None}
+_TODO_VIEW_TOKENS_FILE = os.path.join(JOBS_DIR, ".todo_view_tokens.json")
+_todo_cache = {}  # job -> {"cid", "msgs", "t"} (one board per job server)
 
 def _load_bot_token():
     try:
@@ -3729,60 +3744,91 @@ def _load_bot_token():
     except Exception:
         return ""
 
-def _todo_view_token(create=False):
+def _todo_tokens():
     try:
-        with open(_TODO_VIEW_TOKEN_FILE, encoding="utf-8") as f:
-            tok = f.read().strip()
-            if tok:
-                return tok
+        with open(_TODO_VIEW_TOKENS_FILE, encoding="utf-8") as f:
+            return json.load(f)
     except Exception:
-        pass
+        return {}
+
+def _todo_token_for(job, create=False):
+    toks = _todo_tokens()
+    if toks.get(job):
+        return toks[job]
     if not create:
         return ""
-    tok = secrets.token_urlsafe(16)
-    with open(_TODO_VIEW_TOKEN_FILE, "w", encoding="utf-8") as f:
-        f.write(tok)
-    return tok
+    toks[job] = secrets.token_urlsafe(16)
+    with open(_TODO_VIEW_TOKENS_FILE, "w", encoding="utf-8") as f:
+        json.dump(toks, f, indent=2)
+    return toks[job]
 
-def _todo_channel_id():
-    if _todo_cache["channel_id"]:
-        return _todo_cache["channel_id"]
+def _todo_job_for(tok):
+    if not tok:
+        return None
+    for job, t in _todo_tokens().items():
+        if t == tok:
+            return job
+    return None
+
+def _todo_channel_id(job):
+    ent = _todo_cache.setdefault(job, {})
+    if ent.get("cid"):
+        return ent["cid"]
     import requests
-    webhook = _load_webhooks().get("todo", "")
+    webhook = _load_webhooks().get(job, {}).get("todo", "")
     if not webhook:
         return None
     try:
         cid = requests.get(webhook, timeout=15).json().get("channel_id")
     except Exception:
         return None
-    _todo_cache["channel_id"] = cid
+    ent["cid"] = cid
     return cid
 
 @app.route("/todo")
 @login_required
 def todo_link():
-    """Logged-in helper: visit /todo to get (and create) the shareable link."""
-    return redirect("/todo/" + _todo_view_token(create=True))
+    """Logged-in helper: lists every job's to-do board with its share link."""
+    hooks = _load_webhooks()
+    rows = []
+    for job in sorted(hooks, key=lambda j: (j != "Company", j)):
+        if hooks[job].get("todo"):
+            try:
+                tok = _todo_token_for(job, create=True)
+            except Exception:
+                continue
+            rows.append(f'<li style="margin:8px 0"><a style="color:#60b4f0" '
+                        f'href="/todo/{tok}">{job}</a></li>')
+    body = ("<ul style='list-style:none'>" + "".join(rows) + "</ul>") if rows else \
+           "<p>No to-do channels configured yet.</p>"
+    return ('<!DOCTYPE html><html><head><meta charset="utf-8"><title>To-Do Boards | PEI Tools</title>'
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">'
+            '<style>body{font-family:Inter,sans-serif;background:#0d1117;color:#e6edf3;padding:40px 20px;'
+            'max-width:480px;margin:0 auto}h1{font-size:1.2rem}p,li{font-size:.95rem}</style></head>'
+            f'<body><h1>To-Do Boards</h1>{body}</body></html>')
 
 @app.route("/todo/<tok>")
 def todo_view(tok):
-    if not tok or tok != _todo_view_token():
+    job = _todo_job_for(tok)
+    if not job:
         abort(404)
-    return render_template("todo_view.html", tok=tok)
+    return render_template("todo_view.html", tok=tok, job=job)
 
 @app.route("/api/todo/<tok>/messages")
 def todo_messages(tok):
-    if not tok or tok != _todo_view_token():
+    job = _todo_job_for(tok)
+    if not job:
         abort(404)
     import time as _t
-    if _todo_cache["msgs"] is not None and _t.time() - _todo_cache["msg_t"] < 20:
-        return jsonify(_todo_cache["msgs"])  # cache: don't hammer Discord on refreshes
+    ent = _todo_cache.setdefault(job, {})
+    if ent.get("msgs") is not None and _t.time() - ent.get("t", 0) < 20:
+        return jsonify(ent["msgs"])  # cache: don't hammer Discord on refreshes
     bot = _load_bot_token()
     if not bot:
         return jsonify({"error": "The viewer isn’t set up yet (no Discord bot token on the server)."}), 503
-    cid = _todo_channel_id()
+    cid = _todo_channel_id(job)
     if not cid:
-        return jsonify({"error": "Could not find the to-do channel (webhook missing?)."}), 503
+        return jsonify({"error": f"No to-do channel is set up for {job} yet."}), 503
     import requests
     try:
         r = requests.get(f"https://discord.com/api/v10/channels/{cid}/messages",
@@ -3811,8 +3857,8 @@ def todo_messages(tok):
                       for a in m.get("attachments", [])
                       if not (a.get("content_type") or "").startswith("image/")],
         })
-    _todo_cache["msgs"] = msgs
-    _todo_cache["msg_t"] = _t.time()
+    ent["msgs"] = msgs
+    ent["t"] = _t.time()
     return jsonify(msgs)
 
 

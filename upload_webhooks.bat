@@ -20,8 +20,8 @@ if exist "Jobs\.discord_bot_token.txt" (
     scp "Jobs\.discord_bot_token.txt" root@93.188.160.121:/var/www/pei-jobs/.discord_bot_token.txt
 )
 
-if exist "Jobs\.todo_view_token.txt" (
-    scp "Jobs\.todo_view_token.txt" root@93.188.160.121:/var/www/pei-jobs/.todo_view_token.txt
+if exist "Jobs\.todo_view_tokens.json" (
+    scp "Jobs\.todo_view_tokens.json" root@93.188.160.121:/var/www/pei-jobs/.todo_view_tokens.json
 )
 
 echo.
