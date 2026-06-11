@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
   <title>{{ title }} — {{ job }} | PEI</title>
   <link rel="icon" type="image/png" href="/static/favicon.png">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet"/>
@@ -27,7 +27,8 @@
     }
     .bbtn:hover { border-color:var(--blue); }
     .zbtn { padding:7px 11px; font-size:.9rem; }
-    .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; position:relative; }
+    .pages { flex:1; overflow:auto; padding:16px 0 40px; -webkit-overflow-scrolling:touch; position:relative;
+             touch-action:pan-x pan-y; /* fingers scroll; pinch is handled by us, not the browser */ }
     .pg { margin:0 auto 14px; width:var(--pagew, 980px); background:#fff; position:relative;
           box-shadow:0 3px 14px rgba(0,0,0,.45); }
     .pg canvas { display:block; width:100%; height:auto; }
@@ -80,10 +81,46 @@
     }
 
     function setPageW(w){
-      pageW = Math.max(320, Math.min(2600, w));
+      pageW = Math.max(320, Math.min(4000, w));
       document.documentElement.style.setProperty('--pagew', pageW + 'px');
     }
     setPageW(pageW);
+
+    // ── Pinch zoom = DOCUMENT zoom ─────────────────────────────
+    // Two fingers on the pages area resize the document itself (anchored to
+    // the point between the fingers), then re-rasterize sharp. The page/bar
+    // never zooms — browser pinch-zoom is suppressed.
+    let pinch = null;
+    holder.addEventListener('touchstart', e=>{
+      if (e.touches.length === 2){
+        const [a,b] = e.touches;
+        pinch = { d0: Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY) || 1,
+                  w0: pageW,
+                  cx: (a.clientX+b.clientX)/2, cy: (a.clientY+b.clientY)/2 };
+      }
+    }, {passive:true});
+    holder.addEventListener('touchmove', e=>{
+      if (e.touches.length === 2 && pinch){
+        e.preventDefault();
+        const [a,b] = e.touches;
+        const f = (Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY) || 1) / pinch.d0;
+        const rect = holder.getBoundingClientRect();
+        const cx = pinch.cx - rect.left, cy = pinch.cy - rect.top;
+        const oldW = pageW, sl = holder.scrollLeft, st = holder.scrollTop;
+        setPageW(pinch.w0 * f);
+        const sc = pageW / oldW;
+        if (sc !== 1){
+          holder.scrollLeft = (sl + cx) * sc - cx;
+          holder.scrollTop  = (st + cy) * sc - cy;
+        }
+      }
+    }, {passive:false});
+    holder.addEventListener('touchend', e=>{
+      if (pinch && e.touches.length < 2){ pinch = null; rerasterRendered(); }
+    });
+    // iOS Safari fires its own gesture events for pinch — block page zoom
+    ['gesturestart','gesturechange','gestureend'].forEach(ev=>
+      document.addEventListener(ev, e=>e.preventDefault(), {passive:false}));
 
     async function renderPage(el){
       if (!pdfDoc) return;
