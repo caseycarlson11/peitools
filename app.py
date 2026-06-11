@@ -3382,6 +3382,34 @@ def _load_webhooks():
     except Exception:
         return {}
 
+# Sent reports awaiting a "Mark task complete" click. Keyed by token; each
+# record keeps the sent embed + Discord message id so the completion route can
+# PATCH the message in place. Persisted on the jobs volume like the webhooks.
+_FIELD_REPORTS_FILE = os.path.join(JOBS_DIR, ".field_reports.json")
+
+def _fr_load_reports():
+    try:
+        with open(_FIELD_REPORTS_FILE, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+def _fr_save_reports(reports):
+    # Cap growth: keep the newest 400 reports
+    if len(reports) > 400:
+        oldest = sorted(reports, key=lambda t: reports[t].get("created", ""))
+        for t in oldest[:len(reports) - 400]:
+            del reports[t]
+    with open(_FIELD_REPORTS_FILE, "w", encoding="utf-8") as f:
+        json.dump(reports, f, indent=1)
+
+def _fr_display_name(email):
+    """caseyc@pacificerectors.com -> 'Casey C.' (first name + last initial)."""
+    prefix = (email or "").split("@")[0]
+    if email.endswith("@pacificerectors.com") and len(prefix) > 2:
+        return prefix[:-1].capitalize() + " " + prefix[-1].upper() + "."
+    return prefix.capitalize() or "Unknown"
+
 @app.route("/field-report")
 @login_required
 def field_report():
@@ -3422,13 +3450,17 @@ def field_report_send():
         return jsonify({"error": "Discord allows up to 10 photos per message."}), 400
 
     poster = session.get("user", "")
+    # "Checkbox": a link in the message that marks the task complete when
+    # tapped (webhook messages can't carry real Discord buttons — that needs
+    # a full bot app). Tapping it hits /fr/<token>, which edits this message.
+    token = secrets.token_urlsafe(12)
+    checkbox_md = f"[☐ **Mark task complete**]({request.url_root.rstrip('/')}/fr/{token})"
     embed = {
         "title": "📋 Field Report",
         "color": 0x60B4F0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
+        "description": (note[:3800] + "\n\n" if note else "") + checkbox_md,
     }
-    if note:
-        embed["description"] = note[:4096]
     if poster:
         embed["author"] = {"name": poster}
 
@@ -3443,6 +3475,7 @@ def field_report_send():
     try:
         resp = requests.post(
             webhook,
+            params={"wait": "true"},  # make Discord return the message id
             data={"payload_json": json.dumps(payload)},
             files=files or None,
             timeout=30,
@@ -3451,10 +3484,69 @@ def field_report_send():
         return jsonify({"error": "Could not reach Discord. Check the connection and try again."}), 502
 
     if resp.status_code in (200, 204):
+        try:
+            message_id = resp.json()["id"]
+            reports = _fr_load_reports()
+            reports[token] = {
+                "channel": channel,
+                "message_id": message_id,
+                "embed": embed,
+                "checkbox_md": checkbox_md,
+                "created": datetime.now(timezone.utc).isoformat(),
+                "completed_by": None,
+            }
+            _fr_save_reports(reports)
+        except Exception:
+            pass  # report still sent; only the complete-link is dead
         return jsonify({"ok": True, "channel": labels[channel]})
     if resp.status_code == 413:
         return jsonify({"error": "Photos are too large for Discord. Try sending fewer at once."}), 413
     return jsonify({"error": f"Discord rejected the message (HTTP {resp.status_code})."}), 502
+
+
+_FR_RESULT_PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{title} | PEI Tools</title><link rel="icon" href="/static/favicon.png">
+<style>body{{font-family:'Inter',-apple-system,sans-serif;background:#0d1117;color:#e6edf3;
+display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:20px}}
+.box{{background:#1c2230;border:1px solid #30363d;border-radius:14px;padding:36px 32px;
+max-width:420px;text-align:center}}.big{{font-size:2.6rem;margin-bottom:14px}}
+h1{{font-size:1.15rem;margin:0 0 8px}}p{{color:#8b949e;font-size:.9rem;line-height:1.5;margin:0}}</style>
+</head><body><div class="box"><div class="big">{icon}</div><h1>{title}</h1><p>{msg}</p></div></body></html>"""
+
+@app.route("/fr/<token>")
+@login_required
+def field_report_complete(token):
+    reports = _fr_load_reports()
+    rec = reports.get(token)
+    if not rec:
+        return _FR_RESULT_PAGE.format(icon="🤷", title="Link not found",
+            msg="This task link is no longer on file."), 404
+    if rec.get("completed_by"):
+        return _FR_RESULT_PAGE.format(icon="✅", title="Already completed",
+            msg=f"This task was already marked complete by {rec['completed_by']}.")
+
+    name = _fr_display_name(session.get("user", ""))
+    done_md = (f"✅ **Completed by {name}** · "
+               f"<t:{int(datetime.now(timezone.utc).timestamp())}:f>")
+    embed = rec["embed"]
+    embed["description"] = embed["description"].replace(rec["checkbox_md"], done_md)
+    embed["color"] = 0x3FB950  # green once complete
+
+    webhook = _load_webhooks().get(rec["channel"], "")
+    if webhook:
+        try:
+            import requests
+            requests.patch(f"{webhook}/messages/{rec['message_id']}",
+                           json={"embeds": [embed]}, timeout=15)
+        except Exception:
+            pass  # completion still recorded on our side
+
+    rec["completed_by"] = name
+    rec["completed_at"] = datetime.now(timezone.utc).isoformat()
+    _fr_save_reports(reports)
+    return _FR_RESULT_PAGE.format(icon="✅", title="Task marked complete",
+        msg=f"The Discord message now shows it was completed by {name}. You can close this tab.")
 
 
 if __name__ == "__main__":
