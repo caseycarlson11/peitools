@@ -3569,6 +3569,7 @@ def field_report_transcribe():
         with open(_FR_LAST_META, "w", encoding="utf-8") as fm:
             json.dump({"filename": f.filename, "mimetype": f.mimetype, "bytes": len(data),
                        "mic": request.form.get("mic", ""),
+                       "client_level_db": request.form.get("level", ""),
                        "normalized": bool(wav),
                        "status": resp.status_code, "model": _TRANSCRIBE_MODEL, "text": text,
                        "user": session.get("user", ""),

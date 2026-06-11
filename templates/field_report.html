@@ -101,6 +101,12 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></svg>
       <span id="dictateLabel">Dictate</span>
     </button>
+    <div id="micMeter" style="display:none; margin-top:10px;">
+      <div style="background:var(--surface); border:1px solid var(--border); border-radius:6px; height:10px; overflow:hidden;">
+        <div id="micMeterFill" style="height:100%; width:0%; background:var(--green); border-radius:6px; transition:width 0.1s, background 0.2s;"></div>
+      </div>
+      <div id="micMeterMsg" class="hint" style="margin-top:6px;">Listening…</div>
+    </div>
     <p class="hint" id="dictateHint">On an iPad or iPhone, tap the 🎤 on your keyboard to dictate.</p>
   </div>
 
@@ -242,7 +248,42 @@
     btn.style.display = 'inline-flex';
     $('dictateHint').textContent = 'Tap Dictate and talk; tap Stop when done — your words are typed out automatically.';
     let mr = null, chunks = [], state = 'idle', timer = null;
+    let actx = null, meterTimer = null, levelSum = 0, levelN = 0;
     const label = (t) => { $('dictateLabel').textContent = t; };
+
+    function startMeter(stream) {
+      // Live mic level: shows the user their voice is (or isn't) being heard
+      try {
+        actx = new (window.AudioContext || window.webkitAudioContext)();
+        actx.resume && actx.resume();
+        const an = actx.createAnalyser();
+        an.fftSize = 2048;
+        actx.createMediaStreamSource(stream).connect(an);
+        const buf = new Uint8Array(an.fftSize);
+        levelSum = 0; levelN = 0;
+        let quietSince = Date.now();
+        $('micMeter').style.display = 'block';
+        $('micMeterMsg').textContent = 'Listening…';
+        meterTimer = setInterval(() => {
+          an.getByteTimeDomainData(buf);
+          let sum = 0;
+          for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; sum += v * v; }
+          const rms = Math.sqrt(sum / buf.length);
+          const db = 20 * Math.log10(rms + 1e-6);
+          levelSum += db; levelN++;
+          const pct = Math.max(0, Math.min(100, (db + 60) * 2));  // -60dB..-10dB -> 0..100%
+          const fill = $('micMeterFill');
+          fill.style.width = pct + '%';
+          if (db > -35) { quietSince = Date.now(); fill.style.background = 'var(--green)'; $('micMeterMsg').textContent = 'Good — your voice is coming through.'; }
+          else if (Date.now() - quietSince > 2500) { fill.style.background = '#d29922'; $('micMeterMsg').textContent = '⚠️ Very quiet — hold the phone closer to your mouth, like a phone call.'; }
+        }, 120);
+      } catch (_) { /* meter is best-effort; recording continues without it */ }
+    }
+    function stopMeter() {
+      clearInterval(meterTimer);
+      $('micMeter').style.display = 'none';
+      if (actx) { try { actx.close(); } catch (_) {} actx = null; }
+    }
 
     btn.onclick = async () => {
       if (state === 'recording') { state = 'transcribing'; mr.stop(); return; }
@@ -264,6 +305,7 @@
       mr.onstop = async () => {
         stream.getTracks().forEach(t => t.stop());
         clearInterval(timer);
+        stopMeter();
         btn.classList.remove('recording');
         const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
         if (blob.size < 1000) { state = 'idle'; label('Dictate'); return; }
@@ -273,6 +315,7 @@
         const fd = new FormData();
         fd.append('audio', blob, 'note.' + (blob.type.includes('mp4') ? 'mp4' : 'webm'));
         fd.append('mic', micLabel);
+        fd.append('level', levelN ? (levelSum / levelN).toFixed(1) : '');
         try {
           const r = await fetch('/api/field-report/transcribe', { method: 'POST', body: fd });
           const data = await r.json().catch(() => ({}));
@@ -287,6 +330,7 @@
         state = 'idle'; label('Dictate');
       };
       mr.start();
+      startMeter(stream);
       state = 'recording';
       btn.classList.add('recording');
       const t0 = Date.now();
