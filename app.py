@@ -3415,6 +3415,62 @@ def _fr_display_name(email):
 def field_report():
     return render_template("field_report.html", page_title="Push to Discord")
 
+# ── Voice note transcription (OpenAI) ────────────────────────
+# Key lives on the jobs volume like the webhooks. When present, the tool's
+# Dictate button records real audio and transcribes it server-side; when
+# absent, the page falls back to the free browser Web Speech engine.
+_TRANSCRIBE_KEY_FILE = os.path.join(JOBS_DIR, ".openai_key.txt")
+_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"
+_TRANSCRIBE_PROMPT = ("Field note from a metal panel siding installation company. Common terms: "
+                      "Pacific Erectors, KPS, fab sheet, packing list, skid, panel, girt, "
+                      "clip, soffit, parapet, flashing, RFI, GC, foreman, blueprint.")
+
+def _load_transcribe_key():
+    try:
+        with open(_TRANSCRIBE_KEY_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+@app.route("/api/field-report/config")
+@login_required
+def field_report_config():
+    return jsonify({"transcribe": bool(_load_transcribe_key())})
+
+@app.route("/api/field-report/transcribe", methods=["POST"])
+@login_required
+def field_report_transcribe():
+    try:
+        import requests
+    except ImportError:
+        return jsonify({"error": "Server missing the 'requests' library — run the full deploy (deploy.bat) once."}), 500
+    key = _load_transcribe_key()
+    if not key:
+        return jsonify({"error": "Transcription isn’t set up yet (no API key on the server)."}), 400
+    f = request.files.get("audio")
+    if not f:
+        return jsonify({"error": "No audio received."}), 400
+    data = f.read()
+    if len(data) < 1000:
+        return jsonify({"error": "Recording was empty — try again."}), 400
+    if len(data) > 20 * 1024 * 1024:
+        return jsonify({"error": "Recording too long — keep voice notes under ~5 minutes."}), 413
+    try:
+        resp = requests.post(
+            "https://api.openai.com/v1/audio/transcriptions",
+            headers={"Authorization": f"Bearer {key}"},
+            data={"model": _TRANSCRIBE_MODEL, "prompt": _TRANSCRIBE_PROMPT},
+            files={"file": (f.filename or "note.webm", data, f.mimetype or "audio/webm")},
+            timeout=60,
+        )
+    except requests.RequestException:
+        return jsonify({"error": "Could not reach the transcription service — try again."}), 502
+    if resp.status_code == 200:
+        return jsonify({"text": resp.json().get("text", "")})
+    if resp.status_code == 401:
+        return jsonify({"error": "Transcription API key is invalid — check the key on the server."}), 502
+    return jsonify({"error": f"Transcription failed (HTTP {resp.status_code})."}), 502
+
 @app.route("/api/field-report/channels")
 @login_required
 def field_report_channels():

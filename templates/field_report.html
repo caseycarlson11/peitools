@@ -195,43 +195,133 @@
     });
   }
 
-  // ── Dictation (Web Speech API where available) ────────────
+  // ── Dictation ─────────────────────────────────────────────
+  // Two engines: (1) record audio + server-side transcription (OpenAI) when
+  // the server has an API key — best accuracy, identical on every device;
+  // (2) the free browser Web Speech engine as fallback. /api/field-report/
+  // config says which one to use.
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (SR) {
+  const MIC_BLOCKED_MSG = 'Microphone is blocked. Tap the lock/mic icon in the address bar (iPhone/iPad: the “AA” or puzzle icon) and allow the microphone, then try again — or use the 🎤 on your keyboard.';
+
+  fetch('/api/field-report/config').then(r => r.json())
+    .then(cfg => {
+      if (cfg.transcribe && navigator.mediaDevices && window.MediaRecorder) setupRecorder();
+      else if (SR) setupWebSpeech();
+    })
+    .catch(() => { if (SR) setupWebSpeech(); });
+
+  function setupRecorder() {
+    const btn = $('dictateBtn');
+    btn.style.display = 'inline-flex';
+    $('dictateHint').textContent = 'Tap Dictate and talk; tap Stop when done — your words are typed out automatically.';
+    let mr = null, chunks = [], state = 'idle', timer = null;
+    const label = (t) => { $('dictateLabel').textContent = t; };
+
+    btn.onclick = async () => {
+      if (state === 'recording') { state = 'transcribing'; mr.stop(); return; }
+      if (state !== 'idle') return;
+      clearAlert();
+      let stream;
+      try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+      catch (e) {
+        showAlert(e.name === 'NotFoundError' ? 'No microphone found on this device.' : MIC_BLOCKED_MSG, 'info');
+        return;
+      }
+      const mime = MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus'
+                 : (MediaRecorder.isTypeSupported('audio/mp4') ? 'audio/mp4' : '');
+      mr = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+      chunks = [];
+      mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        clearInterval(timer);
+        btn.classList.remove('recording');
+        const blob = new Blob(chunks, { type: mr.mimeType || 'audio/webm' });
+        if (blob.size < 1000) { state = 'idle'; label('Dictate'); return; }
+        btn.disabled = true;
+        const t0 = Date.now();
+        timer = setInterval(() => label('Transcribing… ' + ((Date.now() - t0) / 1000).toFixed(1) + 's'), 100);
+        const fd = new FormData();
+        fd.append('audio', blob, 'note.' + (blob.type.includes('mp4') ? 'mp4' : 'webm'));
+        try {
+          const r = await fetch('/api/field-report/transcribe', { method: 'POST', body: fd });
+          const data = await r.json().catch(() => ({}));
+          if (r.ok && data.text) {
+            const cur = $('note').value.replace(/\s*$/, '');
+            $('note').value = (cur ? cur + ' ' : '') + data.text.trim();
+            refreshSend();
+          } else showAlert(data.error || 'Transcription failed — try again.', 'error');
+        } catch { showAlert('Network error during transcription — try again.', 'error'); }
+        clearInterval(timer);
+        btn.disabled = false;
+        state = 'idle'; label('Dictate');
+      };
+      mr.start();
+      state = 'recording';
+      btn.classList.add('recording');
+      const t0 = Date.now();
+      timer = setInterval(() => {
+        const s = Math.floor((Date.now() - t0) / 1000);
+        label('Stop ' + Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'));
+        if (s >= 300) btn.click();  // 5-minute cap per voice note
+      }, 250);
+    };
+  }
+
+  function setupWebSpeech() {
+  // wantListening = user pressed Dictate and hasn't pressed Stop. The browser
+  // ends a recognition session after a few seconds of silence — we auto-
+  // restart until the user actually stops, so pausing to think is fine.
     $('dictateBtn').style.display = 'inline-flex';
-    $('dictateHint').textContent = 'Tap Dictate to talk, or use the 🎤 on your keyboard.';
-    let rec = null, listening = false, base = '';
-    $('dictateBtn').onclick = () => {
-      if (listening) { rec && rec.stop(); return; }
+    $('dictateHint').textContent = 'Tap Dictate, then talk — say “period” or “comma” for punctuation. Tap Stop when done. The keyboard 🎤 works too.';
+    let rec = null, wantListening = false, base = '', finalText = '';
+
+    function setRecUI(on) {
+      $('dictateBtn').classList.toggle('recording', on);
+      $('dictateLabel').textContent = on ? 'Stop' : 'Dictate';
+    }
+
+    function startRec() {
       rec = new SR();
       rec.lang = 'en-US'; rec.continuous = true; rec.interimResults = true;
-      base = $('note').value ? $('note').value.replace(/\s*$/, '') + ' ' : '';
       rec.onresult = (ev) => {
-        let txt = '';
-        for (let i = 0; i < ev.results.length; i++) txt += ev.results[i][0].transcript;
-        $('note').value = base + txt;
+        // lock in finalized phrases; only the in-progress tail gets rewritten
+        let interim = '';
+        for (let i = ev.resultIndex; i < ev.results.length; i++) {
+          const t = ev.results[i][0].transcript;
+          if (ev.results[i].isFinal) finalText += t.trim() + ' ';
+          else interim += t;
+        }
+        $('note').value = base + finalText + interim;
         refreshSend();
       };
       rec.onend = () => {
-        listening = false;
-        $('dictateBtn').classList.remove('recording');
-        $('dictateLabel').textContent = 'Dictate';
+        if (wantListening) { setTimeout(startRec, 100); return; }  // silence timeout — keep going
+        setRecUI(false);
       };
       rec.onerror = (ev) => {
+        if (ev.error === 'no-speech' || ev.error === 'aborted') return; // harmless; onend handles restart
+        wantListening = false;
         const messages = {
           'not-allowed':         'Microphone is blocked. Tap the lock/mic icon in the address bar (iPhone/iPad: the “AA” or puzzle icon) and allow the microphone, then try again — or use the 🎤 on your keyboard.',
           'service-not-allowed': 'Microphone is blocked by the browser. Allow it in site settings, or use the 🎤 on your keyboard.',
           'audio-capture':       'No microphone found on this device.',
           'network':             'This browser’s voice service isn’t responding — dictation works best in Chrome or Safari. You can also use the 🎤 on your keyboard.',
           'language-not-supported': 'This browser doesn’t support dictation — use Chrome or Safari, or the 🎤 on your keyboard.',
-          'no-speech':           'Didn’t hear anything — tap Dictate and start talking.',
         };
         showAlert(messages[ev.error] || 'Voice input stopped (' + ev.error + '). You can type or try again.', 'info');
       };
       rec.start();
-      listening = true;
-      $('dictateBtn').classList.add('recording');
-      $('dictateLabel').textContent = 'Stop';
+    }
+
+    $('dictateBtn').onclick = () => {
+      if (wantListening) { wantListening = false; try { rec.stop(); } catch {} setRecUI(false); return; }
+      clearAlert();
+      base = $('note').value ? $('note').value.replace(/\s*$/, '') + ' ' : '';
+      finalText = '';
+      wantListening = true;
+      setRecUI(true);
+      startRec();
     };
   }
   $('note').addEventListener('input', refreshSend);
