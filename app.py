@@ -3452,6 +3452,28 @@ def _fr_save_reports(reports):
     with open(_FIELD_REPORTS_FILE, "w", encoding="utf-8") as f:
         json.dump(reports, f, indent=1)
 
+def _fr_to_jpeg(data):
+    """Browsers can't decode iPhone HEIC photos, so the page sends those as
+    originals — convert any non-JPEG upload to a resized JPEG here.
+    Returns JPEG bytes, or the input unchanged if conversion isn't possible."""
+    if data[:3] == b"\xff\xd8\xff":          # already JPEG (client-compressed)
+        return data
+    try:
+        try:
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+        except ImportError:
+            pass
+        from PIL import Image as _Img
+        im = _Img.open(io.BytesIO(data))
+        im = im.convert("RGB")
+        im.thumbnail((1600, 1600))
+        out = io.BytesIO()
+        im.save(out, "JPEG", quality=82)
+        return out.getvalue()
+    except Exception:
+        return data
+
 def _fr_display_name(email):
     """caseyc@pacificerectors.com -> 'Casey C.' (first name + last initial)."""
     prefix = (email or "").split("@")[0]
@@ -3662,7 +3684,8 @@ def field_report_send():
         data = f.read()
         if not data:
             continue
-        files.append((f"files[{i}]", (f"photo{i + 1}.jpg", data, f.mimetype or "image/jpeg")))
+        data = _fr_to_jpeg(data)
+        files.append((f"files[{i}]", (f"photo{i + 1}.jpg", data, "image/jpeg")))
 
     try:
         resp = requests.post(

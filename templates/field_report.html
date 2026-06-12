@@ -209,11 +209,17 @@
   $('photoInput').addEventListener('change', async (e) => {
     clearAlert();
     const files = Array.from(e.target.files || []);
+    let hitCap = false;
     for (const f of files) {
-      if (state.photos.length >= 10) { showAlert('Max 10 photos per report.', 'info'); break; }
+      if (state.photos.length >= 10) { hitCap = true; break; }
       try { state.photos.push(await compress(f)); }
-      catch { /* skip unreadable file */ }
+      catch {
+        // Formats the browser can't decode (iPhone HEIC etc.) — send the
+        // original file as-is; the server converts it to JPEG.
+        state.photos.push({ blob: f, url: '', name: f.name, raw: true });
+      }
     }
+    if (hitCap) showAlert('Max 10 photos per report — extra photos were not added.', 'info');
     e.target.value = '';
     renderPhotos();
     refreshSend();
@@ -249,7 +255,12 @@
     state.photos.forEach((p, i) => {
       const tile = document.createElement('div');
       tile.className = 'photo-tile';
-      tile.innerHTML = `<img src="${p.url}"><button class="photo-remove" data-i="${i}">&times;</button>`;
+      // No preview for formats the browser can't decode (HEIC) — show a
+      // labeled placeholder; the server converts it at send time.
+      const face = p.url
+        ? `<img src="${p.url}">`
+        : `<div style="width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;background:var(--surface);font-size:1.4rem;">🖼<span style="font-size:0.55rem;color:var(--text2);max-width:90%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${(p.name || 'photo').replace(/</g,'&lt;')}</span></div>`;
+      tile.innerHTML = `${face}<button class="photo-remove" data-i="${i}">&times;</button>`;
       tile.querySelector('.photo-remove').onclick = () => {
         state.photos.splice(i, 1); renderPhotos(); refreshSend();
       };
@@ -452,7 +463,8 @@
     fd.append('channel', state.channel);
     fd.append('urgent', $('urgentChk').checked ? '1' : '0');
     fd.append('note', $('note').value.trim());
-    state.photos.forEach((p, i) => fd.append('photos', p.blob, `photo${i + 1}.jpg`));
+    state.photos.forEach((p, i) =>
+      fd.append('photos', p.blob, p.raw ? (p.name || `photo${i + 1}`) : `photo${i + 1}.jpg`));
 
     try {
       const r = await fetch('/api/field-report/send', { method: 'POST', body: fd });
