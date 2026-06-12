@@ -46,6 +46,8 @@
       border-radius: 6px; padding: 10px 12px; margin-top: 8px;
     }
     .embed.done { border-left-color: var(--green); }
+    .embed.urgent { border-left-color: #f85149; background: rgba(248,81,73,0.10); }
+    .embed.urgent .embed-title { color: #f85149; }
     .embed-title { font-weight: 700; font-size: 0.88rem; margin-bottom: 4px; }
     .embed-desc { font-size: 0.87rem; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
     .embed-desc a { color: var(--blue); font-weight: 600; }
@@ -100,7 +102,8 @@
         list.innerHTML = data.map(m => {
           const embeds = m.embeds.map(e => {
             const done = (e.description || '').includes('✅');
-            return '<div class="embed' + (done ? ' done' : '') + '">'
+            const urgent = !done && (e.title || '').includes('URGENT');
+            return '<div class="embed' + (done ? ' done' : urgent ? ' urgent' : '') + '">'
               + (e.title ? '<div class="embed-title">' + esc(e.title) + '</div>' : '')
               + (e.description ? '<div class="embed-desc">' + md(e.description) + '</div>' : '')
               + '</div>';

@@ -3636,14 +3636,23 @@ def field_report_send():
     # "Checkbox": a link in the message that marks the task complete when
     # tapped (webhook messages can't carry real Discord buttons — that needs
     # a full bot app). Tapping it hits /fr/<token>, which edits this message.
-    token = secrets.token_urlsafe(12)
-    checkbox_md = f"[☐ **Mark task complete**]({request.url_root.rstrip('/')}/fr/{token})"
+    # ONLY To-Do messages are tasks — other channels post without it.
+    token = checkbox_md = ""
+    if channel == "todo":
+        token = secrets.token_urlsafe(12)
+        checkbox_md = f"[☐ **Mark task complete**]({request.url_root.rstrip('/')}/fr/{token})"
+    # Urgent (To-Do only): red embed + siren title, both in Discord and on
+    # the web board. Completing the task flips it green like any other.
+    urgent = channel == "todo" and request.form.get("urgent") == "1"
+    desc = "\n\n".join(p for p in (note[:3800], checkbox_md) if p)
     embed = {
-        "title": "📋 Field Report" + (f" — {job}" if job != "Company" else ""),
-        "color": 0x60B4F0,
+        "title": ("🚨 URGENT Field Report" if urgent else "📋 Field Report")
+                 + (f" — {job}" if job != "Company" else ""),
+        "color": 0xF85149 if urgent else 0x60B4F0,
         "timestamp": datetime.now(timezone.utc).isoformat(),
-        "description": (note[:3800] + "\n\n" if note else "") + checkbox_md,
     }
+    if desc:
+        embed["description"] = desc
     if poster:
         embed["author"] = {"name": poster}
 
@@ -3668,6 +3677,8 @@ def field_report_send():
 
     if resp.status_code in (200, 204):
         try:
+            if not token:           # no checkbox -> nothing to track
+                return jsonify({"ok": True, "channel": labels[channel]})
             message_id = resp.json()["id"]
             reports = _fr_load_reports()
             reports[token] = {
@@ -3738,6 +3749,8 @@ def field_report_complete_post(token):
     embed = rec["embed"]
     embed["description"] = embed["description"].replace(rec["checkbox_md"], done_md)
     embed["color"] = 0x3FB950  # green once complete
+    if "title" in embed:       # an urgent task stops being urgent when done
+        embed["title"] = embed["title"].replace("🚨 URGENT Field Report", "📋 Field Report")
 
     hooks = _load_webhooks()
     rec_job = rec.get("job", "")
