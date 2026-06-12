@@ -3408,19 +3408,13 @@ def public_link_panels(token):
 # URLs live in <JOBS_DIR>/.discord_webhooks.json — on the persistent jobs
 # volume (like .public_links.json) so they survive deploys and stay out of git.
 DISCORD_CHANNELS = [
-    ("formen",       "Foremen"),
-    ("apprentices",  "Apprentices"),
     ("gc",           "GC"),
     ("pm",           "PM"),
     ("todo",         "To-Do"),
-    ("morning_talk", "Morning Talk"),
-    ("general",      "General"),
-    ("panels",        "Panels"),
-    ("insulation",    "Insulation"),
-    ("clips_girts",   "Clips-Girts"),
-    ("layout",        "Layout"),
-    ("waterproofing", "Waterproofing"),
-    ("trade_damage",  "Trade Damage"),
+    ("safety",       "Safety"),
+    ("progress",     "Progress"),
+    ("extra_work",   "Extra Work"),
+    ("trade_damage", "Trade Damage"),
 ]
 _WEBHOOKS_FILE = os.path.join(JOBS_DIR, ".discord_webhooks.json")
 

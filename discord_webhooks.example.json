@@ -1,23 +1,12 @@
 {
-  "_README": "The real config lives at Jobs/.discord_webhooks.json locally and /var/www/pei-jobs/.discord_webhooks.json on the server. Structure: one Discord SERVER per job — top-level keys are job names (plus 'Company' for the company-wide server), each holding channel->webhook-URL pairs. Create one webhook per channel in Discord: open the channel -> Edit Channel -> Integrations -> Webhooks -> New Webhook -> Copy Webhook URL. Leave a value as \"\" (or omit the channel) to keep it disabled for that job. After editing, run upload_webhooks.bat to push it to the server.",
-  "Company": {
-    "formen":        "",
-    "apprentices":   "",
-    "gc":            "",
-    "pm":            "",
-    "todo":          "",
-    "morning_talk":  "",
-    "general":       "",
-    "panels":        "",
-    "insulation":    "",
-    "clips_girts":   "",
-    "layout":        "",
-    "waterproofing": "",
-    "trade_damage":  ""
-  },
+  "_README": "The real config lives at Jobs/.discord_webhooks.json locally and /var/www/pei-jobs/.discord_webhooks.json on the server. Structure: one Discord SERVER per job - top-level keys are job names, each holding channel->webhook-URL pairs. Channel keys must match DISCORD_CHANNELS in app.py (gc, pm, todo, safety, progress, extra_work, trade_damage). Create one webhook per channel in Discord: open the channel -> Edit Channel -> Integrations -> Webhooks -> New Webhook -> Copy Webhook URL. Leave a value as \"\" (or omit the channel) to keep it disabled for that job. After editing, run upload_webhooks.bat to push it to the server.",
   "Modesto Courthouse": {
-    "todo":          "",
-    "panels":        "",
-    "layout":        ""
+    "gc":           "",
+    "pm":           "",
+    "todo":         "",
+    "safety":       "",
+    "progress":     "",
+    "extra_work":   "",
+    "trade_damage": ""
   }
 }
