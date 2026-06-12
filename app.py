@@ -3794,6 +3794,138 @@ def field_report_complete_post(token):
     return jsonify({"ok": True, "by": name})
 
 
+# ── GC Inbox → Discord relay ─────────────────────────────────
+# One-way funnel: anything that lands in a dedicated Gmail inbox gets posted
+# into a Discord channel. Email arrives there directly (or via an M365
+# forwarding rule); TEXTS arrive via a free Google Voice number set to
+# "forward messages to email". A background thread polls every 60s.
+# Config: <JOBS_DIR>/.gc_inbox.json =
+#   {user, app_password, job: "Modesto Courthouse", channel: "gc"}
+_GC_INBOX_FILE = os.path.join(JOBS_DIR, ".gc_inbox.json")
+
+def _gc_inbox_cfg():
+    try:
+        with open(_GC_INBOX_FILE, encoding="utf-8") as f:
+            cfg = json.load(f)
+        return cfg if cfg.get("user") and cfg.get("app_password") else None
+    except Exception:
+        return None
+
+def _gc_msg_parts(msg):
+    """email.message.Message -> (sender_name, sender_addr, subject, body,
+    files[]) with images converted to JPEG for inline Discord display."""
+    from email.header import decode_header, make_header
+    from email.utils import parseaddr
+    name, addr = parseaddr(msg.get("From", ""))
+    try:
+        subject = str(make_header(decode_header(msg.get("Subject", "")))).strip()
+    except Exception:
+        subject = (msg.get("Subject") or "").strip()
+    body, html = "", ""
+    files = []
+    for part in msg.walk():
+        ctype = part.get_content_type()
+        fname = part.get_filename()
+        if part.get_content_maintype() == "multipart":
+            continue
+        payload = part.get_payload(decode=True) or b""
+        if not fname and ctype == "text/plain" and not body:
+            body = payload.decode(part.get_content_charset() or "utf-8", "replace")
+        elif not fname and ctype == "text/html" and not html:
+            html = payload.decode(part.get_content_charset() or "utf-8", "replace")
+        elif payload and (fname or ctype.startswith("image/")):
+            if len(files) >= 9 or len(payload) > 7 * 1024 * 1024:
+                continue
+            if ctype.startswith("image/"):
+                payload = _fr_to_jpeg(payload)
+                files.append((fname or "photo.jpg", payload, "image/jpeg"))
+            else:
+                files.append((fname, payload, ctype))
+    if not body and html:
+        import html as _html
+        body = _html.unescape(re.sub(r"<style.*?</style>|<[^>]+>", " ",
+                                     html, flags=re.S)).strip()
+    # Google Voice SMS-to-email footer is noise in Discord
+    body = re.sub(r"\n*YOUR ACCOUNT.*", "", body, flags=re.S)
+    body = re.sub(r"<https://voice\.google\.com[^>]*>", "", body)
+    return name, addr, subject, re.sub(r"\n{3,}", "\n\n", body).strip(), files
+
+def _gc_poll_once():
+    """Fetch unread inbox messages and post each to the configured channel.
+    Returns how many were posted. Messages stay UNREAD if posting fails."""
+    cfg = _gc_inbox_cfg()
+    if not cfg:
+        return 0
+    webhook = _load_webhooks().get(cfg.get("job", "Modesto Courthouse"), {}) \
+                              .get(cfg.get("channel", "gc"), "")
+    if not webhook:
+        return 0
+    import imaplib
+    import email as _email
+    import requests
+    M = imaplib.IMAP4_SSL("imap.gmail.com")
+    try:
+        M.login(cfg["user"], cfg["app_password"])
+        M.select("INBOX")
+        _, data = M.search(None, "UNSEEN")
+        posted = 0
+        for mid in (data[0] or b"").split()[:10]:
+            _, md = M.fetch(mid, "(BODY.PEEK[])")
+            msg = _email.message_from_bytes(md[0][1])
+            name, addr, subject, body, files = _gc_msg_parts(msg)
+            is_sms = addr.endswith("txt.voice.google.com")
+            title = (f"📱 Text from {name or 'unknown number'}" if is_sms
+                     else f"✉️ {subject or '(no subject)'}")
+            embed = {
+                "title": title[:256],
+                "color": 0xE3B341,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            if body:
+                embed["description"] = body[:3800]
+            if not is_sms:
+                embed["author"] = {"name": f"{name} <{addr}>" if name else addr}
+            payload = {"username": "GC Inbox", "embeds": [embed]}
+            fdata = [(f"files[{i}]", f) for i, f in enumerate(files)]
+            resp = requests.post(webhook, data={"payload_json": json.dumps(payload)},
+                                 files=fdata or None, timeout=30)
+            if resp.status_code in (200, 204):
+                M.store(mid, "+FLAGS", "\\Seen")
+                posted += 1
+        return posted
+    finally:
+        try:
+            M.logout()
+        except Exception:
+            pass
+
+@app.route("/api/gc-inbox/poll", methods=["POST"])
+@login_required
+def gc_inbox_poll():
+    """Manual 'check the inbox now' (the thread does this every 60s)."""
+    if not _gc_inbox_cfg():
+        return jsonify({"error": "GC Inbox isn’t set up yet (no .gc_inbox.json on the server)."}), 503
+    try:
+        return jsonify({"ok": True, "posted": _gc_poll_once()})
+    except Exception as e:
+        return jsonify({"error": f"Inbox check failed: {type(e).__name__}"}), 502
+
+def _gc_inbox_loop():
+    import time as _t
+    while True:
+        try:
+            _gc_poll_once()
+        except Exception:
+            pass
+        _t.sleep(60)
+
+# Start the poller (gunicorn runs ONE worker, so one thread total; the
+# WERKZEUG check keeps Flask's local debug reloader from doubling it)
+if os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+    import threading
+    threading.Thread(target=_gc_inbox_loop, daemon=True).start()
+
+
 # ── To-Do channel web viewer ─────────────────────────────────
 # Public, token-gated page (Public Links trust model) showing the #to-do
 # Discord channel. Reading a channel needs a BOT token (webhooks can't read);

@@ -24,6 +24,10 @@ if exist "Jobs\.todo_view_tokens.json" (
     scp "Jobs\.todo_view_tokens.json" root@93.188.160.121:/var/www/pei-jobs/.todo_view_tokens.json
 )
 
+if exist "Jobs\.gc_inbox.json" (
+    scp "Jobs\.gc_inbox.json" root@93.188.160.121:/var/www/pei-jobs/.gc_inbox.json
+)
+
 echo.
 echo === Done! Push to Discord config is live on peitools.com ===
 pause
